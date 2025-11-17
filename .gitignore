@@ -1,0 +1,150 @@
+# Development Environment
+.claude/
+.windsurf/
+.tmp/
+*.code-workspace
+
+# Coordination Files (Internal R&D)
+act-coordination.json
+coordination-*.json
+*.coordination
+
+# AI Chat Exports (Internal Context)
+*_CLAUDE_*.md
+*_chat_export*.md
+CLAUDE_*.md
+WINDSURF_*.md
+ACT_DEMO_LOGS.md
+*_DEMO_*.md
+*.chat.md
+*.chat.txt
+
+# Development Artifacts (Reveal Internal Processes)
+*.md~
+*.md.bak
+INTERNAL_*.md
+R&D_*.md
+DEBUG_*.md
+TODO_*.md
+NOTES_*.md
+
+# Node.js Dependencies
+node_modules/
+package-lock.json
+npm-debug.log
+yarn-error.log
+
+# Python Environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+.venv
+venv/
+ENV/
+env/
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.nyc_output/
+coverage/
+
+# Build Artifacts
+dist/
+build/
+*.tsbuildinfo
+.next/
+out/
+
+# Logs
+logs/
+*.log
+lerna-debug.log*
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+.Windows-thumbnail.db
+Thumbs.db
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Database Files (Local Development)
+*.sqlite
+*.sqlite3
+*.db
+
+# Vector Database (Local Development)
+qdrant_storage/
+qdrant_snapshots/
+milvus_data/
+
+# Secrets & Credentials
+.env
+.env.local
+.env.*.local
+secrets/
+*.key
+*.pem
+credentials.json
+api_keys.json
+.aws/
+.gcp/
+
+# Temporary Test Files
+test_*.py
+test_*.js
+*_test.py
+*_test.js
+.test/
+tmp/
+temp/
+
+# Generated Files (Not Source Code)
+*_generated.ts
+*_generated.js
+*.generated.*
+
+# IDE Caches
+.cache/
+.eslintcache
+.stylelintcache

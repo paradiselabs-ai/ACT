@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACT Coordination Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 2rem;
+            border-bottom: 2px solid #475569;
+            padding-bottom: 1rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 2rem;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ef4444;
+        }
+
+        .status-indicator.connected {
+            background: #10b981;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .widgets-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .widget {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .widget:hover {
+            border-color: #475569;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
+        }
+
+        .widget h2 {
+            font-size: 1.2rem;
+            margin-bottom: 1rem;
+            color: #93c5fd;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .widget-content {
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .agent-item {
+            background: #0f172a;
+            padding: 0.75rem;
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid #3b82f6;
+        }
+
+        .agent-item.status-active {
+            border-left-color: #10b981;
+        }
+
+        .agent-item.status-idle {
+            border-left-color: #f59e0b;
+        }
+
+        .agent-name {
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .agent-capabilities {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        .task-item {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
+            border: 1px solid #334155;
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .task-title {
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+
+        .task-status {
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .task-status.assigned {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .task-status.completed {
+            background: #10b981;
+            color: white;
+        }
+
+        .task-status.blocked {
+            background: #ef4444;
+            color: white;
+        }
+
+        .task-details {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #334155;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6 0%, #10b981 100%);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .conflict-item {
+            background: #7f1d1d;
+            border: 1px solid #991b1b;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 0.75rem;
+        }
+
+        .conflict-type {
+            font-weight: 600;
+            color: #fca5a5;
+            margin-bottom: 0.5rem;
+        }
+
+        .conflict-agents {
+            font-size: 0.9rem;
+            color: #fecaca;
+            margin-bottom: 0.5rem;
+        }
+
+        .conflict-resolution {
+            font-size: 0.85rem;
+            color: #fed7aa;
+            font-style: italic;
+        }
+
+        .activity-feed {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 1.5rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #334155;
+            font-size: 0.9rem;
+        }
+
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+        .activity-time {
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+
+        .activity-message {
+            color: #e2e8f0;
+            margin-top: 0.25rem;
+        }
+
+        .activity-type {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            background: #334155;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            color: #93c5fd;
+            margin-right: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .widgets-grid {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .status-bar {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+        }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 ACT Coordination Dashboard</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="status-indicator" id="connectionStatus"></span>
+                    <span>Connection: <span id="connectionText">Disconnected</span></span>
+                </div>
+                <div class="status-item">
+                    Active Agents: <span id="agentCount">0</span>
+                </div>
+                <div class="status-item">
+                    Active Tasks: <span id="taskCount">0</span>
+                </div>
+            </div>
+        </header>
+
+
+        <div class="widgets-grid">
+            <!-- Agent Registry Widget -->
+            <div class="widget">
+                <h2>👥 Agent Registry</h2>
+                <div class="widget-content" id="agentRegistry">
+                    <p style="color: #94a3b8;">No agents registered yet...</p>
+                </div>
+            </div>
+
+            <!-- Task Coordinator Widget -->
+            <div class="widget">
+                <h2>📋 Task Coordinator</h2>
+                <div class="widget-content" id="taskCoordinator">
+                    <p style="color: #94a3b8;">No tasks assigned yet...</p>
+                </div>
+            </div>
+
+            <!-- Project Status Widget -->
+            <div class="widget">
+                <h2>📊 Project Status</h2>
+                <div class="widget-content" id="projectStatus">
+                    <p style="color: #94a3b8;">No active projects...</p>
+                </div>
+            </div>
+
+            <!-- Conflict Resolution Widget -->
+            <div class="widget">
+                <h2>⚔️ Conflict Resolution</h2>
+                <div class="widget-content" id="conflictResolution">
+                    <p style="color: #94a3b8;">No active conflicts...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Feed -->
+        <div class="activity-feed">
+            <h2 style="margin-bottom: 1rem; color: #93c5fd;">📡 Activity Feed</h2>
+            <div id="activityFeed">
+                <p style="color: #94a3b8; text-align: center;">Waiting for coordination events...</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="widgets.js"></script>
+</body>
+</html>
