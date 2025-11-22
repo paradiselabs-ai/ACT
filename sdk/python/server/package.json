@@ -1,7 +1,7 @@
 {
   "name": "@agentmix/act-server",
   "version": "0.1.0",
-  "description": "Framework-agnostic coordination layer for autonomous AI agent teams with semantic memory and continuous self-improvement",
+  "description": "Framework-agnostic AI agent coordination with semantic memory and self-improvement",
   "main": "dist/index.js",
   "scripts": {
     "start": "node dist/index.js",
