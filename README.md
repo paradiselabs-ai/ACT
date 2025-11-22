@@ -1,6 +1,6 @@
 # ACT: Agent Coordination Toolkit
 
-**Autonomous multi-agent coordination through semantic intelligence.**
+**ACT is a framework-agnostic coordination layer that enables autonomous AI agent teams to self-organize and continuously improve without human intervention. It learns from coordination patterns through semantic memory (PAIRed Vector Minutes).**
 
 ACT is a universal coordination layer that enables autonomous teams of AI agents to collaborate efficiently. Unlike task orchestration frameworks, ACT focuses on *why* coordination decisions are made and learns from coordination patterns over time.
 
