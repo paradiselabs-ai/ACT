@@ -7,6 +7,42 @@
 
 ---
 
+## 📝 RECENT UPDATES (Nov 24, 2025)
+
+**CRITICAL CHANGES:** Roadmap expanded to include PVM extended capabilities discovered Nov 22, 2025.
+
+**What Changed:**
+1. **Task 1.6 Split into Three Subtasks** (Week 2)
+   - **1.6a:** AgentProfileBuilder - Individual agent memory derivation (12 hours)
+   - **1.6b:** ImproveCommandHandler - Parameterized `/improve` command (12 hours)
+   - **1.6c:** Memory Evaluation & Pruning - Original Task 1.6 (8 hours)
+
+2. **Task 2.4 Expanded** (Week 2)
+   - Added 7th MCP tool: `improve_coordination`
+   - Supports all `/improve` parameter combinations
+   - Duration: 16 → 18 hours
+
+3. **Task 2.5 Expanded** (Week 2)
+   - Added ImproveCommandHandler integration
+   - Explicit trigger (user command) vs implicit trigger (background)
+   - Surgical precision improvement with scope + filters + output formats
+   - Duration: 16 → 20 hours
+
+4. **Week 2 Completion Checks Updated**
+   - Added checks for AgentProfileBuilder profile generation
+   - Added checks for ImproveCommandHandler parameter parsing
+   - Added checks for `/improve` command execution
+   - Added checks for individual agent profile skill progression
+
+**Why These Changes:**
+- Nov 22 discovery: PVM automatically derives individual agent memory from coordination history
+- User `/improve` command provides surgical precision analysis vs automatic background improvement
+- AgentProfileBuilder is prerequisite for ImproveCommandHandler (evidence-based recommendations)
+
+**Total Hour Impact:** +12 hours (280 → 292 hours total)
+
+---
+
 ## Overview: Parallel Track Architecture
 
 **Instance #1 (Claude Code)** focuses on:
@@ -187,7 +223,46 @@ Build FLUX State reasoning and PAIR retrieval - the core innovation that makes c
 
 **Deliverable:** Intelligent context-guided improvement system via semantic memory
 
-**Task 1.6: Memory Evaluation & Pruning (12 hours)**
+**Task 1.6: Memory Evaluation & Agent Profiling (32 hours total - EXPANDED)**
+
+**CRITICAL UPDATE (Nov 22, 2025):** PVM extended capabilities discovery requires splitting this into three subtasks.
+
+**Task 1.6a: AgentProfileBuilder Implementation (12 hours)**
+- [ ] Implement AgentProfileBuilder class
+  - `buildProfile(agentId)` - Comprehensive evidence-based profile
+  - `buildPerformanceProfile()` - Task success rates, specializations
+  - `buildSkillProgression()` - Learning trajectory and plateau detection
+  - `buildCommunicationProfile()` - Help-seeking/providing patterns
+  - `buildToolUsageProfile()` - Tool effectiveness tracking
+  - `buildContextualPatterns()` - When X works for this agent
+  - `buildTeamSynergyProfile()` - Agent-to-agent compatibility
+- [ ] Integration with ChronologicalLog (get all events by agent)
+- [ ] Automatic profile updates after each session
+- [ ] Unit tests: Profile accuracy with mock coordination data
+- [ ] Performance: Profile generation < 2 seconds for 100+ tasks
+
+**Deliverable:** Automatic individual agent memory derivation from coordination history
+
+**Task 1.6b: ImproveCommandHandler Implementation (12 hours)**
+- [ ] Implement ImproveCommandHandler class
+  - `executeImproveCommand(params)` - Main command processor
+  - Support 6 parameterized scopes:
+    * `communication` - Agent communication patterns
+    * `tools` - Tool usage effectiveness
+    * `assignments` - Task assignment suitability
+    * `conflicts` - Conflict resolution participation
+    * `collaboration` - Team synergy analysis
+    * `performance` - Overall effectiveness
+  - Support filtering: agents, session, timeframe, quality (good/bad/all)
+  - Support 5 output formats: summary, detailed-report, recommendations, json, metrics
+- [ ] Comprehensive example: `/improve communication --agents agent2,agent3 --session last --filter bad --output detailed-report`
+- [ ] Integration with AgentProfileBuilder for profile-based recommendations
+- [ ] Unit tests: All scope + filter + output combinations
+- [ ] Documentation: /improve command reference guide
+
+**Deliverable:** User-controlled surgical precision improvement analysis
+
+**Task 1.6c: Memory Evaluation & Pruning (8 hours)**
 - [ ] Implement MemoryEvaluator class
   - Score coordination events by relevance + freshness
   - Identify outdated/low-confidence memories
@@ -203,50 +278,90 @@ Build FLUX State reasoning and PAIR retrieval - the core innovation that makes c
 
 **Deliverable:** Intelligent memory hygiene to prevent context explosion
 
+**CRITICAL DEPENDENCY:** Task 1.6b (ImproveCommandHandler) depends on Task 1.6a (AgentProfileBuilder) being complete.
+
 **Completion Check (Week 2 End):**
 - [ ] FLUX State evaluation works end-to-end
 - [ ] PAIR retrieval finds relevant patterns
 - [ ] Loop converges on real evaluation tasks
 - [ ] Memory evaluation identifies low-confidence events
-- [ ] All three components integrated
+- [ ] ✅ NEW: AgentProfileBuilder generates accurate profiles (Task 1.6a)
+- [ ] ✅ NEW: ImproveCommandHandler parses all parameter combinations (Task 1.6b)
+- [ ] ✅ NEW: /improve command executes without errors
+- [ ] ✅ NEW: Individual agent profiles show skill progression
+- [ ] All components integrated (memory + profiles + improvement + MCP tools)
 - [ ] No performance regressions
 
 ### Instance #2 Tasks: MCP Completion + Self-Improvement
 
-**Task 2.4: MCP Tools Implementation (16 hours)**
-- [ ] Complete all 6 MCP tools (started in Week 1):
+**Task 2.4: MCP Tools Implementation (18 hours - EXPANDED)**
+
+**CRITICAL UPDATE (Nov 22, 2025):** Added `improve_coordination` tool for user-controlled surgical precision improvement.
+
+- [ ] Complete all 7 MCP tools (started in Week 1):
   - `register_with_act` → Calls ACT /register endpoint
   - `get_task` → Polls ACT task queue
   - `report_task_progress` → Sends progress updates
   - `report_task_complete` → Marks task done
   - `query_coordination_memory` → RAG search on PVM
   - `evaluate_coordination` → Trigger FLUX State evaluation
+  - ✅ **NEW:** `improve_coordination` → Trigger parameterized `/improve` command
+    - Accepts: `scope`, `agents[]`, `session`, `filter`, `output`
+    - Example: `improve_coordination(scope="communication", agents=["agent2","agent3"], session="last", filter="bad", output="detailed-report")`
+    - Returns: Improvement report in requested format
 - [ ] Implement error handling + retries for each tool
 - [ ] Tool schemas: Comprehensive input/output documentation
+  - Special attention to `improve_coordination` parameter combinations
 - [ ] Integration tests: Test each tool against ACT server
-- [ ] Performance: All tools return within 2 seconds (except long-running evaluation)
+  - Test all `/improve` scope + filter + output combinations
+- [ ] Performance: All tools return within 2 seconds (except long-running evaluation and improvement)
 
-**Deliverable:** Fully functional MCP bridge between agents and ACT
+**Deliverable:** Fully functional MCP bridge between agents and ACT including surgical precision improvement tool
 
-**Task 2.5: Self-Improvement Engine (16 hours)**
+**Task 2.5: Self-Improvement Engine (20 hours - EXPANDED)**
+
+**CRITICAL UPDATE (Nov 22, 2025):** Added ImproveCommandHandler integration for surgical precision user-initiated improvement.
+
 - [ ] Implement SelfImprovementEngine class
-  - Explicit trigger: `/improve` command
-    - User-initiated post-session analysis
-    - Comprehensive FLUX+PAIR evaluation
-    - Generates improvement recommendations
-    - Updates agent performance profiles
-  - Implicit trigger: Background learning
+  - **Explicit trigger: `/improve` command** (user-controlled surgical precision)
+    - Delegates to ImproveCommandHandler (Task 1.6b)
+    - Parses command parameters: scope, agents, session, filter, output format
+    - Example: `/improve communication --agents agent2,agent3 --session last --filter bad --output detailed-report`
+    - Comprehensive FLUX+PAIR evaluation on filtered subset
+    - Generates targeted improvement recommendations
+    - Updates agent performance profiles (via AgentProfileBuilder from Task 1.6a)
+  - **Implicit trigger: Background learning** (automatic continuous improvement)
     - Runs during coordination idle periods
-    - Analyzes recent sessions
+    - Analyzes recent sessions (last 24 hours of coordination)
     - Updates vector store with new patterns
-    - Prunes low-confidence memories
+    - Prunes low-confidence memories (via MemoryEvaluator from Task 1.6c)
+    - NO user interaction required
 - [ ] Endpoint: `POST /improve` - Start improvement analysis
+  - Accepts optional parameters: `scope`, `agents[]`, `session`, `filter`, `output`
+  - Returns: Improvement report in requested format
+  - Async execution: Long-running analyses don't block
 - [ ] Background task queue: Scheduler for idle-time learning
+  - Detects idle periods (no coordination activity for 5+ minutes)
+  - Triggers automatic improvement cycle
+  - Logs results to chronological log
 - [ ] Results storage: Save evaluations + recommendations
+  - Store in `improvement_sessions` table
+  - Link to coordination_minutes for audit trail
 - [ ] Agent profile updates: Track improvement over time
+  - Integration with AgentProfileBuilder (Task 1.6a)
+  - Profile regeneration after each improvement cycle
+  - Skill progression tracking visible in profiles
 - [ ] Unit tests: Mock FLUX+PAIR, verify engine flow
+  - Test both explicit (command) and implicit (background) triggers
+  - Test all `/improve` parameter combinations
+  - Verify profile updates after improvement
 
-**Deliverable:** ACT learns and improves autonomously over time
+**Integration Dependencies:**
+- **DEPENDS ON:** Task 1.6a (AgentProfileBuilder) - Must be complete for profile-based recommendations
+- **DEPENDS ON:** Task 1.6b (ImproveCommandHandler) - Must be complete for parameterized command parsing
+- **DEPENDS ON:** Task 1.6c (MemoryEvaluator) - Must be complete for background memory pruning
+
+**Deliverable:** ACT learns and improves autonomously over time + user can trigger surgical precision improvement on specific coordination aspects
 
 **Task 2.6: SSE Widget System Basics (12 hours)**
 - [ ] Create /server/src/widgets/ directory structure
@@ -264,12 +379,18 @@ Build FLUX State reasoning and PAIR retrieval - the core innovation that makes c
 **Deliverable:** Widget system ready for visualization in Week 3
 
 **Completion Check (Week 2 End):**
-- [ ] MCP tools are functional and tested
+- [ ] MCP tools are functional and tested (all 7 tools including `improve_coordination`)
+- [ ] ✅ NEW: `improve_coordination` MCP tool accepts all parameter combinations
 - [ ] Self-improvement engine runs without errors
-- [ ] `/improve` endpoint can trigger evaluation
+- [ ] `/improve` endpoint can trigger evaluation with parameters
+- [ ] ✅ NEW: `/improve` command works with surgical precision (scope + filters + output formats)
+- [ ] ✅ NEW: Explicit trigger (user command) vs implicit trigger (background) both work
+- [ ] ✅ NEW: Background improvement runs during idle periods
 - [ ] SSE widget formats are defined
 - [ ] Instance #1 FLUX+PAIR integrated successfully
+- [ ] Instance #1 AgentProfileBuilder + ImproveCommandHandler complete
 - [ ] Both instances tested integration points
+- [ ] Self-improvement engine correctly delegates to ImproveCommandHandler
 
 ---
 

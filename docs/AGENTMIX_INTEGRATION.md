@@ -1,8 +1,32 @@
 # AgentMix + ACT Integration Roadmap
 
+## 📝 RECENT UPDATES (Nov 24, 2025)
+
+**CRITICAL CHANGES:** Integration roadmap expanded to include PVM (PAIRed Vector Minutes) extended capabilities discovered Nov 22, 2025.
+
+**What's New:**
+1. **PVM Semantic Memory Integration** - AgentMix gains semantic coordination intelligence
+2. **Individual Agent Profiles** - Evidence-based agent memory derived from coordination history
+3. **FLUX State Evaluation** - Unbiased task evaluation for continuous improvement
+4. **PAIR Reasoning** - Context-aware coordination pattern retrieval
+5. **Surgical Precision /improve Command** - User-controlled improvement analysis
+
+**Integration Impact:**
+- AgentMix agents automatically build performance profiles through coordination
+- Teams self-improve using semantic memory of past coordination patterns
+- Users can analyze specific coordination aspects with `/improve` command
+- Real-time PVM insights displayed in AgentMix dashboard
+
+**Related Documentation:**
+- [PVM Extended Capabilities](./PVM_EXTENDED_CAPABILITIES.md) - Complete PVM specification
+- [Architecture](./ARCHITECTURE.md) - Section 7: Semantic Coordination Intelligence
+- [Phase 5 Roadmap](./PHASE_5_IMPLEMENTATION_ROADMAP.md) - PVM implementation timeline
+
+---
+
 ## 🎯 Integration Vision
 
-Transform AgentMix from a **human-coordinated AI collaboration platform** into the world's first **autonomous AI team development platform** by integrating ACT's coordination capabilities.
+Transform AgentMix from a **human-coordinated AI collaboration platform** into the world's first **autonomous AI team development platform** by integrating ACT's coordination capabilities with **PVM semantic memory intelligence**.
 
 ## 🌟 Integration Benefits
 
@@ -67,22 +91,41 @@ Developer → "Build a social media app" → ACT analyzes and spawns optimal tea
 
 ### Phase 1: Foundation Integration (Weeks 1-4)
 
-#### Week 1: Backend ACT Service Integration
+#### Week 1: Backend ACT Service Integration (EXPANDED - Nov 24, 2025)
 ```python
-# Enhanced AgentMix backend with ACT
+# Enhanced AgentMix backend with ACT + PVM semantic memory
 # File: backend/src/services/act_integration.py
 
 from agentmix_act import ACTCoordinator
+from agentmix_act.pvm import ACTMemorySystem, AgentProfileBuilder, ImproveCommandHandler
 from src.services.conversation_orchestrator_hitl import ConversationOrchestratorHITL
 
 class AgentMixACTService:
     def __init__(self, socketio, app):
         self.socketio = socketio
         self.app = app
+
+        # ✅ NEW: Initialize PVM semantic memory system
+        self.memory_system = ACTMemorySystem(
+            chronological_log_path='./data/coordination_minutes.jsonl',
+            vector_db_url=app.config.get('QDRANT_URL', 'http://localhost:6333'),
+            embedding_model='sentence-transformers/all-MiniLM-L6-v2'
+        )
+
+        # ✅ NEW: Initialize agent profile builder (evidence-based memory)
+        self.profile_builder = AgentProfileBuilder(self.memory_system)
+
+        # ✅ NEW: Initialize improvement command handler
+        self.improve_handler = ImproveCommandHandler(
+            memory_system=self.memory_system,
+            profile_builder=self.profile_builder
+        )
+
         self.act_coordinator = ACTCoordinator(
             agent_registry=self.get_agentmix_agents,
             capability_mapper=self.map_agentmix_capabilities,
-            progress_callback=self.update_agentmix_ui
+            progress_callback=self.update_agentmix_ui,
+            memory_system=self.memory_system  # ✅ NEW: PVM integration
         )
 
     async def create_autonomous_project(self, description: str, user_id: str):
@@ -126,6 +169,38 @@ class AgentMixACTService:
             agentmix_agents.append(agent)
 
         return agentmix_agents
+
+    # ✅ NEW: Get agent profile (evidence-based individual memory)
+    async def get_agent_profile(self, agent_id: int):
+        """Retrieve comprehensive agent profile from PVM"""
+        profile = await self.profile_builder.buildProfile(agent_id)
+        return {
+            'agent_id': agent_id,
+            'performance': profile.performance,
+            'skill_progression': profile.skill_progression,
+            'communication': profile.communication,
+            'tool_usage': profile.tool_usage,
+            'contextual_patterns': profile.contextual_patterns,
+            'team_synergy': profile.team_synergy,
+            'last_updated': profile.last_updated
+        }
+
+    # ✅ NEW: Run improvement analysis (surgical precision)
+    async def run_improvement_analysis(self, project_id: str, params: dict):
+        """Execute /improve command with surgical precision"""
+        result = await self.improve_handler.executeImproveCommand({
+            'project_id': project_id,
+            'scope': params.get('scope', 'performance'),
+            'agents': params.get('agents', []),
+            'session': params.get('session', 'last'),
+            'filter': params.get('filter', 'all'),
+            'output': params.get('output', 'detailed-report')
+        })
+
+        # Store improvement session in database
+        await self.store_improvement_session(project_id, params, result)
+
+        return result
 ```
 
 #### Week 2: Enhanced Conversation Orchestrator
@@ -176,9 +251,9 @@ class ConversationOrchestratorACT(ConversationOrchestratorHITL):
                 await asyncio.sleep(1)
 ```
 
-#### Week 3: Database Schema Enhancement
+#### Week 3: Database Schema Enhancement (EXPANDED - Nov 24, 2025)
 ```sql
--- Enhanced AgentMix database with ACT integration
+-- Enhanced AgentMix database with ACT + PVM integration
 -- File: backend/src/database/act_integration_schema.sql
 
 -- Extend existing AIAgent table with ACT capabilities
@@ -224,6 +299,64 @@ CREATE TABLE act_coordination_events (
     event_data JSONB,
     timestamp TIMESTAMP DEFAULT NOW()
 );
+
+-- ✅ NEW: PVM (PAIRed Vector Minutes) semantic memory tables
+CREATE TABLE coordination_minutes (
+    id UUID PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    agent_id INTEGER REFERENCES ai_agents(id),
+    project_id UUID REFERENCES act_projects(id),
+    data JSONB NOT NULL,
+    context_references TEXT[],
+    memory_note TEXT,
+    metadata JSONB, -- Includes recency_score, relevance_score, accuracy_score, impact_score, composite_score
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ✅ NEW: FLUX State evaluations (unbiased task evaluation)
+CREATE TABLE flux_evaluations (
+    id UUID PRIMARY KEY,
+    coordination_session_id UUID NOT NULL,
+    task_id UUID REFERENCES act_tasks(id),
+    success_criteria_met INTEGER NOT NULL, -- 0-100%
+    identified_gaps JSONB,
+    improvement_suggestions JSONB,
+    evaluated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ✅ NEW: Agent profiles (cached, derived from coordination_minutes via AgentProfileBuilder)
+CREATE TABLE agent_profiles (
+    agent_id INTEGER PRIMARY KEY REFERENCES ai_agents(id),
+    performance_metrics JSONB NOT NULL, -- Task success rates, specializations
+    skill_progression JSONB NOT NULL, -- Learning trajectory, plateau detection
+    communication_profile JSONB NOT NULL, -- Help-seeking/providing patterns
+    tool_usage_profile JSONB NOT NULL, -- Tool effectiveness tracking
+    contextual_patterns JSONB NOT NULL, -- When X works for this agent
+    team_synergy JSONB NOT NULL, -- Agent-to-agent compatibility
+    last_updated TIMESTAMP DEFAULT NOW()
+);
+
+-- ✅ NEW: User-initiated improvement sessions (via /improve command)
+CREATE TABLE improvement_sessions (
+    id UUID PRIMARY KEY,
+    project_id UUID REFERENCES act_projects(id),
+    initiated_by VARCHAR(100), -- 'user' or 'background'
+    scope VARCHAR(50), -- communication, tools, assignments, conflicts, collaboration, performance
+    filter_params JSONB, -- agents, session, timeframe, quality (good/bad/all)
+    output_format VARCHAR(50), -- summary, detailed-report, recommendations, json, metrics
+    results JSONB NOT NULL, -- Improvement analysis results
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for PVM semantic search performance
+CREATE INDEX idx_coordination_minutes_timestamp ON coordination_minutes(timestamp DESC);
+CREATE INDEX idx_coordination_minutes_agent ON coordination_minutes(agent_id);
+CREATE INDEX idx_coordination_minutes_project ON coordination_minutes(project_id);
+CREATE INDEX idx_coordination_minutes_event_type ON coordination_minutes(event_type);
+CREATE INDEX idx_agent_profiles_last_updated ON agent_profiles(last_updated DESC);
+CREATE INDEX idx_flux_evaluations_task ON flux_evaluations(task_id);
+CREATE INDEX idx_improvement_sessions_project ON improvement_sessions(project_id);
 ```
 
 #### Week 4: WebSocket Enhancement for ACT
@@ -278,6 +411,252 @@ def init_websocket_events_act(socketio, act_service):
 ```
 
 ### Phase 2: Frontend Integration (Weeks 5-8)
+
+#### Week 4.5: PVM Dashboard Widgets (NEW - Nov 24, 2025)
+```jsx
+// File: frontend/src/components/PVM/AgentProfileWidget.jsx
+
+import React, { useEffect, useState } from 'react';
+import { useAgentProfile } from '../hooks/useAgentProfile';
+
+function AgentProfileWidget({ agentId }) {
+  const { profile, loading, error } = useAgentProfile(agentId);
+
+  if (loading) return <SkeletonLoader />;
+  if (error) return <ErrorDisplay error={error} />;
+
+  return (
+    <div className="agent-profile-widget">
+      <div className="profile-header">
+        <h4>Agent Profile: {profile.agent_id}</h4>
+        <span className="last-updated">
+          Updated: {formatRelativeTime(profile.last_updated)}
+        </span>
+      </div>
+
+      {/* Performance Metrics */}
+      <ProfileSection title="Performance">
+        <MetricCard
+          label="Success Rate"
+          value={`${profile.performance.success_rate}%`}
+          trend={profile.performance.trend}
+        />
+        <MetricCard
+          label="Tasks Completed"
+          value={profile.performance.total_tasks}
+        />
+        <SpecializationsList specializations={profile.performance.specializations} />
+      </ProfileSection>
+
+      {/* Skill Progression */}
+      <ProfileSection title="Skill Progression">
+        <SkillProgressionChart data={profile.skill_progression} />
+        {profile.skill_progression.plateau_detected && (
+          <Alert type="info">
+            Skill plateau detected. Consider new challenge areas.
+          </Alert>
+        )}
+      </ProfileSection>
+
+      {/* Communication Patterns */}
+      <ProfileSection title="Communication">
+        <CommunicationProfile profile={profile.communication} />
+      </ProfileSection>
+
+      {/* Tool Usage */}
+      <ProfileSection title="Tool Effectiveness">
+        <ToolUsageChart tools={profile.tool_usage} />
+      </ProfileSection>
+
+      {/* Team Synergy */}
+      <ProfileSection title="Team Synergy">
+        <TeamSynergyHeatmap synergy={profile.team_synergy} />
+      </ProfileSection>
+    </div>
+  );
+}
+
+// File: frontend/src/components/PVM/CoordinationMemoryWidget.jsx
+
+function CoordinationMemoryWidget({ projectId }) {
+  const { memories, search, loading } = useCoordinationMemory(projectId);
+  const [query, setQuery] = useState('');
+
+  const handleSearch = async () => {
+    await search(query);
+  };
+
+  return (
+    <div className="coordination-memory-widget">
+      <div className="memory-header">
+        <h4>Semantic Coordination Memory (PVM)</h4>
+        <SearchBar
+          value={query}
+          onChange={setQuery}
+          onSearch={handleSearch}
+          placeholder="Search coordination patterns..."
+        />
+      </div>
+
+      <div className="memory-timeline">
+        {memories.map(minute => (
+          <CoordinationMinuteCard
+            key={minute.id}
+            minute={minute}
+            onExpand={() => setExpandedId(minute.id)}
+          />
+        ))}
+      </div>
+
+      <div className="memory-stats">
+        <StatCard label="Total Minutes" value={memories.length} />
+        <StatCard label="Vector Indexed" value={memories.filter(m => m.indexed).length} />
+        <StatCard label="PAIR Retrievals" value={memories.filter(m => m.retrieved_count > 0).length} />
+      </div>
+    </div>
+  );
+}
+
+// File: frontend/src/components/PVM/ImprovementCommandWidget.jsx
+
+function ImprovementCommandWidget({ projectId }) {
+  const [scope, setScope] = useState('performance');
+  const [selectedAgents, setSelectedAgents] = useState([]);
+  const [filter, setFilter] = useState('all');
+  const [output, setOutput] = useState('detailed-report');
+  const { runImprovement, loading, result } = useImprovement(projectId);
+
+  const scopes = [
+    'communication',
+    'tools',
+    'assignments',
+    'conflicts',
+    'collaboration',
+    'performance'
+  ];
+
+  const handleRunImprovement = async () => {
+    const result = await runImprovement({
+      scope,
+      agents: selectedAgents,
+      session: 'last',
+      filter,
+      output
+    });
+  };
+
+  return (
+    <div className="improvement-command-widget">
+      <div className="widget-header">
+        <h4>Surgical Precision Improvement</h4>
+        <HelpIcon tooltip="Run targeted improvement analysis with custom parameters" />
+      </div>
+
+      <div className="command-builder">
+        <div className="param-group">
+          <label>Scope</label>
+          <select value={scope} onChange={(e) => setScope(e.target.value)}>
+            {scopes.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="param-group">
+          <label>Agents (optional)</label>
+          <MultiSelect
+            options={availableAgents}
+            selected={selectedAgents}
+            onChange={setSelectedAgents}
+          />
+        </div>
+
+        <div className="param-group">
+          <label>Filter</label>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">All coordination</option>
+            <option value="good">Good results only</option>
+            <option value="bad">Bad results only</option>
+          </select>
+        </div>
+
+        <div className="param-group">
+          <label>Output Format</label>
+          <select value={output} onChange={(e) => setOutput(e.target.value)}>
+            <option value="summary">Summary</option>
+            <option value="detailed-report">Detailed Report</option>
+            <option value="recommendations">Recommendations</option>
+            <option value="json">JSON</option>
+            <option value="metrics">Metrics</option>
+          </select>
+        </div>
+
+        <button
+          onClick={handleRunImprovement}
+          disabled={loading}
+          className="run-improvement-btn"
+        >
+          {loading ? 'Analyzing...' : 'Run /improve'}
+        </button>
+      </div>
+
+      {result && (
+        <div className="improvement-results">
+          <ImprovementReport data={result} format={output} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// File: frontend/src/components/PVM/FLUXStateWidget.jsx
+
+function FLUXStateWidget({ projectId }) {
+  const { evaluations, loading } = useFLUXEvaluations(projectId);
+
+  return (
+    <div className="flux-state-widget">
+      <div className="widget-header">
+        <h4>FLUX State Evaluations</h4>
+        <Badge>Unbiased Task Review</Badge>
+      </div>
+
+      <div className="evaluations-list">
+        {evaluations.map(eval => (
+          <div key={eval.id} className="evaluation-card">
+            <div className="eval-header">
+              <span className="task-title">{eval.task_title}</span>
+              <ScoreBadge score={eval.success_criteria_met} />
+            </div>
+
+            {eval.success_criteria_met < 95 && (
+              <div className="eval-gaps">
+                <h5>Identified Gaps:</h5>
+                <ul>
+                  {eval.identified_gaps.map((gap, idx) => (
+                    <li key={idx}>{gap}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {eval.improvement_suggestions.length > 0 && (
+              <div className="eval-suggestions">
+                <h5>Improvement Suggestions:</h5>
+                <ul>
+                  {eval.improvement_suggestions.map((suggestion, idx) => (
+                    <li key={idx}>{suggestion}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
 
 #### Week 5: Autonomous Project Creation Interface
 ```jsx

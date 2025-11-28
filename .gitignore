@@ -1,13 +1,17 @@
 # Development Environment
 .claude/
 .windsurf/
+.tmp
 .tmp/
 *.code-workspace
 
-# Coordination Files (Internal R&D)
+# Coordination Files (Internal R&D - Proprietary)
 act-coordination.json
+act-coordination-*.json
 coordination-*.json
 *.coordination
+*coordination*.md
+*coordination*.txt
 
 # AI Chat Exports (Internal Context)
 *_CLAUDE_*.md
@@ -18,6 +22,11 @@ ACT_DEMO_LOGS.md
 *_DEMO_*.md
 *.chat.md
 *.chat.txt
+*claude*.txt
+*instance*.txt
+*discussion.txt
+*-prompt.txt
+CLAUDE.md
 
 # Development Artifacts (Reveal Internal Processes)
 *.md~
@@ -27,6 +36,11 @@ R&D_*.md
 DEBUG_*.md
 TODO_*.md
 NOTES_*.md
+R&D/
+R&D/*
+*longtermmemory.txt
+openmemory.md
+.claude_project
 
 # Node.js Dependencies
 node_modules/
@@ -148,3 +162,6 @@ temp/
 .cache/
 .eslintcache
 .stylelintcache
+
+# OpenMemory - IDE/Assistant specific rules
+.windsurf/rules/openmemory.md

@@ -170,6 +170,149 @@ class AutonomousProjectPlanner:
 - **Timeline Accuracy**: 85%+ accuracy in timeline predictions
 - **Requirement Evolution**: Adapts to changing requirements in real-time
 
+### 6. PVM: The Enabling Technology Behind the Revolution (Nov 24, 2025)
+
+**The Core Innovation:**
+PVM (PAIRed Vector Minutes) is the semantic memory system that makes all of ACT's revolutionary capabilities possible. Without PVM, ACT would be just another static coordination framework. With PVM, ACT becomes a continuously learning, self-improving coordination intelligence.
+
+**Why PVM Is Revolutionary:**
+
+**Dual-Purpose Memory Architecture:**
+```typescript
+// Traditional systems: Separate memory for teams vs individuals
+TeamMemory + IndividualMemory = Two Systems, Double Complexity
+
+// PVM Innovation: One system, dual purpose
+CoordinationHistory → PVM → {
+  TeamCoordinationMemory,    // How teams work together
+  IndividualAgentProfiles    // How each agent performs
+}
+```
+
+**Evidence-Based vs Self-Reported Memory:**
+```python
+# Traditional Personal Memory (Mem0, OpenMemory)
+memory.add("I prefer React hooks", agent_id="agent1")
+# Problem: Agent self-reports preferences, no objective evidence
+
+# PVM Evidence-Based Memory
+profile = get_agent_profile("agent1")
+# Returns: {
+#   react_hooks: { success_rate: 94%, tasks: 47, avg_time: "2.3h" },
+#   class_components: { success_rate: 71%, tasks: 8, avg_time: "4.1h" }
+# }
+# Advantage: Objective evidence from actual outcomes
+```
+
+**How PVM Enables Each Revolutionary Capability:**
+
+**1. Autonomous Coordination → Enabled by PAIR Reasoning**
+```typescript
+// When agents face new coordination challenges:
+const similarPatterns = await pvm.search(
+  "How did we handle frontend-backend coordination conflicts?"
+);
+// Returns: Actual examples of what worked and what didn't
+// Agents learn from past patterns, not human instructions
+```
+
+**2. Dynamic Task Assignment → Enabled by Agent Profiles**
+```typescript
+// Traditional: Manual capability declaration
+agent.capabilities = ["React", "TypeScript", "Testing"]
+
+// PVM: Evidence-based capability assessment
+const profile = await agentProfileBuilder.buildProfile("agent1");
+// Returns:
+// - React success rate: 94% (47 tasks)
+// - TypeScript success rate: 89% (52 tasks)
+// - Testing success rate: 67% (12 tasks) ⚠️ Needs improvement
+// - Works best with: agent3, agent5 (high synergy)
+// - Performs worse when: under tight deadlines (stress pattern)
+```
+
+**3. Self-Improving Coordination → Enabled by FLUX State**
+```typescript
+// FLUX State: Unbiased evaluation via memory wipe
+const evaluation = await fluxEvaluator.evaluateTask({
+  task: completedTask,
+  deliverables: agentDeliverables,
+  originalCriteria: successCriteria
+});
+// Fresh agent with NO memory of creating deliverables evaluates objectively
+// Identifies gaps: "Frontend component missing error boundary"
+// System learns: "Always include error boundaries in React components"
+```
+
+**4. Surgical Precision Improvement → Enabled by /improve Command**
+```bash
+# User discovers communication issues between agent2 and agent3
+/improve communication --agents agent2,agent3 --session last --filter bad --output detailed-report
+
+# PVM retrieves:
+# - All agent2 ↔ agent3 communication from last session
+# - Filters for communication that led to bad outcomes
+# - Analyzes patterns: "agent2 assumed agent3 understood async/await, but agent3 used callbacks"
+# - Recommendation: "Establish explicit async pattern agreement before parallel work"
+```
+
+**5. Continuous Learning → Enabled by Chronological Log + Vector Memory**
+```typescript
+// Every coordination event is dual-stored:
+coordinationEvent = {
+  chronological_position: 1847,  // Append-only log (audit trail)
+  vector_embedding: [0.23, ...], // Semantic search (pattern retrieval)
+  metadata: {
+    recency_score: 0.95,    // Recent events weighted higher
+    relevance_score: 0.87,  // How often retrieved in PAIR
+    accuracy_score: 0.92,   // Did coordination succeed?
+    impact_score: 0.78      // How many future tasks influenced?
+  }
+}
+
+// System automatically:
+// 1. Prunes low-quality memories (bottom 10% monthly)
+// 2. Reinforces successful patterns (high accuracy + impact)
+// 3. Discovers emergent coordination strategies (cross-agent synergy)
+```
+
+**PVM Technical Advantages Over Competitors:**
+
+| **Feature** | **Traditional Memory** | **PVM** |
+|---|---|---|
+| **Memory Source** | Self-reported | Evidence-based |
+| **Team Memory** | Manual documentation | Automatic from coordination |
+| **Individual Memory** | Separate system required | Derived as byproduct |
+| **Memory Quality** | Degrades over time | Self-pruning (quality-scored) |
+| **Learning** | Explicit training | Continuous from coordination |
+| **Context Retrieval** | Keyword search | Semantic patterns |
+| **Bias Control** | None | FLUX State (memory wipe) |
+| **Improvement** | Manual analysis | Surgical precision (/improve) |
+
+**Why PVM Is the Key Differentiator:**
+
+Without PVM, ACT would be comparable to CrewAI or Autogen—a coordination framework that requires human configuration and doesn't improve over time.
+
+With PVM, ACT becomes:
+- **Self-improving**: Gets better with every project
+- **Context-aware**: Learns from past coordination patterns
+- **Evidence-based**: Makes decisions from objective outcomes
+- **Surgically precise**: Users can analyze specific coordination aspects
+- **Unbiased**: FLUX State evaluation prevents self-deception
+
+**Market Impact:**
+- **Competitive Moat**: PVM's dual-purpose architecture is difficult to replicate
+- **Network Effects**: More coordination → Better profiles → Better coordination
+- **Data Advantage**: First-mover advantage in coordination pattern data
+- **IP Protection**: Core algorithms patentable (PAIR retrieval, FLUX State, AgentProfileBuilder)
+
+**Related Documentation:**
+- [PVM Extended Capabilities](./PVM_EXTENDED_CAPABILITIES.md) - Complete technical specification
+- [PAIR Reasoning Workflow](./PAIR_REASONING_WORKFLOW.md) - How semantic retrieval enables learning
+- [Architecture Section 7](./ARCHITECTURE.md) - PVM system architecture
+
+---
+
 ## 📊 Competitive Analysis & Market Positioning
 
 ### ACT vs. Existing Solutions
@@ -181,8 +324,12 @@ class AutonomousProjectPlanner:
 | **Real-time Conflict Resolution** | ❌ N/A | ❌ No | ❌ Manual | ✅ **Automated** |
 | **Dynamic Task Assignment** | ❌ Internal Only | ❌ Predefined | ❌ Static | ✅ **Intelligent Matching** |
 | **Project Decomposition** | ✅ Good | ✅ Basic | ❌ Manual | ✅ **Advanced** |
-| **Learning & Adaptation** | ✅ Limited | ❌ No | ❌ No | ✅ **Continuous** |
+| **Learning & Adaptation** | ✅ Limited | ❌ No | ❌ No | ✅ **Continuous (PVM)** |
 | **Development Focus** | ❌ General Purpose | ❌ General | ✅ Limited | ✅ **Software Dev** |
+| **Semantic Memory (PVM)** | ❌ No | ❌ No | ❌ No | ✅ **Dual-Purpose** |
+| **Evidence-Based Profiles** | ❌ No | ❌ No | ❌ No | ✅ **Automatic** |
+| **Unbiased Evaluation (FLUX)** | ❌ No | ❌ No | ❌ No | ✅ **Memory Wipe** |
+| **Surgical Precision /improve** | ❌ No | ❌ No | ❌ No | ✅ **6 Scopes + Filters** |
 
 ### Market Size & Opportunity
 
@@ -219,6 +366,22 @@ class AutonomousProjectPlanner:
 4. **"Autonomous Project Decomposition and Planning System"**
    - Natural language to technical architecture translation
    - Intelligent dependency analysis and timeline prediction
+
+5. **✅ NEW: "Dual-Purpose Semantic Memory System for Multi-Agent Coordination" (PVM)**
+   - Evidence-based individual agent profile derivation from coordination history
+   - Chronological append-only log with vector-indexed semantic search
+   - PAIR (Past Archived Information Re-injection) reasoning workflow
+   - Quality-scored memory pruning and reinforcement algorithms
+
+6. **✅ NEW: "Unbiased Task Evaluation via Memory Wipe" (FLUX State)**
+   - Fresh agent evaluation without creator bias
+   - Gap identification and improvement suggestion generation
+   - Convergence loop for iterative improvement
+
+7. **✅ NEW: "Surgical Precision Coordination Improvement System"**
+   - Parameterized improvement command with scope-based filtering
+   - Multi-dimensional coordination analysis (communication, tools, assignments, conflicts, collaboration, performance)
+   - Evidence-based recommendation generation from coordination patterns
 
 **Patent Strategy:**
 - **File Core Patents**: Protect fundamental coordination algorithms
