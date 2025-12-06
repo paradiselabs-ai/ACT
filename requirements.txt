@@ -1,0 +1,15 @@
+# ACT Python Dependencies
+# For examples and Python client agents
+
+# WebSocket client for ACT server communication
+python-socketio==5.15.0
+python-engineio==4.12.2
+
+# HTTP client for OpenRouter API calls
+aiohttp==3.13.2
+
+# WebSocket utilities
+websocket-client==1.8.0
+
+# HTTP requests (for sync operations)
+requests==2.32.5

@@ -2,6 +2,7 @@ import { Server } from 'socket.io';
 import { EventEmitter } from 'events';
 import { AgentRegistry } from './AgentRegistry';
 import { TaskCoordinator } from './TaskCoordinator';
+import { ChronologicalLog } from './ChronologicalLog';
 import { logger } from '../utils/logger';
 
 export interface CoordinationEvent {
@@ -16,14 +17,15 @@ export class EventHub extends EventEmitter {
   private io: Server;
   private agentRegistry: AgentRegistry;
   private taskCoordinator: TaskCoordinator;
+  private chronologicalLog: ChronologicalLog;
   private eventHistory: CoordinationEvent[] = [];
 
-  constructor(io: Server, agentRegistry: AgentRegistry, taskCoordinator: TaskCoordinator) {
+  constructor(io: Server, agentRegistry: AgentRegistry, taskCoordinator: TaskCoordinator, chronologicalLog?: ChronologicalLog) {
     super();
     this.io = io;
     this.agentRegistry = agentRegistry;
     this.taskCoordinator = taskCoordinator;
-
+    this.chronologicalLog = chronologicalLog || new ChronologicalLog();
     this.setupEventListeners();
   }
 
@@ -130,6 +132,16 @@ export class EventHub extends EventEmitter {
     if (this.eventHistory.length > 1000) {
       this.eventHistory = this.eventHistory.slice(-1000);
     }
+
+    // Log to ChronologicalLog for PVM
+    this.chronologicalLog.append({
+      timestamp: event.timestamp.toISOString(),
+      agent: event.agentId || 'system',
+      message: `${type}: ${JSON.stringify(data)}`,
+      type: 'coordination' // Use generic coordination type for now
+    }).catch(err => {
+      logger.error(`Failed to log event to ChronologicalLog: ${err.message}`);
+    });
 
     // Broadcast to all connected clients (especially Windsurf's dashboard!)
     this.io.emit(type, data);

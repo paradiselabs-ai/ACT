@@ -6,6 +6,9 @@ import { AgentRegistry } from './services/AgentRegistry';
 import { TaskCoordinator } from './services/TaskCoordinator';
 import { EventHub } from './services/EventHub';
 import { SelfImprovementEngine } from './services/SelfImprovementEngine';
+import { ChronologicalLog } from './services/ChronologicalLog';
+import { MockVectorStore } from './services/MockVectorStore';
+import { PVMIndexer } from './services/PVMIndexer';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -24,8 +27,14 @@ app.use(express.json());
 // Core ACT Services
 const agentRegistry = new AgentRegistry();
 const taskCoordinator = new TaskCoordinator(agentRegistry);
-const eventHub = new EventHub(io, agentRegistry, taskCoordinator);
+const chronologicalLog = new ChronologicalLog();
+const vectorStore = new MockVectorStore();
+const eventHub = new EventHub(io, agentRegistry, taskCoordinator, chronologicalLog);
 const selfImprovementEngine = new SelfImprovementEngine(agentRegistry, taskCoordinator, eventHub);
+const pvmIndexer = new PVMIndexer(chronologicalLog, vectorStore);
+
+// Start PVM indexing
+pvmIndexer.startIndexing(10000); // Check for new events every 10 seconds
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -60,6 +69,26 @@ app.post('/api/improve', async (req, res) => {
 
 app.get('/api/improvement/status', (req, res) => {
   res.json(selfImprovementEngine.getStatus());
+});
+
+// PVM endpoints
+app.get('/api/pvm/search', async (req, res) => {
+  try {
+    const { query, limit } = req.query;
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({ success: false, error: 'Query parameter is required' });
+    }
+    
+    const results = await pvmIndexer.search(query, limit ? parseInt(limit as string) : 10);
+    res.json({ success: true, results });
+  } catch (error: any) {
+    logger.error(`PVM search failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/pvm/status', (req, res) => {
+  res.json(pvmIndexer.getStatus());
 });
 
 // WebSocket connection handling
