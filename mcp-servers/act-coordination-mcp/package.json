@@ -1,0 +1,39 @@
+{
+  "name": "act-coordination-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for multi-agent coordination via shared JSON file - bootstrapping ACT by using ACT patterns",
+  "main": "build/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "npx tsc",
+    "start": "node build/index.js",
+    "dev": "npx tsc --watch",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "npx tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "act",
+    "agent-coordination",
+    "multi-agent",
+    "coordination"
+  ],
+  "author": "ACT Development Team",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "json5": "^2.2.3",
+    "proper-lockfile": "^4.1.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/json5": "^0.0.30",
+    "@types/node": "^20.19.25",
+    "@types/proper-lockfile": "^4.1.4",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
