@@ -5,6 +5,7 @@ import cors from 'cors';
 import { AgentRegistry } from './services/AgentRegistry';
 import { TaskCoordinator } from './services/TaskCoordinator';
 import { EventHub } from './services/EventHub';
+import { SelfImprovementEngine } from './services/SelfImprovementEngine';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -24,6 +25,7 @@ app.use(express.json());
 const agentRegistry = new AgentRegistry();
 const taskCoordinator = new TaskCoordinator(agentRegistry);
 const eventHub = new EventHub(io, agentRegistry, taskCoordinator);
+const selfImprovementEngine = new SelfImprovementEngine(agentRegistry, taskCoordinator, eventHub);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -42,6 +44,22 @@ app.get('/api/agents', (req, res) => {
 
 app.get('/api/tasks', (req, res) => {
   res.json(taskCoordinator.getAllTasks());
+});
+
+// Self-improvement endpoints
+app.post('/api/improve', async (req, res) => {
+  try {
+    const improvementRequest = req.body;
+    const result = await selfImprovementEngine.triggerExplicitImprovement(improvementRequest);
+    res.json({ success: true, result });
+  } catch (error: any) {
+    logger.error(`Improvement request failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/improvement/status', (req, res) => {
+  res.json(selfImprovementEngine.getStatus());
 });
 
 // WebSocket connection handling
