@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+
+/**
+ * ACT CLI Entry Point
+ *
+ * Launches the ACT Terminal REPL with the specified server URL.
+ */
+
+import { ACTRepl } from '../dist/act-repl.js';
+
+// Get server URL from environment or command line
+const serverUrl = process.env.ACT_SERVER_URL ||
+                  process.argv[2] ||
+                  'http://localhost:8080';
+
+// Handle different commands
+const command = process.argv[2];
+
+if (command === 'server') {
+  const subCommand = process.argv[3];
+  if (subCommand === 'start') {
+    console.log('🚀 Starting ACT server...');
+    console.log('This would start the ACT server process.');
+    console.log('For now, please start the server manually with:');
+    console.log('cd /path/to/act/server && npm start');
+    process.exit(0);
+  } else if (subCommand === 'stop') {
+    console.log('🛑 Stopping ACT server...');
+    console.log('This would stop the ACT server process.');
+    process.exit(0);
+  } else {
+    console.log('Usage: act server start|stop');
+    process.exit(1);
+  }
+} else {
+  // Default: start REPL
+  const repl = new ACTRepl(serverUrl);
+  repl.start().catch(error => {
+    console.error('Failed to start ACT REPL:', error);
+    process.exit(1);
+  });
+}

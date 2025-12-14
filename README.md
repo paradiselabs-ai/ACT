@@ -117,6 +117,7 @@ ACT/
 │   │   └── utils/
 │   └── package.json
 ├── client/                 # Web dashboard (SSE-based)
+├── cli/                    # Terminal REPL (command-line interface)
 ├── sdk/                    # Future: Language-specific SDKs
 ├── examples/               # Integration examples
 └── tests/

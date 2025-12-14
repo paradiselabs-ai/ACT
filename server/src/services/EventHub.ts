@@ -19,6 +19,7 @@ export class EventHub extends EventEmitter {
   private taskCoordinator: TaskCoordinator;
   private chronologicalLog: ChronologicalLog;
   private eventHistory: CoordinationEvent[] = [];
+  private agentProfiles: Map<string, any> = new Map();
 
   constructor(io: Server, agentRegistry: AgentRegistry, taskCoordinator: TaskCoordinator, chronologicalLog?: ChronologicalLog) {
     super();
@@ -38,7 +39,9 @@ export class EventHub extends EventEmitter {
           id: agent.id,
           name: agent.name,
           capabilities: agent.capabilities,
-          status: agent.status
+          status: agent.status,
+          model: agent.model,
+          provider: agent.provider
         }
       });
     });
@@ -58,6 +61,14 @@ export class EventHub extends EventEmitter {
         tasksCompleted: agent.tasksCompleted,
         averageTaskTime: agent.averageTaskTime
       });
+
+      // Update agent profiles with performance data
+      if (agent.id) {
+        this.agentProfiles.set(agent.id, {
+          ...this.agentProfiles.get(agent.id),
+          ...agent
+        });
+      }
     });
 
     // Task Coordinator Events
@@ -114,6 +125,165 @@ export class EventHub extends EventEmitter {
 
       logger.warn(`🚨 CONFLICT DETECTION: ${conflicts.length} conflicts detected and resolved autonomously`);
     });
+  }
+
+  /**
+   * Intelligent agent communication coordination
+   * ACT decides when and how agents should communicate
+   */
+  public async coordinateAgentCommunication(senderId: string, message: string, messageId: string): Promise<void> {
+    try {
+      logger.info(`🤖 COORDINATION CHECK: Message from ${senderId}: "${message}"`);
+
+      // Get all online agents except sender
+      const allAgents = this.agentRegistry.getAllAgents();
+      const onlineAgents = allAgents.filter(agent =>
+        agent.status === 'online' && agent.id !== senderId
+      );
+
+      logger.info(`🤖 COORDINATION CHECK: Found ${onlineAgents.length} online agents (excluding sender)`);
+
+      if (onlineAgents.length === 0) {
+        logger.debug('No other agents online for coordination');
+        return;
+      }
+
+      // Determine if this message warrants coordination
+      const coordinationNeeded = await this.shouldCoordinateMessage(senderId, message, messageId);
+
+      logger.info(`🤖 COORDINATION CHECK: Coordination needed? ${coordinationNeeded}`);
+
+      if (!coordinationNeeded) {
+        logger.debug(`Message from ${senderId} doesn't require coordination response`);
+        return;
+      }
+
+      // Find best agent to respond based on coordination context
+      const responderAgent = await this.selectCoordinationResponder(senderId, message, onlineAgents);
+
+      logger.info(`🤖 COORDINATION CHECK: Selected responder: ${responderAgent ? responderAgent.id : 'NONE'}`);
+
+      if (responderAgent) {
+        await this.generateAndSendCoordinationResponse(responderAgent, senderId, message, messageId);
+      }
+
+    } catch (error: any) {
+      logger.error(`Agent communication coordination failed: ${error.message}`);
+    }
+  }
+
+  private async shouldCoordinateMessage(senderId: string, message: string, messageId: string): Promise<boolean> {
+    // Coordination triggers:
+    // 1. Task completion announcements
+    // 2. Help requests
+    // 3. Progress updates that might affect others
+    // 4. Questions or clarifications
+    // 5. Critical decisions or changes
+
+    const coordinationTriggers = [
+      'completed', 'finished', 'done',
+      'help', 'assist', 'support',
+      'question', 'clarify', 'unclear',
+      'issue', 'problem', 'error',
+      'change', 'update', 'modify'
+    ];
+
+    const lowerMessage = message.toLowerCase();
+    return coordinationTriggers.some(trigger => lowerMessage.includes(trigger));
+  }
+
+  private async selectCoordinationResponder(senderId: string, message: string, availableAgents: any[]): Promise<any | null> {
+    logger.info(`🤖 RESPONDER SELECTION: Looking for responder among ${availableAgents.length} agents`);
+
+    // Use coordination intelligence to select responder
+    // Priority based on:
+    // 1. Agent's current task context
+    // 2. Agent's capabilities matching message content
+    // 3. Agent's historical collaboration patterns
+    // 4. Agent's current workload
+
+    // For now, simple selection: least busy agent with relevant capabilities
+    const sender = this.agentRegistry.getAgent(senderId);
+
+    logger.info(`🤖 RESPONDER SELECTION: Available agents: ${availableAgents.map(a => `${a.id}(busy:${!!a.currentTask})`).join(', ')}`);
+
+    const relevantAgents = availableAgents.filter(agent => {
+      const notBusy = !agent.currentTask;
+      const hasRelevantCap = agent.capabilities.some((cap: string) => message.toLowerCase().includes(cap));
+
+      logger.info(`🤖 RESPONDER SELECTION: Agent ${agent.id} - notBusy: ${notBusy}, hasRelevantCap: ${hasRelevantCap} (caps: ${agent.capabilities.join(',')})`);
+
+      return notBusy && hasRelevantCap;
+    });
+
+    logger.info(`🤖 RESPONDER SELECTION: Found ${relevantAgents.length} relevant agents`);
+
+    if (relevantAgents.length > 0) {
+      const selected = relevantAgents[0];
+      logger.info(`🤖 RESPONDER SELECTION: Selected ${selected.id}`);
+      return selected; // Return first relevant agent
+    }
+
+    // Fallback: any available agent
+    const fallbackAgent = availableAgents.find(agent => !agent.currentTask);
+    logger.info(`🤖 RESPONDER SELECTION: No relevant agents, fallback: ${fallbackAgent ? fallbackAgent.id : 'NONE'}`);
+    return fallbackAgent || null;
+  }
+
+  private async generateAndSendCoordinationResponse(responderAgent: any, senderId: string, originalMessage: string, messageId: string): Promise<void> {
+    try {
+      // Generate coordination-appropriate response
+      const response = await this.generateCoordinationResponse(responderAgent, senderId, originalMessage);
+
+      if (response) {
+        // Send response through the system as an agent_message from the responding agent
+        const responseData = {
+          sender: responderAgent.name,  // Use the agent's display name
+          message: `@${senderId} ${response}`,  // Tag the original sender
+          timestamp: new Date().toISOString()
+        };
+
+        // Broadcast as agent_message so it appears in activity feeds
+        this.io.emit('agent_message', responseData);
+        logger.info(`📡 COORDINATION RESPONSE EMITTED: ${JSON.stringify(responseData)}`);
+
+        // Also log to ChronologicalLog
+        this.chronologicalLog.append({
+          timestamp: responseData.timestamp,
+          agent: responderAgent.id,
+          message: responseData.message,
+          type: 'coordination'
+        }).catch(err => {
+          logger.error(`Failed to log coordination response: ${err.message}`);
+        });
+
+        logger.info(`🤖 COORDINATED RESPONSE: ${responderAgent.id} → ${senderId}: ${response.substring(0, 100)}...`);
+      }
+    } catch (error: any) {
+      logger.error(`Failed to generate coordination response: ${error.message}`);
+    }
+  }
+
+  private async generateCoordinationResponse(responderAgent: any, senderId: string, message: string): Promise<string | null> {
+    // This should use the agent's model to generate a response
+    // For now, return a simple coordination response
+    // In full implementation, this would call the agent's LLM
+
+    const sender = this.agentRegistry.getAgent(senderId);
+
+    if (message.toLowerCase().includes('help') || message.toLowerCase().includes('assist')) {
+      return `I can help with that. My expertise includes ${responderAgent.capabilities.join(', ')}.`;
+    }
+
+    if (message.toLowerCase().includes('completed') || message.toLowerCase().includes('done')) {
+      return `Great work! I'll note this completion for coordination purposes.`;
+    }
+
+    if (message.toLowerCase().includes('question') || message.toLowerCase().includes('clarify')) {
+      return `I understand you need clarification. Let me see how I can assist.`;
+    }
+
+    return null; // No response needed
   }
 
   private broadcastEvent(type: string, data: any): void {

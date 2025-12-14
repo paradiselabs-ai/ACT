@@ -6,6 +6,8 @@ export interface Agent {
   name: string;
   capabilities: string[];
   status: 'online' | 'busy' | 'offline';
+  model?: string;
+  provider?: string;
   socketId?: string;
   currentTask?: string;
   lastSeen: Date;
@@ -30,6 +32,8 @@ export class AgentRegistry extends EventEmitter {
       id: agentId,
       name: agentData.name || agentId,
       capabilities: agentData.capabilities || [],
+      model: agentData.model,
+      provider: agentData.provider,
       status: 'online',
       socketId: agentData.socketId,
       currentTask: undefined,
@@ -39,6 +43,14 @@ export class AgentRegistry extends EventEmitter {
       averageTaskTime: existingAgent?.averageTaskTime || 0,
       ...agentData
     };
+
+    console.log(`📇 registerAgent payload for ${agentId}:`, {
+      name: agent.name,
+      capabilities: agent.capabilities,
+      model: agent.model,
+      provider: agent.provider,
+      socketId: agent.socketId
+    });
 
     this.agents.set(agentId, agent);
 

@@ -6,7 +6,7 @@
 class ACTWidgetSystem {
     constructor(serverUrl = 'http://localhost:8080') {
         this.serverUrl = serverUrl;
-        this.eventSource = null;
+        this.socket = null;
         this.isConnected = false;
 
         // State
@@ -15,6 +15,7 @@ class ACTWidgetSystem {
         this.projects = new Map();
         this.conflicts = new Map();
         this.activities = [];
+        this.messages = [];
 
         this.init();
     }
@@ -36,59 +37,95 @@ class ACTWidgetSystem {
 
     connectToServer() {
         try {
-            console.log(`🔌 Connecting to ACT server at ${this.serverUrl}/coordinate`);
+            console.log(`🔌 Connecting to ACT server via WebSocket at ${this.serverUrl}`);
 
-            this.eventSource = new EventSource(`${this.serverUrl}/coordinate`);
+            this.socket = io(this.serverUrl);
 
-            this.eventSource.onopen = () => {
+            this.socket.on('connect', () => {
                 console.log('✅ Connected to ACT server');
                 this.isConnected = true;
                 document.dispatchEvent(new Event('act:connected'));
                 this.clearErrorMessage();
-            };
 
-            // Handle different event types
-            this.eventSource.addEventListener('agent_registered', (e) => {
-                this.handleAgentRegistered(JSON.parse(e.data));
+                // Reset state on reconnect/reload
+                this.agents.clear();
+                this.tasks.clear();
+                this.projects.clear();
+                this.conflicts.clear();
+                this.activities = [];
+                this.messages = [];
+                this.updateAgentRegistry();
+                this.updateTaskCoordinator();
+                this.updateProjectStatus();
+                this.updateConflictResolution();
+                this.updateActivityFeed();
+                this.updateAgentMessages();
+
+                // Request current state
+                this.socket.emit('get_agent_registry');
+                this.socket.emit('get_tasks');
+                this.socket.emit('get_project_status');
             });
 
-            this.eventSource.addEventListener('task_created', (e) => {
-                this.handleTaskCreated(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('task_assigned', (e) => {
-                this.handleTaskAssigned(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('task_progress', (e) => {
-                this.handleTaskProgress(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('task_completed', (e) => {
-                this.handleTaskCompleted(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('conflict_detected', (e) => {
-                this.handleConflictDetected(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('conflict_resolved', (e) => {
-                this.handleConflictResolved(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('project_milestone', (e) => {
-                this.handleProjectMilestone(JSON.parse(e.data));
-            });
-
-            this.eventSource.addEventListener('progress_update', (e) => {
-                this.handleProgressUpdate(JSON.parse(e.data));
-            });
-
-            this.eventSource.onerror = (error) => {
-                console.error('❌ SSE connection error:', error);
-                this.eventSource.close();
+            this.socket.on('disconnect', () => {
+                console.error('❌ WebSocket disconnected');
+                this.isConnected = false;
                 this.showConnectionError();
-            };
+            });
+
+            // Event handlers
+            this.socket.on('agent_registered', (e) => {
+                this.handleAgentRegistered(e.agent || e);
+            });
+
+            this.socket.on('agent_joined', (e) => {
+                this.handleAgentRegistered(e.agent || e);
+            });
+
+            this.socket.on('agent_status_updated', (e) => {
+                // Refresh registry on status updates
+                this.socket.emit('get_agent_registry');
+            });
+
+            this.socket.on('task_created', (e) => {
+                this.handleTaskCreated(e);
+            });
+
+            this.socket.on('task_assigned', (e) => {
+                this.handleTaskAssigned(e);
+            });
+
+            this.socket.on('task_pending', (e) => {
+                this.handleTaskPending(e);
+            });
+
+            this.socket.on('task_progress', (e) => {
+                this.handleTaskProgress(e);
+            });
+
+            this.socket.on('task_completed', (e) => {
+                this.handleTaskCompleted(e);
+            });
+
+            this.socket.on('agent_status_update', () => {
+                // Refresh agent registry on status changes
+                this.socket.emit('get_agent_registry');
+            });
+
+            this.socket.on('agent_message', (e) => {
+                this.handleAgentMessage(e);
+            });
+
+            // Request project status updates
+            this.socket.on('project_status_update', (e) => {
+                this.handleProjectStatusUpdate(e);
+            });
+
+            this.socket.on('conflict_detected', (e) => {
+                // e may be array from server
+                const conflicts = Array.isArray(e) ? e : [e];
+                conflicts.forEach(conflict => this.handleConflictDetected(conflict));
+            });
 
         } catch (error) {
             console.error('Failed to connect to server:', error);
@@ -148,11 +185,23 @@ class ACTWidgetSystem {
 
     // Event Handlers
     handleAgentRegistered(event) {
+        const src = event.agent || event || {};
+        const id = src.id || src.agentId || src.agent_id;
+        const name = src.name || src.agentId || id || 'agent';
+        const capabilities = src.capabilities || [];
+        const model = src.model || src.modelName || '';
+        const provider = src.provider || src.providerName || '';
+        const status = src.status || 'active';
+
+        if (!id) return;
+
         const agent = {
-            id: event.agentId || event.agent_id,
-            name: event.name || event.agentId,
-            capabilities: event.capabilities || [],
-            status: 'active',
+            id,
+            name,
+            capabilities,
+            model,
+            provider,
+            status,
             timestamp: new Date().toISOString()
         };
 
@@ -162,12 +211,19 @@ class ACTWidgetSystem {
     }
 
     handleTaskCreated(event) {
+        const src = event.task || event || {};
+        const id = event.taskId || event.task_id || src.id;
+        const description = src.description || event.description || 'Task';
+        const title = src.title || description || 'Untitled Task';
+
+        if (!id) return;
+
         const task = {
-            id: event.taskId || event.task_id,
-            title: event.title || 'Untitled Task',
-            description: event.description || '',
-            status: 'created',
-            progress: 0,
+            id,
+            title,
+            description,
+            status: src.status || 'created',
+            progress: src.progress || 0,
             timestamp: new Date().toISOString()
         };
 
@@ -179,23 +235,61 @@ class ACTWidgetSystem {
     handleTaskAssigned(event) {
         const taskId = event.taskId || event.task_id;
         const agentId = event.agentId || event.agent_id;
+        const taskPayload = event.task || {};
+        const description = taskPayload.description || taskPayload.title || 'Task';
+        const title = taskPayload.title || description || 'Untitled Task';
 
-        if (this.tasks.has(taskId)) {
-            const task = this.tasks.get(taskId);
-            task.status = 'assigned';
-            task.assignedAgent = agentId;
-            task.reasoning = event.reasoning || '';
-            this.updateTaskCoordinator();
-        }
+        if (!taskId || !agentId) return;
+
+        const existing = this.tasks.get(taskId) || {
+            id: taskId,
+            title,
+            description,
+            status: 'created',
+            progress: taskPayload.progress || 0
+        };
+
+        const statusVal = (!agentId || agentId === 'unassigned') ? 'pending' : 'assigned';
+        existing.status = statusVal;
+        existing.assignedAgent = agentId;
+        existing.reasoning = event.reason || event.reasoning || '';
+        this.tasks.set(taskId, existing);
+        this.updateTaskCoordinator();
 
         const agent = this.agents.get(agentId);
-        const agentName = agent ? agent.name : agentId;
-        const taskName = this.tasks.has(taskId) ? this.tasks.get(taskId).title : taskId;
+        const agentName = agent ? agent.name : (agentId && agentId !== 'unassigned' ? agentId : 'Unassigned');
+        const taskName = existing.title || taskId;
 
         this.addActivity('task_assigned',
             `Task "${taskName}" assigned to ${agentName}`,
-            { taskId, agentId, reasoning: event.reasoning }
+            { taskId, agentId, reasoning: existing.reasoning }
         );
+    }
+
+    handleTaskPending(event) {
+        const taskPayload = event.task || {};
+        const taskId = event.taskId || event.task_id || taskPayload.id;
+        if (!taskId) return;
+
+        const description = taskPayload.description || taskPayload.title || 'Task';
+        const title = taskPayload.title || description || 'Untitled Task';
+        const reason = event.reason || 'Pending (no suitable agent yet)';
+
+        const existing = this.tasks.get(taskId) || {
+            id: taskId,
+            title,
+            description,
+            status: 'pending',
+            progress: taskPayload.progress || 0
+        };
+
+        existing.status = 'pending';
+        existing.assignedAgent = 'unassigned';
+        existing.reasoning = reason;
+        this.tasks.set(taskId, existing);
+        this.updateTaskCoordinator();
+
+        this.addActivity('task_pending', `Task "${title}" pending: ${reason}`, { taskId, reason });
     }
 
     handleTaskProgress(event) {
@@ -231,6 +325,23 @@ class ACTWidgetSystem {
             `Task completed: ${taskName}`,
             event
         );
+    }
+
+    // Agent-to-agent messages
+    handleAgentMessage(event) {
+        const sender = event.sender || 'Unknown';
+        const message = event.message || '';
+        if (!message) return;
+        this.addActivity('agent_message', `${sender}: ${message}`, event);
+
+        const entry = {
+            sender,
+            message,
+            timestamp: event.timestamp || new Date().toISOString()
+        };
+        this.messages.unshift(entry);
+        if (this.messages.length > 20) this.messages.pop();
+        this.updateAgentMessages();
     }
 
     handleConflictDetected(event) {
@@ -285,6 +396,22 @@ class ACTWidgetSystem {
         );
     }
 
+    handleProjectStatusUpdate(event) {
+        const status = event.status || {};
+        const project = {
+            id: 'project_status',
+            name: 'Project',
+            milestone: status.status || 'active',
+            progress: status.progress || 0
+        };
+        this.projects.set(project.id, project);
+        this.updateProjectStatus();
+        this.addActivity('project_status',
+            `Project status: ${project.milestone} (${project.progress}%)`,
+            project
+        );
+    }
+
     handleProgressUpdate(event) {
         // Generic progress update for any metric
         this.addActivity('progress',
@@ -318,10 +445,12 @@ class ACTWidgetSystem {
         let html = '';
         for (const [id, agent] of this.agents) {
             const capabilitiesStr = agent.capabilities.join(', ') || 'No capabilities';
+            const modelStr = agent.model ? `🧠 ${agent.model}${agent.provider ? ` (${agent.provider})` : ''}` : '🧠 model: n/a';
             html += `
                 <div class="agent-item status-${agent.status}">
                     <div class="agent-name">${agent.name}</div>
                     <div class="agent-capabilities">📌 ${capabilitiesStr}</div>
+                    <div class="agent-capabilities">${modelStr}</div>
                 </div>
             `;
         }

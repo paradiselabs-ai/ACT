@@ -1,8 +1,10 @@
 import express from 'express';
+import path from 'path';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { AgentRegistry } from './services/AgentRegistry';
+import { Task } from './services/TaskCoordinator';
 import { TaskCoordinator } from './services/TaskCoordinator';
 import { EventHub } from './services/EventHub';
 import { SelfImprovementEngine } from './services/SelfImprovementEngine';
@@ -15,26 +17,70 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://localhost:5000"],
+    origin: ["http://localhost:3000", "http://localhost:3001", "http://localhost:5173", "http://localhost:5000", "http://localhost:8080"],
     methods: ["GET", "POST"]
   }
 });
 
 // Middleware
 app.use(cors());
+app.use(express.static("public"));
 app.use(express.json());
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(process.cwd(), "public/index.html"));
+});
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(process.cwd(), "public/index.html"));
+});
 
 // Core ACT Services
 const agentRegistry = new AgentRegistry();
-const taskCoordinator = new TaskCoordinator(agentRegistry);
 const chronologicalLog = new ChronologicalLog();
 const vectorStore = new MockVectorStore();
+const pvmIndexer = new PVMIndexer(chronologicalLog, vectorStore);
+const taskCoordinator = new TaskCoordinator(agentRegistry, pvmIndexer);
 const eventHub = new EventHub(io, agentRegistry, taskCoordinator, chronologicalLog);
 const selfImprovementEngine = new SelfImprovementEngine(agentRegistry, taskCoordinator, eventHub);
-const pvmIndexer = new PVMIndexer(chronologicalLog, vectorStore);
+
+const normalizeStatus = (progress: number | undefined, status?: string): Task['status'] | undefined => {
+  if (progress !== undefined && progress >= 100) return 'completed';
+  if (!status) {
+    if (progress && progress > 0) return 'in_progress';
+    return undefined;
+  }
+  const lowered = status.toLowerCase();
+  if (['completed', 'in_progress', 'assigned', 'pending', 'failed'].includes(lowered)) {
+    return lowered as Task['status'];
+  }
+  // Map common phrases
+  if (lowered.includes('complete')) return 'completed';
+  if (lowered.includes('progress') || lowered.includes('working') || lowered.includes('analysis') || lowered.includes('plan')) return 'in_progress';
+  return undefined;
+};
+
+const getProjectStatusSummary = () => {
+  const allTasks = taskCoordinator.getAllTasks();
+  const totalTasks = allTasks.length;
+  const completedTasks = allTasks.filter(task => task.status === 'completed').length;
+  const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  return {
+    status: totalTasks === 0 ? 'initializing' : completedTasks === totalTasks ? 'completed' : 'active',
+    progress: progress,
+    activeAgents: agentRegistry.getOnlineAgentCount(),
+    totalTasks: totalTasks,
+    completedTasks: completedTasks
+  };
+};
 
 // Start PVM indexing
-pvmIndexer.startIndexing(10000); // Check for new events every 10 seconds
+chronologicalLog.initialize().then(() => {
+  pvmIndexer.startIndexing(10000); // Check for new events every 10 seconds
+  logger.info('✅ ChronologicalLog initialized and PVM indexing started');
+}).catch(err => {
+  logger.error(`❌ Failed to initialize ChronologicalLog: ${err.message}`);
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -99,26 +145,46 @@ io.on('connection', (socket) => {
   // Agent registration
   socket.on('register_agent', async (data) => {
     try {
-      const { agentId, capabilities, name } = data;
+      const { agentId, capabilities, name, model, provider } = data;
       console.log(`🤖 AGENT REGISTRATION: ${agentId} with capabilities: ${capabilities?.join(', ')}`);
 
       await agentRegistry.registerAgent(agentId, {
         name: name || agentId,
         capabilities: capabilities || [],
+        model,
+        provider,
         socketId: socket.id,
         status: 'online'
       });
 
-      socket.emit('agent_registered', { success: true, agentId });
+      socket.emit('agent_registered', {
+        success: true,
+        agentId,
+        agent: {
+          id: agentId,
+          name: name || agentId,
+          capabilities: capabilities || [],
+          model,
+          provider,
+          status: 'online'
+        }
+      });
 
       // Broadcast to all clients (especially Windsurf's dashboard!)
       io.emit('agent_joined', {
-        agentId,
-        name: name || agentId,
-        capabilities,
+        agent: {
+          id: agentId,
+          name: name || agentId,
+          capabilities: capabilities || [],
+          model,
+          provider,
+          status: 'online'
+        },
         timestamp: new Date().toISOString()
       });
 
+      io.emit('project_status_update', { status: getProjectStatusSummary() });
+      await taskCoordinator.retryPendingTasks();
       console.log(`✅ AGENT REGISTERED: ${agentId} - Ready for coordination!`);
       // AgentRegistry already logs registration
     } catch (error: any) {
@@ -145,6 +211,7 @@ io.on('connection', (socket) => {
           timestamp: new Date().toISOString()
         });
 
+        io.emit('project_status_update', { status: getProjectStatusSummary() });
         logger.info(`Task ${task.id} assigned to ${assignment.agentId}`);
       } else {
         console.log(`⏳ TASK PENDING: ${task.id} - No suitable agent available`);
@@ -154,6 +221,14 @@ io.on('connection', (socket) => {
           reason: 'No suitable agent available',
           timestamp: new Date().toISOString()
         });
+        io.emit('conflict_detected', [{
+          type: 'capability_mismatch',
+          involvedTasks: [task.id],
+          involvedAgents: [],
+          severity: 'low',
+          suggestedResolution: 'No suitable agent available; awaiting PVM/best-effort fallback'
+        }]);
+        io.emit('project_status_update', { status: getProjectStatusSummary() });
       }
 
       socket.emit('task_created', { success: true, task });
@@ -167,18 +242,24 @@ io.on('connection', (socket) => {
   socket.on('task_progress', async (data) => {
     try {
       const { taskId, progress, status, message } = data;
-      console.log(`📊 TASK PROGRESS: ${taskId} → ${progress}% ${status ? '- ' + status : ''}`);
 
-      await taskCoordinator.updateTaskProgress(taskId, { progress, status, message });
+      const statusToApply = normalizeStatus(progress, status);
+      await taskCoordinator.updateTaskProgress(taskId, { progress, status: statusToApply, message });
 
       io.emit('task_progress', {
         taskId,
         progress,
-        status,
+        status: statusToApply,
         message,
         timestamp: new Date().toISOString()
       });
 
+      const task = taskCoordinator.getTask(taskId);
+      if (task && task.status === 'completed') {
+        io.emit('task_completed', { taskId, task, timestamp: new Date().toISOString() });
+      }
+
+      io.emit('project_status_update', { status: getProjectStatusSummary() });
       logger.info(`Task ${taskId} progress: ${progress}% - ${status}`);
     } catch (error: any) {
       logger.error(`Task progress update failed: ${error.message}`);
@@ -189,37 +270,62 @@ io.on('connection', (socket) => {
   socket.on('update_task_progress', async (data) => {
     try {
       const { taskId, progress, status, message, agentId } = data;
-      await taskCoordinator.updateTaskProgress(taskId, { progress, status, message });
+
+      const statusToApply = normalizeStatus(progress, status);
+      await taskCoordinator.updateTaskProgress(taskId, { progress, status: statusToApply, message });
 
       io.emit('task_progress', {
         taskId,
         progress,
-        status: status || `${progress}% complete`,
+        status: statusToApply || `${progress}% complete`,
         message,
         timestamp: new Date().toISOString()
       });
 
+      const task = taskCoordinator.getTask(taskId);
+      if (task && task.status === 'completed') {
+        io.emit('task_completed', { taskId, task, timestamp: new Date().toISOString() });
+      }
+
+      io.emit('project_status_update', { status: getProjectStatusSummary() });
       logger.info(`Task ${taskId} progress from ${agentId}: ${progress}%${status ? ' - ' + status : ''}`);
     } catch (error: any) {
       logger.error(`Task progress update failed: ${error.message}`);
     }
   });
 
-  // Agent-to-agent messaging
+  // Agent-to-agent messaging - INTELLIGENT COORDINATION
   socket.on('agent_message', async (data) => {
     try {
       const { sender, message, timestamp } = data;
 
-      // Broadcast message to all connected agents
+      // Log the message to ChronologicalLog for PVM
+      await chronologicalLog.append({
+        timestamp: timestamp || new Date().toISOString(),
+        agent: sender,
+        message: message,
+        type: 'coordination' // Use generic coordination type for now
+      });
+
+      // Broadcast original message to all other agents
       socket.broadcast.emit('agent_message', {
         sender,
         message,
         timestamp: timestamp || new Date().toISOString()
       });
 
-      logger.info(`Agent message from ${sender}: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`);
+      // ACT INTELLIGENT COORDINATION: Decide if/how other agents should respond
+      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      logger.info(`🤖 COORDINATION START: Calling eventHub.coordinateAgentCommunication for sender: ${sender}`);
+      logger.info(`🤖 COORDINATION DEBUG: eventHub exists: ${!!eventHub}`);
+      if (eventHub) {
+        await eventHub.coordinateAgentCommunication(sender, message, messageId);
+        logger.info(`🤖 COORDINATED: Agent ${sender} message processed, coordination evaluated`);
+      } else {
+        logger.error(`🤖 COORDINATION ERROR: eventHub is undefined!`);
+      }
     } catch (error: any) {
-      logger.error(`Agent message failed: ${error.message}`);
+      logger.error(`Agent message coordination failed: ${error.message}`);
     }
   });
 
@@ -242,21 +348,9 @@ io.on('connection', (socket) => {
 
   // Request handlers for dashboard
   socket.on('get_project_status', () => {
-    const allTasks = taskCoordinator.getAllTasks();
-    const totalTasks = allTasks.length;
-    const completedTasks = allTasks.filter(task => task.status === 'completed').length;
-    const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-    const projectStatus = {
-      status: totalTasks === 0 ? 'initializing' : completedTasks === totalTasks ? 'completed' : 'active',
-      progress: progress,
-      activeAgents: agentRegistry.getOnlineAgentCount(),
-      totalTasks: totalTasks,
-      completedTasks: completedTasks
-    };
-
+    const projectStatus = getProjectStatusSummary();
     socket.emit('project_status_update', { status: projectStatus });
-    logger.info(`Sent project status: ${progress}% complete, ${projectStatus.activeAgents} agents online`);
+    logger.info(`Sent project status: ${projectStatus.progress}% complete, ${projectStatus.activeAgents} agents online`);
   });
 
   socket.on('get_agent_registry', () => {
@@ -265,6 +359,7 @@ io.on('connection', (socket) => {
     agents.forEach(agent => {
       socket.emit('agent_registered', { agent });
     });
+    socket.emit('project_status_update', { status: getProjectStatusSummary() });
     logger.info(`Sent ${agents.length} agents to client`);
   });
 

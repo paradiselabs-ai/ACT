@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { AgentRegistry, Agent } from './AgentRegistry';
+import { PVMIndexer } from './PVMIndexer';
 import { logger } from '../utils/logger';
 
 export interface Task {
@@ -38,10 +39,12 @@ export class TaskCoordinator extends EventEmitter {
   private tasks: Map<string, Task> = new Map();
   private assignments: Map<string, TaskAssignment> = new Map();
   private agentRegistry: AgentRegistry;
+  private pvmIndexer?: PVMIndexer;
 
-  constructor(agentRegistry: AgentRegistry) {
+  constructor(agentRegistry: AgentRegistry, pvmIndexer?: PVMIndexer) {
     super();
     this.agentRegistry = agentRegistry;
+    this.pvmIndexer = pvmIndexer;
   }
 
   async createTask(taskData: Partial<Task>): Promise<Task> {
@@ -85,30 +88,52 @@ export class TaskCoordinator extends EventEmitter {
     }
 
     // Find optimal agent
-    const optimalAgent = this.agentRegistry.getOptimalAgent(task.requiredCapabilities);
-    if (!optimalAgent) {
-      logger.warn(`No suitable agent found for task ${taskId}`);
+    let selectedAgent = this.agentRegistry.getOptimalAgent(task.requiredCapabilities);
+    let reason = selectedAgent
+      ? `Optimal match for capabilities: ${task.requiredCapabilities.join(', ')}`
+      : '';
+
+    // PVM fallback if no capability match
+    if (!selectedAgent && this.pvmIndexer) {
+      const pvmAgentId = await this.pickAgentFromPVM(task);
+      if (pvmAgentId) {
+        selectedAgent = this.agentRegistry.getAgent(pvmAgentId) || null;
+        reason = `PVM similarity match from prior coordination`;
+      }
+    }
+
+    // Best-effort fallback if still none (as requested, always try)
+    if (!selectedAgent) {
+      const bestEffort = this.getBestEffortAgent();
+      if (bestEffort) {
+        selectedAgent = bestEffort;
+        reason = `Best-effort assignment (no capability/PVM match)`;
+      }
+    }
+
+    if (!selectedAgent) {
+      logger.warn(`No agent available for task ${taskId}, leaving pending for PVM/availability retry`);
       return null;
     }
 
     // Create assignment
     const assignment: TaskAssignment = {
       taskId: task.id,
-      agentId: optimalAgent.id,
+      agentId: selectedAgent.id,
       assignedAt: new Date(),
-      reason: `Optimal match for capabilities: ${task.requiredCapabilities.join(', ')}`
+      reason: reason || 'Assigned'
     };
 
     // Update task and agent
     task.status = 'assigned';
-    task.assignedAgent = optimalAgent.id;
+    task.assignedAgent = selectedAgent.id;
 
-    await this.agentRegistry.updateAgentStatus(optimalAgent.id, 'busy', task.id);
+    await this.agentRegistry.updateAgentStatus(selectedAgent.id, 'busy', task.id);
 
     this.assignments.set(task.id, assignment);
     this.emit('task_assigned', { task, assignment });
 
-    logger.info(`Task ${taskId} assigned to agent ${optimalAgent.id}`);
+    logger.info(`Task ${taskId} assigned to agent ${selectedAgent.id} (${assignment.reason})`);
 
     return assignment;
   }
@@ -206,6 +231,11 @@ export class TaskCoordinator extends EventEmitter {
         logger.error(`Failed to assign task ${task.id}: ${error.message}`);
       }
     }
+  }
+
+  // Expose pending retry for external triggers (e.g., agent status changes)
+  public async retryPendingTasks(): Promise<void> {
+    await this.processPendingTasks();
   }
 
   async detectConflicts(): Promise<ConflictDetection[]> {
@@ -328,38 +358,36 @@ export class TaskCoordinator extends EventEmitter {
     return this.tasks.size;
   }
 
-  // Demo helper method
+  // Minimal demo project helper to satisfy EventHub callers
   async createDemoProject(): Promise<Task[]> {
-    const tasks: Task[] = [];
+    return [];
+  }
 
-    // Create a "Build Todo App" project
-    const backendTask = await this.createTask({
-      description: 'Create Flask API for todo app',
-      requiredCapabilities: ['python', 'backend', 'api'],
-      priority: 'high',
-      estimatedDuration: 30
-    });
+  private async pickAgentFromPVM(task: Task): Promise<string | null> {
+    try {
+      if (!this.pvmIndexer) return null;
+      const queryText = `${task.description} | capabilities: ${task.requiredCapabilities.join(', ')}`;
+      const results = await this.pvmIndexer.search(queryText, 5);
+      for (const result of results) {
+        const candidateId = (result.message as any).agent;
+        if (!candidateId) continue;
+        const agent = this.agentRegistry.getAgent(candidateId);
+        if (agent && agent.status !== 'offline' && !agent.currentTask) {
+          return candidateId;
+        }
+      }
+      return null;
+    } catch (error: any) {
+      logger.error(`PVM fallback search failed for task ${task.id}: ${error.message}`);
+      return null;
+    }
+  }
 
-    const frontendTask = await this.createTask({
-      description: 'Create React frontend for todo app',
-      requiredCapabilities: ['react', 'frontend', 'javascript'],
-      priority: 'high',
-      dependencies: [backendTask.id],
-      estimatedDuration: 45
-    });
-
-    const testingTask = await this.createTask({
-      description: 'Test todo app functionality',
-      requiredCapabilities: ['testing', 'qa'],
-      priority: 'medium',
-      dependencies: [frontendTask.id],
-      estimatedDuration: 20
-    });
-
-    tasks.push(backendTask, frontendTask, testingTask);
-
-    logger.info('Demo project created with 3 coordinated tasks');
-    return tasks;
+  private getBestEffortAgent(): Agent | null {
+    const available = this.agentRegistry.getAvailableAgents();
+    if (available.length === 0) return null;
+    const sorted = [...available].sort((a, b) => (b.performanceScore || 0) - (a.performanceScore || 0));
+    return sorted[0] || null;
   }
 }
 
