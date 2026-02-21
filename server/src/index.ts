@@ -97,8 +97,184 @@ app.get('/api/agents', (req, res) => {
   res.json(agentRegistry.getAllAgents());
 });
 
+// REST-based agent registration (for MCP bridge - no socket required)
+app.post('/api/agents/register', async (req, res) => {
+  try {
+    const { agentId, name, capabilities, model, provider } = req.body;
+    if (!agentId) return res.status(400).json({ success: false, error: 'agentId is required' });
+
+    const agent = await agentRegistry.registerAgent(agentId, {
+      name: name || agentId,
+      capabilities: capabilities || [],
+      model,
+      provider,
+      status: 'online'
+    });
+
+    io.emit('agent_joined', { agent, timestamp: new Date().toISOString() });
+    await taskCoordinator.retryPendingTasks();
+    res.json({ success: true, agent });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// In-memory project store
+interface ProjectRecord {
+  name: string;
+  workspace: string;
+  description: string;
+  techStack: string;
+  constraints?: string;
+  successCriteria: string;
+  agents: string[];
+  status: 'planning' | 'active' | 'paused' | 'completed';
+  createdAt: string;
+  briefs: Record<string, string>; // agentId → AGENT.md content
+}
+const projects = new Map<string, ProjectRecord>();
+
+// Project endpoints
+app.post('/api/projects', (req, res) => {
+  const { name, workspace, description, techStack, constraints, successCriteria, agents } = req.body;
+  if (!name || !workspace) return res.status(400).json({ success: false, error: 'name and workspace required' });
+
+  const project: ProjectRecord = {
+    name,
+    workspace,
+    description: description || '',
+    techStack: techStack || '',
+    constraints,
+    successCriteria: successCriteria || '',
+    agents: agents || [],
+    status: 'planning',
+    createdAt: new Date().toISOString(),
+    briefs: {}
+  };
+  projects.set(name, project);
+  res.json({ success: true, project });
+});
+
+app.get('/api/projects', (req, res) => {
+  res.json(Array.from(projects.values()));
+});
+
+app.get('/api/projects/:name', (req, res) => {
+  const project = projects.get(req.params.name);
+  if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
+  res.json({ success: true, project });
+});
+
+app.patch('/api/projects/:name', (req, res) => {
+  const project = projects.get(req.params.name);
+  if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
+  Object.assign(project, req.body);
+  res.json({ success: true, project });
+});
+
+// Brief endpoints
+app.post('/api/projects/:name/briefs', (req, res) => {
+  const project = projects.get(req.params.name);
+  if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
+  const { agentId, content } = req.body;
+  if (!agentId || !content) return res.status(400).json({ success: false, error: 'agentId and content required' });
+  project.briefs[agentId] = content;
+  res.json({ success: true });
+});
+
+app.get('/api/projects/:name/briefs/:agentId', (req, res) => {
+  const project = projects.get(req.params.name);
+  if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
+  const content = project.briefs[req.params.agentId];
+  if (!content) return res.status(404).json({ success: false, error: 'No brief for this agent' });
+  res.json({ success: true, content });
+});
+
+// REST task endpoints
 app.get('/api/tasks', (req, res) => {
   res.json(taskCoordinator.getAllTasks());
+});
+
+app.post('/api/tasks', async (req, res) => {
+  try {
+    const task = await taskCoordinator.createTask(req.body);
+    if (task.assignedAgent) {
+      await taskCoordinator.updateTaskProgress(task.id, { status: 'assigned' });
+    } else {
+      const assignment = await taskCoordinator.assignOptimalAgent(task.id);
+      if (assignment) {
+        io.emit('task_assigned', { taskId: task.id, agentId: assignment.agentId, task, timestamp: new Date().toISOString() });
+      }
+    }
+    res.json({ success: true, task: taskCoordinator.getTask(task.id) });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get the active task assigned to a specific agent (must be before /:taskId)
+app.get('/api/tasks/assigned', (req, res) => {
+  const agentId = req.query.agent_id as string;
+  if (!agentId) return res.status(400).json({ success: false, error: 'agent_id is required' });
+
+  const tasks = taskCoordinator.getTasksByAgent(agentId);
+  const active = tasks.find(t => t.status === 'assigned' || t.status === 'in_progress');
+  res.json({ success: true, task: active || null });
+});
+
+app.get('/api/tasks/:taskId', (req, res) => {
+  const task = taskCoordinator.getTask(req.params.taskId);
+  if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+  res.json({ success: true, task });
+});
+
+// Update task progress
+app.post('/api/tasks/:taskId/progress', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { agentId, progress, status, message } = req.body;
+
+    await taskCoordinator.updateTaskProgress(taskId, { progress, status, message });
+    io.emit('task_progress_updated', { taskId, agentId, progress, status, message, timestamp: new Date().toISOString() });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Mark task complete or failed
+app.post('/api/tasks/:taskId/complete', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { agentId, success: taskSuccess, result } = req.body;
+
+    await taskCoordinator.updateTaskProgress(taskId, {
+      status: taskSuccess ? 'completed' : 'failed',
+      progress: taskSuccess ? 100 : undefined,
+      message: result
+    });
+
+    io.emit('task_completed', { taskId, agentId, success: taskSuccess, result, timestamp: new Date().toISOString() });
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Send an agent message (MCP bridge alternative to socket agent_message)
+app.post('/api/messages', async (req, res) => {
+  try {
+    const { sender, message } = req.body;
+    if (!sender || !message) return res.status(400).json({ success: false, error: 'sender and message are required' });
+
+    const senderAgent = agentRegistry.getAgent(sender);
+    if (eventHub) {
+      await eventHub.handleAgentMessage(sender, senderAgent?.name || sender, message, new Date().toISOString());
+    }
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // Self-improvement endpoints
@@ -299,33 +475,15 @@ io.on('connection', (socket) => {
     try {
       const { sender, message, timestamp } = data;
 
-      // Log the message to ChronologicalLog for PVM
-      await chronologicalLog.append({
-        timestamp: timestamp || new Date().toISOString(),
-        agent: sender,
-        message: message,
-        type: 'coordination' // Use generic coordination type for now
-      });
+      // Resolve the agent ID from the socket so we can rate-limit by identity
+      const senderAgent = agentRegistry.getAgentBySocketId(socket.id);
+      const senderId = senderAgent?.id || sender;
 
-      // Broadcast original message to all other agents
-      socket.broadcast.emit('agent_message', {
-        sender,
-        message,
-        timestamp: timestamp || new Date().toISOString()
-      });
-
-      // ACT INTELLIGENT COORDINATION: Decide if/how other agents should respond
-      const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      logger.info(`🤖 COORDINATION START: Calling eventHub.coordinateAgentCommunication for sender: ${sender}`);
-      logger.info(`🤖 COORDINATION DEBUG: eventHub exists: ${!!eventHub}`);
       if (eventHub) {
-        await eventHub.coordinateAgentCommunication(sender, message, messageId);
-        logger.info(`🤖 COORDINATED: Agent ${sender} message processed, coordination evaluated`);
-      } else {
-        logger.error(`🤖 COORDINATION ERROR: eventHub is undefined!`);
+        await eventHub.handleAgentMessage(senderId, sender, message, timestamp);
       }
     } catch (error: any) {
-      logger.error(`Agent message coordination failed: ${error.message}`);
+      logger.error(`Agent message handling failed: ${error.message}`);
     }
   });
 

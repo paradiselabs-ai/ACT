@@ -26,7 +26,13 @@ export type MessageType =
   | 'mcp_server_ready'
   | 'agent_status_check'
   | 'task_assignment_confirmation'
-  | 'coordination';
+  | 'coordination'
+  // Agent socket message types (used for real-time routing classification)
+  | 'status_update'
+  | 'direct_mention'
+  | 'help_request'
+  | 'question'
+  | 'peer_response';
 
 export interface AgentProfile {
   agentId: string;

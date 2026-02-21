@@ -1,7 +1,9 @@
 import { z } from 'zod';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { handleImprovementRequest, getImprovementEngineStatus } from '../improvement/handler.js';
 
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   RegisterWithActInputSchema,
   GetTaskInputSchema,
@@ -9,11 +11,29 @@ import {
   ReportTaskCompleteInputSchema,
   QueryCoordinationMemoryInputSchema,
   EvaluateCoordinationInputSchema,
-  ImproveCoordinationInputSchema
+  ImproveCoordinationInputSchema,
+  SendMessageInputSchema,
+  GetAgentBriefInputSchema
 } from '../schemas/index.js';
 
-// ACT Server Configuration
-const ACT_SERVER_URL = process.env.ACT_SERVER_URL || 'http://localhost:8080';
+// ACT Server base URL - override with ACT_SERVER_URL env var
+const ACT_SERVER_URL = (process.env.ACT_SERVER_URL || 'http://localhost:8080').replace(/\/$/, '');
+
+// Shared axios instance with timeout
+const http = axios.create({
+  baseURL: ACT_SERVER_URL,
+  timeout: 10_000,
+  headers: { 'Content-Type': 'application/json' }
+});
+
+// Normalise axios errors into a readable string
+function errMsg(e: unknown): string {
+  if (e instanceof AxiosError) {
+    const data = e.response?.data;
+    return data?.error || data?.message || e.message;
+  }
+  return e instanceof Error ? e.message : String(e);
+}
 
 // Tool Definitions
 export interface ToolDefinition {
@@ -26,26 +46,20 @@ export interface ToolDefinition {
 // Tool 1: register_with_act
 export const registerWithActTool: ToolDefinition = {
   name: 'register_with_act',
-  description: 'Register an agent with the ACT server',
+  description: 'Register this agent with the ACT coordination server. Call this once at the start of a session before using any other ACT tools.',
   inputSchema: RegisterWithActInputSchema,
   handler: async (input: unknown) => {
-    const validated = RegisterWithActInputSchema.parse(input);
-    
+    const { agent_id, name, capabilities } = RegisterWithActInputSchema.parse(input);
     try {
-      // In a real implementation, this would use WebSocket connection
-      // For now, we'll simulate the registration
-      console.log(`[ACT MCP] Registering agent: ${validated.agent_id}`);
-      
-      return {
-        success: true,
-        message: `Agent ${validated.agent_id} registered successfully`,
-        agent_id: validated.agent_id
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      const { data } = await http.post('/api/agents/register', {
+        agentId: agent_id,
+        name,
+        capabilities
+      });
+      console.error(`[ACT] Registered agent: ${agent_id}`);
+      return { success: true, agent_id, message: `Registered as "${name}" with capabilities: ${capabilities.join(', ')}` };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
     }
   }
 };
@@ -53,25 +67,18 @@ export const registerWithActTool: ToolDefinition = {
 // Tool 2: get_task
 export const getTaskTool: ToolDefinition = {
   name: 'get_task',
-  description: 'Get a task from the ACT task queue',
+  description: 'Check if ACT has assigned a task to this agent. Returns the task details if one is assigned, or null if none is waiting.',
   inputSchema: GetTaskInputSchema,
   handler: async (input: unknown) => {
-    const validated = GetTaskInputSchema.parse(input);
-    
+    const { agent_id } = GetTaskInputSchema.parse(input);
     try {
-      // In a real implementation, this would use WebSocket connection
-      // For now, we'll simulate getting a task
-      console.log(`[ACT MCP] Getting task for agent: ${validated.agent_id}`);
-      
-      return {
-        success: true,
-        task: null // No task available in simulation
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      const { data } = await http.get('/api/tasks/assigned', { params: { agent_id } });
+      if (data.task) {
+        console.error(`[ACT] Task for ${agent_id}: ${data.task.description}`);
+      }
+      return { success: true, task: data.task };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
     }
   }
 };
@@ -79,24 +86,21 @@ export const getTaskTool: ToolDefinition = {
 // Tool 3: report_task_progress
 export const reportTaskProgressTool: ToolDefinition = {
   name: 'report_task_progress',
-  description: 'Report progress on a task to the ACT server',
+  description: 'Report progress on a task to ACT. Call this periodically while working so other agents and the REPL stay informed.',
   inputSchema: ReportTaskProgressInputSchema,
   handler: async (input: unknown) => {
     const validated = ReportTaskProgressInputSchema.parse(input);
-    
     try {
-      // In a real implementation, this would use WebSocket connection
-      console.log(`[ACT MCP] Reporting progress for task ${validated.task_id}: ${validated.progress}%`);
-      
-      return {
-        success: true,
-        message: `Progress reported for task ${validated.task_id}`
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      await http.post(`/api/tasks/${validated.task_id}/progress`, {
+        agentId: validated.agent_id,
+        progress: validated.progress,
+        status: validated.status || 'in_progress',
+        message: validated.message
+      });
+      console.error(`[ACT] Progress ${validated.progress}% on task ${validated.task_id}`);
+      return { success: true, message: `Progress updated: ${validated.progress}%` };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
     }
   }
 };
@@ -104,111 +108,126 @@ export const reportTaskProgressTool: ToolDefinition = {
 // Tool 4: report_task_complete
 export const reportTaskCompleteTool: ToolDefinition = {
   name: 'report_task_complete',
-  description: 'Report completion of a task to the ACT server',
+  description: 'Report that a task is finished (or failed). ACT will update its records and may assign the next task.',
   inputSchema: ReportTaskCompleteInputSchema,
   handler: async (input: unknown) => {
     const validated = ReportTaskCompleteInputSchema.parse(input);
-    
     try {
-      // In a real implementation, this would use WebSocket connection
-      console.log(`[ACT MCP] Reporting completion for task ${validated.task_id}: ${validated.success ? 'success' : 'failure'}`);
-      
-      return {
-        success: true,
-        message: `Task ${validated.task_id} completion reported`
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      await http.post(`/api/tasks/${validated.task_id}/complete`, {
+        agentId: validated.agent_id,
+        success: validated.success,
+        result: validated.result
+      });
+      console.error(`[ACT] Task ${validated.task_id} ${validated.success ? 'completed' : 'failed'}`);
+      return { success: true, message: `Task ${validated.task_id} marked ${validated.success ? 'complete' : 'failed'}` };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
     }
   }
 };
 
-// Tool 5: query_coordination_memory
+// Tool 5: send_message
+export const sendMessageTool: ToolDefinition = {
+  name: 'send_message',
+  description: 'Send a message to other agents via ACT. Prefix with @AgentName (e.g. "@Morgan Can you review this?") to direct it to a specific agent. Plain messages are visible to all.',
+  inputSchema: SendMessageInputSchema,
+  handler: async (input: unknown) => {
+    const { sender, message } = SendMessageInputSchema.parse(input);
+    try {
+      await http.post('/api/messages', { sender, message });
+      console.error(`[ACT] Message sent from ${sender}`);
+      return { success: true, message: 'Message sent' };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
+    }
+  }
+};
+
+// Tool 6: query_coordination_memory
 export const queryCoordinationMemoryTool: ToolDefinition = {
   name: 'query_coordination_memory',
-  description: 'Query the PVM coordination memory using RAG search',
+  description: 'Search ACT\'s coordination memory (PVM) for past patterns, decisions, and outcomes relevant to your current task.',
   inputSchema: QueryCoordinationMemoryInputSchema,
   handler: async (input: unknown) => {
-    const validated = QueryCoordinationMemoryInputSchema.parse(input);
-    
+    const { query, limit } = QueryCoordinationMemoryInputSchema.parse(input);
     try {
-      // In a real implementation, this would query the PVM system
-      console.log(`[ACT MCP] Querying coordination memory: ${validated.query}`);
-      
-      return {
-        success: true,
-        results: [], // Empty results in simulation
-        query: validated.query
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      const { data } = await http.get('/api/pvm/search', { params: { query, limit } });
+      console.error(`[ACT] PVM search: "${query}" → ${data.results?.length ?? 0} results`);
+      return { success: true, results: data.results || [], query };
+    } catch (e) {
+      return { success: false, error: errMsg(e), results: [] };
     }
   }
 };
 
-// Tool 6: evaluate_coordination
+// Tool: get_agent_brief
+export const getAgentBriefTool: ToolDefinition = {
+  name: 'get_agent_brief',
+  description: 'Fetch your AGENT.md project brief from the ACT server. If write_to_directory is provided, writes the file to disk so you have persistent project context. Call this at the start of a project session.',
+  inputSchema: GetAgentBriefInputSchema,
+  handler: async (input: unknown) => {
+    const { project_name, agent_id, write_to_directory } = GetAgentBriefInputSchema.parse(input);
+    try {
+      const { data } = await http.get(
+        `/api/projects/${encodeURIComponent(project_name)}/briefs/${encodeURIComponent(agent_id)}`
+      );
+      const content: string = data.content;
+
+      if (write_to_directory) {
+        const filePath = path.join(write_to_directory, 'AGENT.md');
+        fs.writeFileSync(filePath, content, 'utf-8');
+        console.error(`[ACT] Wrote AGENT.md to ${filePath}`);
+        return { success: true, content, written_to: filePath };
+      }
+
+      return { success: true, content };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
+    }
+  }
+};
+
+// Tool 7: evaluate_coordination
 export const evaluateCoordinationTool: ToolDefinition = {
   name: 'evaluate_coordination',
-  description: 'Trigger FLUX State evaluation of coordination effectiveness',
+  description: 'Request an evaluation of coordination effectiveness for a given context. Returns analysis and suggestions.',
   inputSchema: EvaluateCoordinationInputSchema,
   handler: async (input: unknown) => {
     const validated = EvaluateCoordinationInputSchema.parse(input);
-    
     try {
-      // In a real implementation, this would trigger FLUX evaluation
-      console.log(`[ACT MCP] Evaluating coordination for context: ${validated.context}`);
-      
-      return {
-        success: true,
-        evaluation: {
-          context: validated.context,
-          score: 0.85, // Simulated score
-          feedback: 'Coordination is effective but could improve communication patterns'
-        }
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      const { data } = await http.post('/api/improve', {
+        scope: 'collaboration',
+        context: validated.context,
+        metrics: validated.metrics
+      });
+      return { success: true, evaluation: data.result || data };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
     }
   }
 };
 
-// Tool 7: improve_coordination
+// Tool 8: improve_coordination
 export const improveCoordinationTool: ToolDefinition = {
   name: 'improve_coordination',
-  description: 'Trigger surgical precision user-controlled improvement of coordination',
+  description: 'Trigger a targeted improvement analysis. Use this to get actionable suggestions for a specific area of coordination.',
   inputSchema: ImproveCoordinationInputSchema,
   handler: async (input: unknown) => {
-    // This tool now integrates with the Self-Improvement Engine
     return await handleImprovementRequest(input);
   }
 };
 
-// New Tool 8: get_improvement_status
+// Tool 9: get_improvement_status
 export const getImprovementStatusTool: ToolDefinition = {
   name: 'get_improvement_status',
-  description: 'Get the current status of the self-improvement engine',
+  description: 'Get the current status of the ACT self-improvement engine.',
   inputSchema: z.object({}),
   handler: async () => {
     try {
       const status = getImprovementEngineStatus();
-      return {
-        success: true,
-        status
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        error: error.message
-      };
+      return { success: true, status };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
     }
   }
 };

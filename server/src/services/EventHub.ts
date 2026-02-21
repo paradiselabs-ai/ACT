@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import { EventEmitter } from 'events';
-import { AgentRegistry } from './AgentRegistry';
+import { AgentRegistry, Agent } from './AgentRegistry';
 import { TaskCoordinator } from './TaskCoordinator';
 import { ChronologicalLog } from './ChronologicalLog';
 import { logger } from '../utils/logger';
@@ -13,6 +13,13 @@ export interface CoordinationEvent {
   timestamp: Date;
 }
 
+export type AgentMessageType = 'status_update' | 'direct_mention' | 'help_request' | 'question' | 'peer_response';
+
+export interface MessageClassification {
+  type: AgentMessageType;
+  targetAgentName?: string;
+}
+
 export class EventHub extends EventEmitter {
   private io: Server;
   private agentRegistry: AgentRegistry;
@@ -20,6 +27,18 @@ export class EventHub extends EventEmitter {
   private chronologicalLog: ChronologicalLog;
   private eventHistory: CoordinationEvent[] = [];
   private agentProfiles: Map<string, any> = new Map();
+
+  // Rate limiting: max 3 peer-initiated responses per agent per 30 seconds
+  private agentResponseTracker: Map<string, { count: number; windowStart: number }> = new Map();
+  private readonly RATE_LIMIT_MAX = 3;
+  private readonly RATE_LIMIT_WINDOW_MS = 30_000;
+
+  // Prefixes that mark a message as an agent status broadcast (should not trigger peer responses)
+  private readonly STATUS_PREFIXES = [
+    'starting work on:', 'analysis complete:', 'plan:', 'implementation:',
+    'task completed!', 'completed:', 'work plan ready:', 'implementation progress:',
+    'implementation update:', 'task failed:', 'starting:', 'progress:'
+  ];
 
   constructor(io: Server, agentRegistry: AgentRegistry, taskCoordinator: TaskCoordinator, chronologicalLog?: ChronologicalLog) {
     super();
@@ -128,162 +147,150 @@ export class EventHub extends EventEmitter {
   }
 
   /**
-   * Intelligent agent communication coordination
-   * ACT decides when and how agents should communicate
+   * Classify a message to determine its type and routing target.
+   * Priority order: direct_mention > status_update > question > help_request > peer_response
    */
-  public async coordinateAgentCommunication(senderId: string, message: string, messageId: string): Promise<void> {
-    try {
-      logger.info(`🤖 COORDINATION CHECK: Message from ${senderId}: "${message}"`);
+  public classifyMessage(message: string): MessageClassification {
+    const lower = message.toLowerCase().trimStart();
 
-      // Get all online agents except sender
-      const allAgents = this.agentRegistry.getAllAgents();
-      const onlineAgents = allAgents.filter(agent =>
-        agent.status === 'online' && agent.id !== senderId
-      );
-
-      logger.info(`🤖 COORDINATION CHECK: Found ${onlineAgents.length} online agents (excluding sender)`);
-
-      if (onlineAgents.length === 0) {
-        logger.debug('No other agents online for coordination');
-        return;
-      }
-
-      // Determine if this message warrants coordination
-      const coordinationNeeded = await this.shouldCoordinateMessage(senderId, message, messageId);
-
-      logger.info(`🤖 COORDINATION CHECK: Coordination needed? ${coordinationNeeded}`);
-
-      if (!coordinationNeeded) {
-        logger.debug(`Message from ${senderId} doesn't require coordination response`);
-        return;
-      }
-
-      // Find best agent to respond based on coordination context
-      const responderAgent = await this.selectCoordinationResponder(senderId, message, onlineAgents);
-
-      logger.info(`🤖 COORDINATION CHECK: Selected responder: ${responderAgent ? responderAgent.id : 'NONE'}`);
-
-      if (responderAgent) {
-        await this.generateAndSendCoordinationResponse(responderAgent, senderId, message, messageId);
-      }
-
-    } catch (error: any) {
-      logger.error(`Agent communication coordination failed: ${error.message}`);
+    // 1. Direct @mention - route only to the named agent
+    const mentionMatch = message.match(/^@(\S+)/);
+    if (mentionMatch) {
+      return { type: 'direct_mention', targetAgentName: mentionMatch[1] };
     }
+
+    // 2. Agent status broadcasts - observe only, never trigger peer responses
+    if (this.STATUS_PREFIXES.some(prefix => lower.startsWith(prefix))) {
+      return { type: 'status_update' };
+    }
+
+    // 3. Question directed at the room
+    if (message.includes('?')) {
+      return { type: 'question' };
+    }
+
+    // 4. Explicit help request
+    const helpKeywords = ['help', 'assist', 'need someone', 'can you', 'could you'];
+    if (helpKeywords.some(kw => lower.includes(kw))) {
+      return { type: 'help_request' };
+    }
+
+    // 5. General peer communication
+    return { type: 'peer_response' };
   }
 
-  private async shouldCoordinateMessage(senderId: string, message: string, messageId: string): Promise<boolean> {
-    // Coordination triggers:
-    // 1. Task completion announcements
-    // 2. Help requests
-    // 3. Progress updates that might affect others
-    // 4. Questions or clarifications
-    // 5. Critical decisions or changes
+  /**
+   * Rate-limit outgoing messages from an agent.
+   * Returns true if the message is allowed, false if it should be dropped.
+   */
+  private checkRateLimit(agentId: string): boolean {
+    const now = Date.now();
+    const tracker = this.agentResponseTracker.get(agentId);
 
-    const coordinationTriggers = [
-      'completed', 'finished', 'done',
-      'help', 'assist', 'support',
-      'question', 'clarify', 'unclear',
-      'issue', 'problem', 'error',
-      'change', 'update', 'modify'
-    ];
+    if (!tracker || now - tracker.windowStart > this.RATE_LIMIT_WINDOW_MS) {
+      this.agentResponseTracker.set(agentId, { count: 1, windowStart: now });
+      return true;
+    }
 
-    const lowerMessage = message.toLowerCase();
-    return coordinationTriggers.some(trigger => lowerMessage.includes(trigger));
+    if (tracker.count >= this.RATE_LIMIT_MAX) {
+      logger.warn(`🚦 Rate limit: ${agentId} exceeded ${this.RATE_LIMIT_MAX} messages in window — dropping`);
+      return false;
+    }
+
+    tracker.count++;
+    return true;
   }
 
-  private async selectCoordinationResponder(senderId: string, message: string, availableAgents: any[]): Promise<any | null> {
-    logger.info(`🤖 RESPONDER SELECTION: Looking for responder among ${availableAgents.length} agents`);
+  /**
+   * Find an agent by display name or agent ID (case-insensitive).
+   */
+  private findAgentByName(name: string): Agent | undefined {
+    const lower = name.toLowerCase();
+    return this.agentRegistry.getAllAgents().find(
+      a => a.name.toLowerCase() === lower || a.id.toLowerCase() === lower
+    );
+  }
 
-    // Use coordination intelligence to select responder
-    // Priority based on:
-    // 1. Agent's current task context
-    // 2. Agent's capabilities matching message content
-    // 3. Agent's historical collaboration patterns
-    // 4. Agent's current workload
+  /**
+   * Select the best available agent to handle a help request or question.
+   * Prefers agents with relevant capabilities, then falls back to any available agent.
+   */
+  private selectCoordinationResponder(senderId: string, message: string, candidates: Agent[]): Agent | null {
+    const lower = message.toLowerCase();
 
-    // For now, simple selection: least busy agent with relevant capabilities
-    const sender = this.agentRegistry.getAgent(senderId);
-
-    logger.info(`🤖 RESPONDER SELECTION: Available agents: ${availableAgents.map(a => `${a.id}(busy:${!!a.currentTask})`).join(', ')}`);
-
-    const relevantAgents = availableAgents.filter(agent => {
-      const notBusy = !agent.currentTask;
-      const hasRelevantCap = agent.capabilities.some((cap: string) => message.toLowerCase().includes(cap));
-
-      logger.info(`🤖 RESPONDER SELECTION: Agent ${agent.id} - notBusy: ${notBusy}, hasRelevantCap: ${hasRelevantCap} (caps: ${agent.capabilities.join(',')})`);
-
-      return notBusy && hasRelevantCap;
+    const relevant = candidates.filter(a => {
+      const available = !a.currentTask;
+      const capMatch = a.capabilities.some(cap => lower.includes(cap));
+      return available && capMatch;
     });
 
-    logger.info(`🤖 RESPONDER SELECTION: Found ${relevantAgents.length} relevant agents`);
-
-    if (relevantAgents.length > 0) {
-      const selected = relevantAgents[0];
-      logger.info(`🤖 RESPONDER SELECTION: Selected ${selected.id}`);
-      return selected; // Return first relevant agent
-    }
+    if (relevant.length > 0) return relevant[0];
 
     // Fallback: any available agent
-    const fallbackAgent = availableAgents.find(agent => !agent.currentTask);
-    logger.info(`🤖 RESPONDER SELECTION: No relevant agents, fallback: ${fallbackAgent ? fallbackAgent.id : 'NONE'}`);
-    return fallbackAgent || null;
+    return candidates.find(a => !a.currentTask) || null;
   }
 
-  private async generateAndSendCoordinationResponse(responderAgent: any, senderId: string, originalMessage: string, messageId: string): Promise<void> {
+  /**
+   * Main entry point for agent messages.
+   * Classifies, rate-limits, routes, and logs every incoming agent message.
+   */
+  public async handleAgentMessage(senderId: string, senderName: string, message: string, timestamp: string): Promise<void> {
     try {
-      // Generate coordination-appropriate response
-      const response = await this.generateCoordinationResponse(responderAgent, senderId, originalMessage);
+      // Drop messages that exceed the per-agent rate limit
+      if (!this.checkRateLimit(senderId)) return;
 
-      if (response) {
-        // Send response through the system as an agent_message from the responding agent
-        const responseData = {
-          sender: responderAgent.name,  // Use the agent's display name
-          message: `@${senderId} ${response}`,  // Tag the original sender
-          timestamp: new Date().toISOString()
-        };
+      const classification = this.classifyMessage(message);
+      const ts = timestamp || new Date().toISOString();
+      const payload = { sender: senderName, message, timestamp: ts, messageType: classification.type };
 
-        // Broadcast as agent_message so it appears in activity feeds
-        this.io.emit('agent_message', responseData);
-        logger.info(`📡 COORDINATION RESPONSE EMITTED: ${JSON.stringify(responseData)}`);
+      // Persist with the real message type instead of hardcoded 'coordination'
+      await this.chronologicalLog.append({
+        timestamp: ts,
+        agent: senderId,
+        message,
+        type: classification.type
+      }).catch(err => logger.error(`ChronologicalLog append failed: ${err.message}`));
 
-        // Also log to ChronologicalLog
-        this.chronologicalLog.append({
-          timestamp: responseData.timestamp,
-          agent: responderAgent.id,
-          message: responseData.message,
-          type: 'coordination'
-        }).catch(err => {
-          logger.error(`Failed to log coordination response: ${err.message}`);
-        });
+      switch (classification.type) {
+        case 'status_update':
+        case 'peer_response':
+          // Broadcast to all so agents can observe, but messageType signals "don't auto-respond"
+          this.io.emit('agent_message', payload);
+          logger.debug(`📡 [${classification.type}] ${senderId}: ${message.substring(0, 80)}`);
+          break;
 
-        logger.info(`🤖 COORDINATED RESPONSE: ${responderAgent.id} → ${senderId}: ${response.substring(0, 100)}...`);
+        case 'direct_mention': {
+          const targetName = classification.targetAgentName!;
+          const target = this.findAgentByName(targetName);
+          if (target?.socketId) {
+            this.io.to(target.socketId).emit('agent_message', payload);
+            logger.info(`📨 [direct_mention] ${senderId} → ${target.id} (${target.name})`);
+          } else {
+            // Target offline or not found — broadcast so message isn't lost
+            this.io.emit('agent_message', payload);
+            logger.warn(`📡 [direct_mention] Target "${targetName}" not found, broadcasting`);
+          }
+          break;
+        }
+
+        case 'help_request':
+        case 'question': {
+          const candidates = this.agentRegistry.getAllAgents().filter(
+            a => a.status === 'online' && a.id !== senderId
+          );
+          const responder = this.selectCoordinationResponder(senderId, message, candidates);
+          if (responder?.socketId) {
+            this.io.to(responder.socketId).emit('agent_message', payload);
+            logger.info(`📨 [${classification.type}] ${senderId} → ${responder.id}`);
+          } else {
+            this.io.emit('agent_message', payload);
+          }
+          break;
+        }
       }
     } catch (error: any) {
-      logger.error(`Failed to generate coordination response: ${error.message}`);
+      logger.error(`handleAgentMessage failed: ${error.message}`);
     }
-  }
-
-  private async generateCoordinationResponse(responderAgent: any, senderId: string, message: string): Promise<string | null> {
-    // This should use the agent's model to generate a response
-    // For now, return a simple coordination response
-    // In full implementation, this would call the agent's LLM
-
-    const sender = this.agentRegistry.getAgent(senderId);
-
-    if (message.toLowerCase().includes('help') || message.toLowerCase().includes('assist')) {
-      return `I can help with that. My expertise includes ${responderAgent.capabilities.join(', ')}.`;
-    }
-
-    if (message.toLowerCase().includes('completed') || message.toLowerCase().includes('done')) {
-      return `Great work! I'll note this completion for coordination purposes.`;
-    }
-
-    if (message.toLowerCase().includes('question') || message.toLowerCase().includes('clarify')) {
-      return `I understand you need clarification. Let me see how I can assist.`;
-    }
-
-    return null; // No response needed
   }
 
   private broadcastEvent(type: string, data: any): void {

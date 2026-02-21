@@ -4,6 +4,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 import { allTools, handleToolCall } from './tools/index.js';
 
@@ -29,7 +30,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: allTools.map(tool => ({
       name: tool.name,
       description: tool.description,
-      inputSchema: tool.inputSchema
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      inputSchema: zodToJsonSchema(tool.inputSchema as any) as Record<string, unknown>
     }))
   };
 });

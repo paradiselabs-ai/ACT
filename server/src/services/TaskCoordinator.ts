@@ -154,6 +154,10 @@ export class TaskCoordinator extends EventEmitter {
       task.progress = Math.max(0, Math.min(100, update.progress));
     }
 
+    if (update.message !== undefined) {
+      task.metadata = { ...(task.metadata || {}), result: update.message };
+    }
+
     if (update.status) {
       task.status = update.status;
 

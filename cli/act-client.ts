@@ -84,28 +84,6 @@ export class ACTClient {
     }
   }
 
-  async getProjects(): Promise<Project[]> {
-    try {
-      const response = await fetch(`${this.serverUrl}/api/tasks`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const tasks = await response.json();
-      // Group tasks into projects (simplified)
-      return [{
-        id: 'demo-project',
-        name: 'Demo Project',
-        workspace: '/demo',
-        status: 'active',
-        progress: 0,
-        tasks: tasks
-      }];
-    } catch (error: any) {
-      console.warn('Failed to fetch projects:', error.message);
-      return [];
-    }
-  }
-
   async getServerStatus(): Promise<ServerStatus> {
     try {
       const response = await fetch(`${this.serverUrl}/health`);
@@ -174,31 +152,99 @@ export class ACTClient {
     }
   }
 
-  async createTask(task: any): Promise<any> {
+  async createTaskREST(task: any): Promise<any> {
+    const response = await fetch(`${this.serverUrl}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(task)
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data.task;
+  }
+
+  async getTask(taskId: string): Promise<any> {
     try {
-      const response = await fetch(`${this.serverUrl}/api/tasks`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(task)
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return await response.json();
-    } catch (error: any) {
-      throw new Error(`Task creation failed: ${error.message}`);
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.task || null;
+    } catch {
+      return null;
     }
   }
 
-  // WebSocket connection for real-time events (future enhancement)
-  connectWebSocket(): WebSocket | null {
+  async updateTaskStatus(taskId: string, agentId: string, status: string): Promise<void> {
+    await fetch(`${this.serverUrl}/api/tasks/${taskId}/progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, status, progress: 0 })
+    });
+  }
+
+  async createProject(data: {
+    name: string;
+    workspace: string;
+    description: string;
+    techStack: string;
+    constraints?: string;
+    successCriteria: string;
+    agents: string[];
+  }): Promise<any> {
+    const response = await fetch(`${this.serverUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+    return result.project;
+  }
+
+  async getProjects(): Promise<any[]> {
     try {
-      const wsUrl = this.serverUrl.replace(/^http/, 'ws');
-      return new WebSocket(wsUrl);
-    } catch (error) {
-      console.warn('WebSocket connection failed:', error);
+      const response = await fetch(`${this.serverUrl}/api/projects`);
+      if (!response.ok) return [];
+      return await response.json();
+    } catch {
+      return [];
+    }
+  }
+
+  async getProject(name: string): Promise<any> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/projects/${encodeURIComponent(name)}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.project || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async storeBrief(projectName: string, agentId: string, content: string): Promise<void> {
+    const response = await fetch(`${this.serverUrl}/api/projects/${encodeURIComponent(projectName)}/briefs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, content })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+  }
+
+  async getBrief(projectName: string, agentId: string): Promise<string | null> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/projects/${encodeURIComponent(projectName)}/briefs/${encodeURIComponent(agentId)}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.content || null;
+    } catch {
       return null;
     }
   }

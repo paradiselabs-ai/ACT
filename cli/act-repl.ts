@@ -12,12 +12,69 @@ import { ACTClient } from './act-client.js';
 import { SessionManager } from './session-manager.js';
 import { HelpSystem } from './help-system.js';
 
+function buildPlanningPrompt(p: {
+  name: string;
+  workspace: string;
+  description: string;
+  techStack: string;
+  constraints?: string;
+  successCriteria: string;
+  participatingAgents: string[];
+}): string {
+  return `You are the ACTor — the designated planning agent for ACT multi-agent coordination.
+
+Analyze the project below and respond with ONLY a JSON object (no markdown, no prose):
+
+{
+  "tasks": [
+    {
+      "title": "short imperative task title",
+      "description": "detailed description of what to implement and why",
+      "requiredCapabilities": ["capability1", "capability2"],
+      "priority": "high|medium|low",
+      "estimatedDuration": 60
+    }
+  ],
+  "briefs": {
+    "<agentId>": "# AGENT.md\\n\\n## Project: ${p.name}\\n\\nFull brief in markdown..."
+  }
+}
+
+PROJECT:
+- Name: ${p.name}
+- Workspace: ${p.workspace}
+- Description: ${p.description}
+- Tech Stack: ${p.techStack || 'Not specified'}
+- Constraints: ${p.constraints || 'None'}
+- Success Criteria: ${p.successCriteria}
+- Participating Agents: ${p.participatingAgents.join(', ') || 'all connected agents'}
+
+TASK GUIDELINES:
+- Create 3-8 concrete, actionable tasks
+- Each task description should be self-contained (agent should know exactly what to do)
+- Set requiredCapabilities based on what tools/skills the task needs
+
+BRIEF GUIDELINES (one per participating agent):
+Each AGENT.md brief must cover:
+1. Project overview and purpose
+2. This agent's specific role and responsibilities
+3. Tech stack details relevant to their work
+4. Success criteria from their perspective
+5. ACT coordination instructions:
+   - Call register_with_act at session start
+   - Call get_task to receive assignments
+   - Call report_task_progress periodically
+   - Call report_task_complete when done
+   - Use send_message with @AgentName prefix for direct messages`;
+}
+
 export class ACTRepl {
   private rl: readline.Interface;
   private client: ACTClient;
   private sessionManager: SessionManager;
   private helpSystem: HelpSystem;
   private isRunning: boolean = false;
+  private isPrompting: boolean = false;
 
   constructor(serverUrl: string = 'http://localhost:8080') {
     this.client = new ACTClient(serverUrl);
@@ -116,7 +173,7 @@ export class ACTRepl {
       this.rl.prompt();
 
       this.rl.on('line', async (line) => {
-        if (!this.isRunning) return;
+        if (!this.isRunning || this.isPrompting) return;
         await this.processCommand(line.trim());
         if (this.isRunning) {
           this.rl.prompt();
@@ -342,38 +399,211 @@ export class ACTRepl {
   }
 
   private async handleCreateProject(args?: string): Promise<void> {
-    if (!args) {
-      console.log('Usage: create project <name> in <path>');
-      return;
-    }
+    // Step 1: Get name and workspace path
+    let name: string;
+    let workspace: string;
 
-    // Parse: "name in path"
-    const inIndex = args.indexOf(' in ');
-    if (inIndex === -1) {
-      console.log('Usage: create project <name> in <path>');
-      return;
-    }
-
-    const name = args.substring(0, inIndex).trim();
-    const path = args.substring(inIndex + 4).trim();
-
-    console.log(`Creating project "${name}"...`);
-    console.log(`  Workspace: ${path}`);
-
-    const defaultAgent = this.sessionManager.getDefaultAgent();
-    if (defaultAgent) {
-      console.log(`  Delegating decomposition to: ${defaultAgent} (default agent)`);
+    if (args) {
+      const inIndex = args.indexOf(' in ');
+      if (inIndex !== -1) {
+        name = args.substring(0, inIndex).trim();
+        workspace = args.substring(inIndex + 4).trim();
+      } else {
+        name = args.trim();
+        workspace = await this.prompt('  Workspace path: ');
+      }
     } else {
-      console.log('  Warning: No default agent set. Project creation may fail.');
+      name = await this.prompt('  Project name: ');
+      workspace = await this.prompt('  Workspace path: ');
     }
 
-    try {
-      // This would integrate with the actual project creation logic
-      console.log('\n[Project creation not yet implemented]');
-      console.log('This would analyze the project requirements and create a structured task breakdown.');
-    } catch (error: any) {
-      console.error('Failed to create project:', error.message);
+    if (!name || !workspace) {
+      console.log('Project name and workspace path are required.');
+      return;
     }
+
+    const bar = '─'.repeat(50);
+    console.log(`\n┌${bar}┐`);
+    const title = `  New Project: ${name}`;
+    console.log(`│${title.padEnd(50)} │`);
+    console.log(`└${bar}┘`);
+    console.log('\nAnswer a few questions to set up your project.\n');
+
+    // Step 2: Collect project details
+    const description = await this.prompt('  What are you building?\n  > ');
+    if (!description) { console.log('Description is required.'); return; }
+
+    const techStack = await this.prompt('\n  Technologies / stack (e.g. "TypeScript, React, PostgreSQL"):\n  > ');
+    const constraints = await this.prompt('\n  Any constraints? (timeline, must-use tools — Enter to skip):\n  > ');
+    const successCriteria = await this.prompt('\n  What does success look like?\n  > ');
+    if (!successCriteria) { console.log('Success criteria is required.'); return; }
+
+    // Step 3: Agents
+    const agents = await this.client.getAgents();
+    if (agents.length > 0) {
+      console.log('\n  Connected agents:');
+      agents.forEach(a => console.log(`    • ${a.id} (${a.name || a.id})`));
+    } else {
+      console.log('\n  No agents currently connected.');
+    }
+    const agentsInput = await this.prompt('\n  Which agents will work on this? (comma-separated IDs, Enter for all):\n  > ');
+    const participatingAgents = agentsInput
+      ? agentsInput.split(',').map(s => s.trim()).filter(Boolean)
+      : agents.map(a => a.id);
+
+    // Step 4: Create project record
+    console.log(`\n  Creating project "${name}"...`);
+    let project: any;
+    try {
+      project = await this.client.createProject({
+        name,
+        workspace,
+        description,
+        techStack: techStack || '',
+        constraints: constraints || undefined,
+        successCriteria,
+        agents: participatingAgents
+      });
+    } catch (error: any) {
+      console.error('  ❌ Failed to create project:', error.message);
+      return;
+    }
+    console.log('  ✅ Project saved.');
+
+    // Step 5: Planning via ACTor
+    const defaultAgent = this.sessionManager.getDefaultAgent();
+    if (!defaultAgent) {
+      console.log('\n  ⚠️  No default agent set — skipping AI planning.');
+      console.log('  Set a default agent:  default agent <id>');
+      console.log('  Then re-run:          create project ' + name + ' in ' + workspace + '\n');
+      return;
+    }
+
+    const actorAgent = agents.find(a => a.id === defaultAgent);
+    if (!actorAgent) {
+      console.log(`\n  ⚠️  Default agent "${defaultAgent}" is not connected.`);
+      console.log('  Connect the agent first, then re-create the project.\n');
+      return;
+    }
+
+    const planningDesc = buildPlanningPrompt({ name, workspace, description, techStack, constraints, successCriteria, participatingAgents });
+
+    console.log(`\n  Assigning planning task to ${actorAgent.name || defaultAgent}...`);
+    let planningTask: any;
+    try {
+      planningTask = await this.client.createTaskREST({
+        description: planningDesc,
+        requiredCapabilities: [],
+        priority: 'high',
+        assignedAgent: defaultAgent,
+        metadata: { type: 'planning', projectName: name }
+      });
+    } catch (error: any) {
+      console.error('  ❌ Failed to create planning task:', error.message);
+      return;
+    }
+
+    console.log(`\n  Waiting for ${actorAgent.name || defaultAgent} to analyze your project...`);
+    console.log('  (Agent must call get_task, complete it, then call report_task_complete with JSON)');
+    console.log('  Press Ctrl+C to cancel — task stays active, resume with: continue project ' + name + '\n');
+
+    const result = await this.pollWithSpinner(planningTask.id, 180_000);
+
+    if (!result) {
+      console.log('\n  ⏱  Timed out. The planning task is still open.');
+      console.log('  When the agent completes it, run: continue project ' + name + '\n');
+      return;
+    }
+
+    // Step 6: Parse breakdown and create tasks
+    let breakdown: any;
+    try {
+      breakdown = JSON.parse(result);
+    } catch {
+      console.log('\n  ⚠️  Agent returned non-JSON result. Raw output:');
+      console.log('  ' + result.substring(0, 500));
+      return;
+    }
+
+    const tasks: any[] = breakdown.tasks || [];
+    console.log(`\n  Planning complete! Creating ${tasks.length} tasks...\n`);
+
+    for (const taskDef of tasks) {
+      try {
+        await this.client.createTaskREST({
+          description: taskDef.description || taskDef.title,
+          requiredCapabilities: taskDef.requiredCapabilities || [],
+          priority: taskDef.priority || 'medium',
+          estimatedDuration: taskDef.estimatedDuration,
+          metadata: { projectName: name, title: taskDef.title }
+        });
+        console.log(`  ✓ ${taskDef.title}`);
+      } catch (e: any) {
+        console.log(`  ✗ "${taskDef.title}": ${e.message}`);
+      }
+    }
+
+    // Step 7: Store briefs
+    const briefs: Record<string, string> = breakdown.briefs || {};
+    const briefEntries = Object.entries(briefs);
+    if (briefEntries.length > 0) {
+      console.log(`\n  Storing AGENT.md briefs for ${briefEntries.length} agent(s)...`);
+      for (const [agentId, content] of briefEntries) {
+        try {
+          await this.client.storeBrief(name, agentId, content);
+          console.log(`  ✓ Brief stored for ${agentId}`);
+        } catch (e: any) {
+          console.log(`  ✗ Brief for ${agentId}: ${e.message}`);
+        }
+      }
+    }
+
+    const divider = '━'.repeat(50);
+    console.log(`\n  ${divider}`);
+    console.log(`  Project "${name}" is ready!`);
+    console.log(`  Tasks created:  ${tasks.length}`);
+    console.log(`  Agents:         ${participatingAgents.join(', ') || 'none specified'}`);
+    console.log(`\n  Each agent should:`);
+    console.log('  1. Call register_with_act to join the session');
+    console.log('  2. Call get_agent_brief to fetch their AGENT.md context');
+    console.log('  3. Call get_task to receive their first assigned task');
+    console.log(`  ${divider}\n`);
+  }
+
+  /** Prompt the user for a single line of input, pausing the main command loop. */
+  private prompt(question: string): Promise<string> {
+    return new Promise(resolve => {
+      this.isPrompting = true;
+      this.rl.question(question, answer => {
+        this.isPrompting = false;
+        resolve(answer.trim());
+      });
+    });
+  }
+
+  /** Poll a task until completed/failed or timeout. Returns metadata.result or null. */
+  private async pollWithSpinner(taskId: string, timeoutMs: number): Promise<string | null> {
+    const intervalMs = 3000;
+    const start = Date.now();
+    let dots = 0;
+
+    while (Date.now() - start < timeoutMs) {
+      const task = await this.client.getTask(taskId);
+      if (task?.status === 'completed') {
+        process.stdout.write('\r' + ' '.repeat(60) + '\r');
+        return task.metadata?.result ?? null;
+      }
+      if (task?.status === 'failed') {
+        process.stdout.write('\r' + ' '.repeat(60) + '\r');
+        return null;
+      }
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      process.stdout.write(`\r  ⏳ Analyzing${'.'.repeat(dots + 1)}   (${elapsed}s elapsed)`);
+      dots = (dots + 1) % 3;
+      await new Promise(r => setTimeout(r, intervalMs));
+    }
+    process.stdout.write('\r' + ' '.repeat(60) + '\r');
+    return null;
   }
 
   private async handleContinueProject(args?: string): Promise<void> {
@@ -381,17 +611,41 @@ export class ACTRepl {
       console.log('Usage: continue project <name>');
       return;
     }
-    console.log(`Resuming project "${args}"...`);
-    console.log('\n[Project continuation not yet implemented]');
+
+    const project = await this.client.getProject(args);
+    if (!project) {
+      console.log(`Project "${args}" not found. Run: list projects`);
+      return;
+    }
+
+    console.log(`\nResuming project "${args}"...`);
+    console.log(`  Status: ${project.status}`);
+    console.log(`  Agents: ${(project.agents || []).join(', ') || 'none'}`);
+
+    // Check for an in-progress planning task
+    const allTasks = await this.client.getProjects(); // not ideal — use task list
+    console.log('\n  Project is active. Agents can connect and call get_task to receive assignments.');
+    console.log('  Use: show project ' + args + ' for full details.\n');
   }
 
   private async handleListProjects(): Promise<void> {
-    console.log('┌────────────────┬────────────────────────┬──────────┬─────────────┐');
-    console.log('│ Project        │ Workspace              │ Status   │ Progress    │');
-    console.log('├────────────────┼────────────────────────┼──────────┼─────────────┤');
-    console.log('│ [No projects]  │                        │          │             │');
-    console.log('└────────────────┴────────────────────────┴──────────┴─────────────┘');
-    console.log('\n[Project listing not yet implemented]');
+    const projects = await this.client.getProjects();
+
+    if (projects.length === 0) {
+      console.log('No projects yet. Start one with: create project <name> in <path>');
+      return;
+    }
+
+    console.log('┌──────────────────────┬──────────┬─────────────────────────┐');
+    console.log('│ Project              │ Status   │ Workspace               │');
+    console.log('├──────────────────────┼──────────┼─────────────────────────┤');
+    for (const p of projects) {
+      const n = (p.name || '').substring(0, 20).padEnd(20);
+      const s = (p.status || '').padEnd(8);
+      const w = (p.workspace || '').substring(0, 23).padEnd(23);
+      console.log(`│ ${n} │ ${s} │ ${w} │`);
+    }
+    console.log('└──────────────────────┴──────────┴─────────────────────────┘');
   }
 
   private async handleShowProject(args?: string): Promise<void> {
@@ -399,8 +653,24 @@ export class ACTRepl {
       console.log('Usage: show project <name>');
       return;
     }
-    console.log(`Project: ${args}`);
-    console.log('\n[Project details not yet implemented]');
+    const project = await this.client.getProject(args);
+    if (!project) {
+      console.log(`Project "${args}" not found.`);
+      return;
+    }
+
+    console.log(`\nProject: ${project.name}`);
+    console.log(`  Status:    ${project.status}`);
+    console.log(`  Workspace: ${project.workspace}`);
+    console.log(`  Created:   ${project.createdAt}`);
+    console.log(`\n  Description:\n    ${project.description}`);
+    console.log(`\n  Stack:     ${project.techStack}`);
+    if (project.constraints) console.log(`  Constraints: ${project.constraints}`);
+    console.log(`  Success:   ${project.successCriteria}`);
+    console.log(`\n  Agents: ${(project.agents || []).join(', ') || 'none'}`);
+
+    const briefCount = Object.keys(project.briefs || {}).length;
+    console.log(`  Briefs:   ${briefCount} agent brief(s) stored`);
   }
 
   private async handleStopProject(args?: string): Promise<void> {

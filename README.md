@@ -1,159 +1,250 @@
 # ACT: Agent Coordination Toolkit
 
-**Autonomous multi-agent coordination through semantic intelligence.**
+**Universal coordination infrastructure for autonomous multi-agent systems.**
 
-ACT is a universal coordination layer that enables autonomous teams of AI agents to collaborate efficiently. Unlike task orchestration frameworks, ACT focuses on *why* coordination decisions are made and learns from coordination patterns over time.
+ACT (Agent Coordination Toolkit) lets AI agents like Claude, Goose, Warp Terminal, as well as IDEs like Cursor, Windsurf, Antigravity, and/or any MCP-compatible Agent or Agent client — all seamlessly collaborate together on coding and development projects as a unified team. Agents register with ACT to receive tasks, communicate with each other, and track and report progress through a central coordination server. A terminal REPL lets you designate a planning agent (the ACTor), create and define new projects, and watch your agent team work even as each agent operates in their own natural environment.
 
-## Core Innovation: Semantic Coordination Intelligence
+This means Claude works through the Claude desktop client, your IDE agent works through the IDE, and so on, with each agent collaborating together on the same project directory, communicating with each other, and working in parallel to complete tasks.
 
-Most multi-agent systems coordinate tasks based on current capabilities. ACT goes further:
+Each agent uses the tools they have available to them, either natively or through any plugins or connectors you have configured for that agent. ACT itself does not provide any tool use, actions, or other functionality beyond coordination and communication. It is solely a coordination layer with a few other utilities that enhance and strengthen that coordination.
 
-- **Understands coordination patterns** - Why was Agent X assigned to Task Y?
-- **Learns from history** - What similar patterns succeeded before?
-- **Improves continuously** - Post-session evaluation identifies improvement opportunities
-- **Stays unbiased** - FLUX State reasoning wipes memory for objective self-evaluation
+---
 
-This is the first semantic memory system for coordination itself.
+## How It Works
 
-## Key Features
+```
+User (REPL)
+    │  create project "my-app" in /path
+    │  → guided prompts collect description, stack, agents
+    │
+    ▼
+ACT Server                         ACTor Agent (Claude Desktop, etc.)
+    │  Planning task assigned  ──────────►  get_task()
+    │                                       ... analyzes project ...
+    │  Task breakdown received  ◄──────────  report_task_complete({ tasks, briefs })
+    │
+    │  Creates tasks + stores AGENT.md briefs for each agent
+    │
+    ▼
+Execution Agents (any MCP client)
+    register_with_act()
+    get_agent_brief()   ──► writes AGENT.md to project directory
+    get_task()          ──► receives assigned task
+    report_task_progress()
+    send_message("@OtherAgent can you review this?")
+    report_task_complete()
+```
 
-### Framework-Agnostic
-- Works with Claude Code, Cursor, Windsurf, Goose (via MCP)
-- Integrates with API agents (OpenAI, Anthropic, Google)
-- Supports local models (Ollama, LM Studio)
-- Simple protocol for custom agents
+No API keys. No orchestration scripts. Just agents connecting to ACT via MCP and getting to work.
 
-### Real-Time Coordination
-- Task assignment based on capability matching
-- Automatic conflict detection and resolution
-- Progress tracking and status updates
-- Inter-agent communication
-
-### PAIRed Vector Minutes (PVM)
-- **Chronological log** - Complete audit trail of every coordination decision
-- **Vector indexing** - Semantic search without scanning entire history
-- **PAIR reasoning** - Past patterns inform future decisions
-
-### Self-Improvement Through FLUX State
-- Memory-wiped evaluation (unbiased assessment)
-- Gap identification (what didn't work?)
-- Pattern retrieval (why did similar approaches succeed?)
-- Iterative refinement (loop until 95%+ success)
+---
 
 ## Getting Started
 
-### For MCP-Enabled Agents (Fastest)
+### 1. Start the ACT server
 
-Add to your IDE configuration:
+```bash
+git clone https://github.com/paradiselabs-ai/ACT
+cd ACT/server
+npm install
+npm install -D tsx
+npm run dev
+# Server running on http://localhost:8080
+```
+
+### 2. Build the MCP bridge
+
+```bash
+cd ../mcp-servers/act-mcp-bridge
+npm install
+npm run build
+```
+
+### 3. Connect an agent via MCP
+
+Add to your agent's MCP config (e.g. `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "act": {
-      "command": "npx",
-      "args": ["@agentmix/act-mcp-server"],
-      "env": {
-        "ACT_SERVER": "ws://localhost:8080",
-        "ACT_API_KEY": "your-api-key"
-      }
+      "command": "node",
+      "args": ["/path/to/ACT/mcp-servers/act-mcp-bridge/dist/index.js"],
+      "env": { "ACT_SERVER_URL": "http://localhost:8080" }
     }
   }
 }
 ```
 
-### Local Development
+Works with Claude Desktop, Windsurf, Cursor, Goose, or any MCP-compatible client.
+
+### 4. Run the REPL
 
 ```bash
-git clone https://github.com/paradiselabs-ai/ACT
-cd ACT
+cd ../../cli
 npm install
-npm run dev
-# ACT server runs on ws://localhost:8080
+npx tsx act-repl.ts
 ```
 
-### Docker Deployment
-
-```bash
-docker-compose up
-# ACT server on port 8080
-# Qdrant vector DB on port 6333
-# PostgreSQL on port 5432
 ```
+>> default agent claude-desktop-agent
+>> create project my-app in /Users/me/projects/my-app
+
+  ┌──────────────────────────────────────────────────┐
+  │  New Project: my-app                             │
+  └──────────────────────────────────────────────────┘
+
+  What are you building?
+  > A REST API with auth and CRUD for a task manager
+
+  Technologies / stack:
+  > TypeScript, Express, PostgreSQL, JWT
+
+  What does success look like?
+  > Users can register, log in, and manage personal tasks
+
+  Assigning planning task to claude-desktop-agent...
+  ⏳ Analyzing...  (12s elapsed)
+
+  ✅ Planning complete! Creating 5 tasks...
+  ✓ Set up project structure and TypeScript config
+  ✓ Implement user registration and JWT auth
+  ✓ Build task CRUD endpoints
+  ✓ Add input validation and error handling
+  ✓ Write integration tests
+
+  Storing AGENT.md briefs for 2 agent(s)...
+  ✓ Brief stored for claude-desktop-agent
+  ✓ Brief stored for windsurf-agent
+
+  Project "my-app" is ready!
+```
+
+---
+
+## MCP Tools Available to Agents
+
+| Tool | Description |
+|------|-------------|
+| `register_with_act` | Join the ACT coordination session |
+| `get_task` | Receive your assigned task |
+| `report_task_progress` | Update progress % and status |
+| `report_task_complete` | Mark task done, pass result to ACT |
+| `send_message` | Broadcast or `@AgentName` direct message |
+| `get_agent_brief` | Fetch your AGENT.md context file |
+| `query_coordination_memory` | Search past coordination patterns (PVM) |
+| `evaluate_coordination` | Request coordination analysis |
+| `improve_coordination` | Trigger improvement analysis |
+| `get_improvement_status` | Check self-improvement engine status |
+
+---
 
 ## Architecture
 
 ```
-Agent Platforms (Claude Code, Cursor, Windsurf, Goose, API agents)
-         │
-      MCP Protocol
-         │
-    ACT Coordination Server
-    ├─ Task Coordinator
-    ├─ Agent Registry
-    ├─ Conflict Resolver
-    └─ Event Hub
-         │
-    ┌────┴────┐
-    │          │
-  Chronological   Vector Memory
-    Log           Store
-  (JSONL/SQL)     (Qdrant)
-    │          │
-    └────┬────┘
-         │
-   PAIR Reasoning Loop
-   FLUX State Evaluation
+┌─────────────────────────────────────────────────────┐
+│  Agent Platforms                                    │
+│  (Claude Desktop, Windsurf, Cursor, Goose, etc.)   │
+└──────────────────────┬──────────────────────────────┘
+                       │ MCP Protocol (stdio)
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  act-mcp-bridge  (10 tools → HTTP calls)            │
+└──────────────────────┬──────────────────────────────┘
+                       │ REST + Socket.io
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  ACT Server (port 8080)                             │
+│  ├─ AgentRegistry     (capability tracking)         │
+│  ├─ TaskCoordinator   (assignment + lifecycle)      │
+│  ├─ EventHub          (message routing + rate limit)│
+│  ├─ ChronologicalLog  (JSONL event history)         │
+│  └─ PVMIndexer        (semantic memory search)      │
+└─────────────────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│  ACT REPL (cli/)                                    │
+│  create project · list agents · show project · ...  │
+└─────────────────────────────────────────────────────┘
 ```
+
+### Message Routing
+
+ACT classifies inter-agent messages before routing — no feedback loops:
+
+- `@AgentName message` → delivered only to that agent's socket
+- Status updates → broadcast with `messageType: 'status_update'` (agents observe silently)
+- Questions / help requests → routed to best available capable agent
+- Rate limiting: max 3 peer responses per agent per 30 seconds
+
+### PAIRed Vector Minutes (PVM)
+
+Every coordination event is logged to a chronological JSONL store and indexed for semantic search. This powers:
+- Evidence-based agent profiling (what capabilities does this agent actually succeed at?)
+- Pattern retrieval for future coordination decisions
+- Full audit trail of why every assignment was made
+
+### Self-Improvement *(in development)*
+
+- **FLUX State**: unbiased post-project evaluation (agent evaluates output without knowing it created it)
+- **PAIR**: retrieves similar past coordination patterns to improve current approach
+- **`/improve` command**: surgical analysis of coordination quality by scope (communication, assignments, conflicts, etc.)
+
+---
 
 ## Project Structure
 
 ```
 ACT/
-├── docs/                    # Architecture & concepts
-├── server/                  # Node.js/TypeScript server
-│   ├── src/
-│   │   ├── services/       # Core coordination services
-│   │   ├── widgets/        # Visualization components
-│   │   └── utils/
-│   └── package.json
-├── client/                 # Web dashboard (SSE-based)
-├── cli/                    # Terminal REPL (command-line interface)
-├── sdk/                    # Future: Language-specific SDKs
-├── examples/               # Integration examples
-└── tests/
+├── server/                  # ACT coordination server (TypeScript/Node.js)
+│   └── src/
+│       ├── index.ts         # Express + Socket.io + all REST endpoints
+│       └── services/        # AgentRegistry, TaskCoordinator, EventHub, PVM...
+│
+├── mcp-servers/
+│   └── act-mcp-bridge/      # MCP server exposing ACT tools to agents
+│       └── src/
+│           ├── index.ts     # stdio MCP server entry point
+│           ├── tools/       # 10 tools with real HTTP calls
+│           └── schemas/     # Zod input validation
+│
+├── cli/                     # Terminal REPL (primary user interface)
+│   ├── act-repl.ts          # REPL + guided project wizard
+│   └── act-client.ts        # HTTP client
+│
+├── docs/                    # Architecture & design documentation
+└── examples/                # Demo scripts
 ```
 
-## Documentation
+---
 
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design and components
-- **[PHASE_5_ARCHITECTURAL_REDESIGN.md](docs/PHASE_5_ARCHITECTURAL_REDESIGN.md)** - Semantic coordination intelligence
-- **[ACT_AGENT_INTERFACE_SPECIFICATION.md](docs/ACT_AGENT_INTERFACE_SPECIFICATION.md)** - How to integrate agents
-- **[PAIR_REASONING_WORKFLOW.md](docs/PAIR_REASONING_WORKFLOW.md)** - Self-improvement mechanisms
-- **[TASK_CHECK_SYSTEM.md](docs/TASK_CHECK_SYSTEM.md)** - Enterprise conflict resolution
-- **[USE_CASES.md](docs/USE_CASES.md)** - Real-world scenarios
+## What's Working Today
 
-## Development Status
+- ✅ ACT server with REST + Socket.io agent coordination
+- ✅ MCP bridge with 10 real tools (no stubs)
+- ✅ REPL guided `create project` wizard with ACTor planning flow
+- ✅ Intelligent message routing (direct mentions, rate limiting, no feedback loops)
+- ✅ ChronologicalLog — append-only event history
+- ✅ AGENT.md brief generation and per-agent retrieval
+- ✅ PVM semantic search (hash-based similarity)
 
-**Phase 5: Semantic Coordination Intelligence** (Nov 16 - Dec 14, 2025)
-- Week 1: Core architecture + memory system
-- Week 2: Intelligence layer (FLUX State + PAIR)
-- Week 3: Integration + visualization
-- Week 4: Optimization + deployment
+**In progress**: Real vector embeddings (Qdrant), FLUX State evaluation, PAIR retrieval, project data persistence across restarts.
+
+---
 
 ## Why ACT?
 
-**The Challenge:** Multi-agent systems face a coordination bottleneck. How do autonomous teams improve over time?
+Multi-agent systems have a coordination problem. Most frameworks handle *what* to do (task lists, orchestration) but not *why* decisions were made or how to get better over time.
 
-**The Solution:** ACT provides a universal coordination layer with semantic intelligence:
-- Understands *why* assignments are made (not just *that* assignments happen)
-- Learns from coordination patterns (PVM)
-- Improves without human tuning (FLUX State + PAIR)
-- Works with any agent platform (framework-agnostic)
+ACT is the coordination layer between agents — framework-agnostic, learns from each outcome, and designed to self-improve continuously with every project.
 
-## Contributing
+**Most agents just act. ACT gives them agency.**
 
-ACT is developed by Paradise Labs. We welcome community feedback on architecture decisions.
+---
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT — See LICENSE file for details.
+
+Built by [ParadiseLabs](https://github.com/paradiselabs-ai).

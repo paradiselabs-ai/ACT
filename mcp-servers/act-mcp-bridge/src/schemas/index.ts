@@ -45,7 +45,20 @@ export const EvaluateCoordinationInputSchema = z.object({
   metrics: z.array(z.string()).optional().describe('Specific metrics to evaluate')
 });
 
-// Tool 7: improve_coordination
+// Tool 7b: send_message
+export const SendMessageInputSchema = z.object({
+  sender: AgentIdSchema.describe('ID of the agent sending the message'),
+  message: z.string().min(1).describe('Message to send. Prefix with @AgentName to direct it to a specific agent.')
+});
+
+// Tool: get_agent_brief
+export const GetAgentBriefInputSchema = z.object({
+  project_name: z.string().min(1).describe('Name of the project to fetch a brief for'),
+  agent_id: AgentIdSchema.describe('ID of the agent requesting their brief'),
+  write_to_directory: z.string().optional().describe('Directory path to write AGENT.md file (e.g. /path/to/project). If omitted, returns content only.')
+});
+
+// Tool 8: improve_coordination
 export const ImproveCoordinationInputSchema = z.object({
   scope: z.enum([
     'communication', 
