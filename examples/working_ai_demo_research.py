@@ -59,12 +59,24 @@ class WorkingAIAgent:
         async def agent_message(data):
             msg = data.get('message')
             sender = data.get('sender', 'Unknown')
+            message_type = data.get('messageType', 'peer_response')
+
             if sender == self.name:
                 return  # ignore own echoes
-            if msg:
-                print(f"💬 [{self.name}] heard {sender}: {msg[:120]}")
-                # Generate a response to the peer message
+            if not msg:
+                return
+
+            if message_type == 'direct_mention':
+                # Server already routed this to us — respond
+                print(f"💬 [{self.name}] mentioned by {sender}: {msg[:120]}")
                 await self.respond_to_peer(sender, msg)
+            elif message_type == 'help_request':
+                # Server selected us as best responder — help
+                print(f"🤝 [{self.name}] help request from {sender}: {msg[:120]}")
+                await self.respond_to_peer(sender, msg)
+            else:
+                # status_update / peer_response — observe silently, don't auto-respond
+                print(f"👁  [{self.name}] observed {sender}: {msg[:80]}")
 
     async def register_agent(self):
         if self.is_registered:

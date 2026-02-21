@@ -96,13 +96,19 @@ class WorkingAIAgent:
                 return
 
             sender = data.get('sender', 'Unknown')
+            message_type = data.get('messageType', 'peer_response')
 
-            # Skip echo if server replays our own message (already logged on send)
             if sender == self.name:
                 return
 
             timestamp = data.get('timestamp')
-            self.log_conversation(sender, message, timestamp)
+
+            if message_type == 'status_update':
+                # Just observe, no logging clutter
+                print(f"👁  [{self.name}] observed {sender}: {message[:80]}")
+            else:
+                # Direct mentions and help requests get full log entry
+                self.log_conversation(sender, message, timestamp)
 
     async def register_agent(self):
         """Register once only"""
