@@ -44,12 +44,8 @@ export class SelfImprovementEngine {
       console.log('[SelfImprovementEngine] Connected to ACT server');
       this.isConnected = true;
       
-      // Register as improvement engine
-      this.socket.emit('register_agent', {
-        agentId: 'self_improvement_engine',
-        name: 'Self Improvement Engine',
-        capabilities: ['improvement', 'analysis', 'memory']
-      });
+      // Note: SelfImprovementEngine does NOT register as an agent —
+      // it's internal infrastructure, not a coordinating agent.
     });
     
     this.socket.on('disconnect', () => {

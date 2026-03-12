@@ -18,7 +18,10 @@ export interface Task {
   startedAt?: Date;
   completedAt?: Date;
   metadata?: Record<string, any>;
+  retryCount: number; // how many times this task has been retried after failure
 }
+
+export const MAX_TASK_RETRIES = 3;
 
 export interface TaskAssignment {
   taskId: string;
@@ -59,6 +62,7 @@ export class TaskCoordinator extends EventEmitter {
       estimatedDuration: taskData.estimatedDuration,
       createdAt: new Date(),
       metadata: taskData.metadata || {},
+      retryCount: 0,
       ...taskData
     };
 
@@ -240,6 +244,42 @@ export class TaskCoordinator extends EventEmitter {
   // Expose pending retry for external triggers (e.g., agent status changes)
   public async retryPendingTasks(): Promise<void> {
     await this.processPendingTasks();
+  }
+
+  /**
+   * Reset a failed task back to pending so agents can retry it.
+   * Increments retryCount. Returns null if task has exceeded MAX_TASK_RETRIES.
+   */
+  public async retryTask(taskId: string): Promise<Task | null> {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new Error(`Task ${taskId} not found`);
+
+    if (task.retryCount >= MAX_TASK_RETRIES) {
+      return null; // permanently failed — do not retry
+    }
+
+    // Unlink from previous agent
+    const previousAgent = task.assignedAgent;
+    task.status = 'pending';
+    task.assignedAgent = undefined;
+    task.progress = 0;
+    task.startedAt = undefined;
+    task.completedAt = undefined;
+    task.retryCount += 1;
+
+    if (previousAgent) {
+      const agent = this.agentRegistry.getAgent(previousAgent);
+      if (agent && agent.status !== 'offline') {
+        await this.agentRegistry.updateAgentStatus(previousAgent, 'online');
+      }
+    }
+
+    logger.info(`Task ${taskId} reset for retry (attempt ${task.retryCount}/${MAX_TASK_RETRIES})`);
+    this.emit('task_retry', task);
+
+    // Try immediate assignment
+    await this.assignOptimalAgent(taskId);
+    return task;
   }
 
   async detectConflicts(): Promise<ConflictDetection[]> {

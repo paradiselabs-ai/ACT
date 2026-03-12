@@ -134,3 +134,6 @@ temp/
 .tmp/
 requirements.txt
 sdk/
+
+# OpenMemory - IDE/Assistant specific rules
+.windsurf/rules/openmemory.md

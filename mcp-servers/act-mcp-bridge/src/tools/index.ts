@@ -9,6 +9,10 @@ import {
   evaluateCoordinationTool,
   improveCoordinationTool,
   getImprovementStatusTool,
+  getMessagesTool,
+  claimFilesTool,
+  releaseFilesTool,
+  retryTaskTool,
   type ToolDefinition
 } from './act-tools.js';
 
@@ -22,7 +26,11 @@ export const allTools: ToolDefinition[] = [
   queryCoordinationMemoryTool,
   evaluateCoordinationTool,
   improveCoordinationTool,
-  getImprovementStatusTool
+  getImprovementStatusTool,
+  getMessagesTool,
+  claimFilesTool,
+  releaseFilesTool,
+  retryTaskTool
 ];
 
 export async function handleToolCall(

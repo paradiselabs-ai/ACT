@@ -84,6 +84,16 @@ export class ACTClient {
     }
   }
 
+  async removeAgent(agentId: string): Promise<void> {
+    const response = await fetch(`${this.serverUrl}/api/agents/${encodeURIComponent(agentId)}`, {
+      method: 'DELETE'
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+  }
+
   async getServerStatus(): Promise<ServerStatus> {
     try {
       const response = await fetch(`${this.serverUrl}/health`);
@@ -220,7 +230,9 @@ export class ACTClient {
       const response = await fetch(`${this.serverUrl}/api/projects/${encodeURIComponent(name)}`);
       if (!response.ok) return null;
       const data = await response.json();
-      return data.project || null;
+      if (!data.project) return null;
+      // Return merged object: project fields + live tasks + taskSummary
+      return { ...data.project, tasks: data.tasks || [], taskSummary: data.taskSummary || {} };
     } catch {
       return null;
     }
@@ -246,6 +258,86 @@ export class ACTClient {
       return data.content || null;
     } catch {
       return null;
+    }
+  }
+
+  async sendMessage(sender: string, message: string): Promise<void> {
+    await fetch(`${this.serverUrl}/api/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sender, message })
+    });
+  }
+
+  async getTasks(): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.tasks || data || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getFileLocks(): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/files/locks`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.locks || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async patchTaskDependencies(taskId: string, dependencies: string[]): Promise<void> {
+    const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/dependencies`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dependencies })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+  }
+
+  async getRecentLog(limit: number = 500): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/log?limit=${limit}`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.events || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Returns tasks that are permanently failed (retryCount >= MAX_RETRIES). */
+  async getPermanentlyFailedTasks(): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/failed-permanently`);
+      if (!response.ok) return [];
+      const data = await response.json();
+      return data.tasks || [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Retry a failed task — resets it to pending and increments retryCount.
+   *  Returns the updated task, or null if permanently failed. */
+  async retryTask(taskId: string): Promise<{ success: boolean; permanentlyFailed?: boolean; task?: any; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      return data;
+    } catch (error: any) {
+      return { success: false, error: error.message };
     }
   }
 }

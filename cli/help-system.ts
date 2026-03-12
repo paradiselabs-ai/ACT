@@ -20,11 +20,18 @@ export class HelpSystem {
 
     console.log('Configuration:');
     console.log('  list agents              List connected agents');
-    console.log('  default agent <id>       Set default agent for planning');
+    console.log('  default agent <id>       Set default agent (ACTor) for planning');
+    console.log('  default agent -r         Randomly pick an ACTor from registered agents');
+    console.log('  remove agent <id>        Deregister an agent from ACT');
     console.log('  show default            Show current default agent\n');
 
+    console.log('Ask Agents:');
+    console.log('  ask agents <prompt>      Broadcast a question/instruction to all agents');
+    console.log('  ask <prompt>             Shorthand for ask agents\n');
+
     console.log('Projects:');
-    console.log('  create project <name> in <path>    Create new project');
+    console.log('  create project <name> <path>       Create new project');
+    console.log('  create project <name>              Create project (prompts for path)');
     console.log('  continue project <name>            Resume existing project');
     console.log('  list projects                      Show all projects');
     console.log('  show project <name>                Show project details');
@@ -83,7 +90,7 @@ export class HelpSystem {
     console.log('  help <command>              Show detailed help for command');
     console.log('  exit                        Exit ACT REPL\n');
 
-    console.log('For detailed documentation: https://docs.agentmix.com/act\n');
+    console.log('Full documentation coming soon.\n');
   }
 
   private showSpecificHelp(command: string): void {
@@ -136,21 +143,25 @@ export class HelpSystem {
   private showCreateProjectHelp(): void {
     console.log('\nCREATE PROJECT - Start new coordinated project\n');
     console.log('Usage:');
-    console.log('  create project <name> in <path>');
-    console.log('  create project "Build a REST API with auth" in ~/projects/api-server\n');
-    console.log('Description:');
-    console.log('  Creates a new project with the specified name and workspace path.');
-    console.log('  The default agent will analyze the project requirements and create');
-    console.log('  a structured task breakdown with phases and assignments.\n');
-    console.log('Parameters:');
-    console.log('  <name>    Project name (use quotes for multi-word names)');
-    console.log('  <path>    Absolute or relative path to project workspace\n');
+    console.log('  create project <name> <path>');
+    console.log('  create project <name>              (prompts for path)\n');
+    console.log('Name rules:');
+    console.log('  Single-word names: no quotes needed');
+    console.log('  Multi-word names:  wrap in single or double quotes\n');
+    console.log('Path rules:');
+    console.log('  .   Use the current directory (recommended: cd into your project first)');
+    console.log('  ~/path/to/dir   Absolute or home-relative path');
+    console.log('  The directory must already exist — ACT never creates directories.\n');
     console.log('Examples:');
-    console.log('  >>: create project todo-app in /Users/user/projects/todo-app');
-    console.log('  >>: create project "Machine Learning Pipeline" in ~/ml-pipeline\n');
+    console.log("  >>: create project myapp .");
+    console.log("  >>: create project 'cool project' .");
+    console.log('  >>: create project myapp ~/projects/myapp');
+    console.log('  >>: create project "My App" ~/projects/myapp\n');
+    console.log('Best practice:');
+    console.log('  Create your project directory first, cd into it, then run `act`.');
+    console.log("  Then: create project myapp .\n");
     console.log('Notes:');
     console.log('  - Requires a default agent to be set for project decomposition');
-    console.log('  - Project will be saved to ACT coordination history');
     console.log('  - Use "continue project <name>" to resume paused projects\n');
   }
 

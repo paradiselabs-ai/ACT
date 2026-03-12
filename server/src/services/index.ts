@@ -8,7 +8,8 @@ export {
   DEFAULT_VECTOR_CONFIG
 } from './VectorMemoryStore.js';
 
-export { QdrantVectorStore } from './QdrantVectorStore.js';
+// QdrantVectorStore has a pre-existing TypeScript error — excluded from build (MockVectorStore used instead)
+// export { QdrantVectorStore } from './QdrantVectorStore.js';
 export { MockVectorStore } from './MockVectorStore.js';
 
 export {

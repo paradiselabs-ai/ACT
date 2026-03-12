@@ -5,11 +5,11 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { AgentRegistry } from './services/AgentRegistry';
 import { Task } from './services/TaskCoordinator';
-import { TaskCoordinator } from './services/TaskCoordinator';
+import { TaskCoordinator, MAX_TASK_RETRIES } from './services/TaskCoordinator';
 import { EventHub } from './services/EventHub';
 import { SelfImprovementEngine } from './services/SelfImprovementEngine';
 import { ChronologicalLog } from './services/ChronologicalLog';
-import { MockVectorStore } from './services/MockVectorStore';
+import { LocalEmbeddingVectorStore } from './services/LocalEmbeddingVectorStore';
 import { PVMIndexer } from './services/PVMIndexer';
 import { logger } from './utils/logger';
 
@@ -37,7 +37,7 @@ app.get("/dashboard", (req, res) => {
 // Core ACT Services
 const agentRegistry = new AgentRegistry();
 const chronologicalLog = new ChronologicalLog();
-const vectorStore = new MockVectorStore();
+const vectorStore = new LocalEmbeddingVectorStore();
 const pvmIndexer = new PVMIndexer(chronologicalLog, vectorStore);
 const taskCoordinator = new TaskCoordinator(agentRegistry, pvmIndexer);
 const eventHub = new EventHub(io, agentRegistry, taskCoordinator, chronologicalLog);
@@ -103,6 +103,15 @@ app.post('/api/agents/register', async (req, res) => {
     const { agentId, name, capabilities, model, provider } = req.body;
     if (!agentId) return res.status(400).json({ success: false, error: 'agentId is required' });
 
+    // Reject duplicate agent IDs — each instance must have a unique identity
+    if (agentRegistry.isRegistered(agentId)) {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: `Agent ID "${agentId}" is already registered. Choose a different ID (e.g. append a number: "${agentId}-2").`
+      });
+    }
+
     const agent = await agentRegistry.registerAgent(agentId, {
       name: name || agentId,
       capabilities: capabilities || [],
@@ -119,6 +128,23 @@ app.post('/api/agents/register', async (req, res) => {
   }
 });
 
+// Deregister an agent — removes from registry entirely
+app.delete('/api/agents/:agentId', (req, res) => {
+  const { agentId } = req.params;
+  const removed = agentRegistry.removeAgent(agentId);
+  if (!removed) {
+    return res.status(404).json({ success: false, error: `Agent "${agentId}" not found` });
+  }
+  // Auto-release all file locks held by this agent
+  for (const [fp, lock] of fileLocks.entries()) {
+    if (lock.agentId === agentId) {
+      fileLocks.delete(fp);
+    }
+  }
+  io.emit('agent_left', { agentId, timestamp: new Date().toISOString() });
+  res.json({ success: true, agentId });
+});
+
 // In-memory project store
 interface ProjectRecord {
   name: string;
@@ -133,6 +159,40 @@ interface ProjectRecord {
   briefs: Record<string, string>; // agentId → AGENT.md content
 }
 const projects = new Map<string, ProjectRecord>();
+
+// Per-agent message inbox for MCP agents (who can't hold a Socket.io connection)
+interface InboxMessage {
+  id: string;
+  from: string;
+  message: string;
+  type: string;
+  timestamp: string;
+  read: boolean;
+}
+const agentInboxes = new Map<string, InboxMessage[]>();
+const INBOX_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function pruneInbox(agentId: string): void {
+  const inbox = agentInboxes.get(agentId);
+  if (!inbox) return;
+  const cutoff = Date.now() - INBOX_TTL_MS;
+  const pruned = inbox.filter(m => new Date(m.timestamp).getTime() > cutoff);
+  agentInboxes.set(agentId, pruned);
+}
+
+function bufferMessageForAgent(agentId: string, from: string, message: string, type: string): void {
+  pruneInbox(agentId);
+  const inbox = agentInboxes.get(agentId) || [];
+  inbox.push({
+    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    from,
+    message,
+    type,
+    timestamp: new Date().toISOString(),
+    read: false
+  });
+  agentInboxes.set(agentId, inbox);
+}
 
 // Project endpoints
 app.post('/api/projects', (req, res) => {
@@ -162,7 +222,45 @@ app.get('/api/projects', (req, res) => {
 app.get('/api/projects/:name', (req, res) => {
   const project = projects.get(req.params.name);
   if (!project) return res.status(404).json({ success: false, error: 'Project not found' });
-  res.json({ success: true, project });
+
+  // Compute live task breakdown for this project
+  const projectTasks = taskCoordinator.getAllTasks().filter(
+    t => t.metadata?.projectName === project.name && t.metadata?.type !== 'planning'
+  );
+  const taskSummary = {
+    total: projectTasks.length,
+    completed: projectTasks.filter(t => t.status === 'completed').length,
+    in_progress: projectTasks.filter(t => t.status === 'in_progress' || t.status === 'assigned').length,
+    pending: projectTasks.filter(t => t.status === 'pending').length,
+    failed: projectTasks.filter(t => t.status === 'failed').length,
+  };
+
+  // Derive status from task state — never stuck on 'planning'
+  let derivedStatus = project.status;
+  if (projectTasks.length > 0) {
+    if (taskSummary.completed === taskSummary.total) {
+      derivedStatus = 'completed';
+    } else if (taskSummary.failed > 0 && taskSummary.in_progress === 0 && taskSummary.pending === 0) {
+      derivedStatus = 'paused';
+    } else {
+      derivedStatus = 'active';
+    }
+  }
+
+  res.json({
+    success: true,
+    project: { ...project, status: derivedStatus },
+    tasks: projectTasks.map(t => ({
+      id: t.id,
+      title: t.metadata?.title || t.description.substring(0, 60),
+      status: t.status,
+      assignedAgent: t.assignedAgent,
+      progress: t.progress,
+      retryCount: t.retryCount,
+      dependencies: t.dependencies,
+    })),
+    taskSummary,
+  });
 });
 
 app.patch('/api/projects/:name', (req, res) => {
@@ -192,7 +290,7 @@ app.get('/api/projects/:name/briefs/:agentId', (req, res) => {
 
 // REST task endpoints
 app.get('/api/tasks', (req, res) => {
-  res.json(taskCoordinator.getAllTasks());
+  res.json({ tasks: taskCoordinator.getAllTasks() });
 });
 
 app.post('/api/tasks', async (req, res) => {
@@ -212,6 +310,14 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
+// Get permanently failed tasks (retryCount >= MAX_TASK_RETRIES) — polled by REPL
+app.get('/api/tasks/failed-permanently', (req, res) => {
+  const tasks = taskCoordinator.getAllTasks().filter(
+    t => t.status === 'failed' && t.retryCount >= MAX_TASK_RETRIES
+  );
+  res.json({ success: true, tasks });
+});
+
 // Get the active task assigned to a specific agent (must be before /:taskId)
 app.get('/api/tasks/assigned', (req, res) => {
   const agentId = req.query.agent_id as string;
@@ -225,6 +331,23 @@ app.get('/api/tasks/assigned', (req, res) => {
 app.get('/api/tasks/:taskId', (req, res) => {
   const task = taskCoordinator.getTask(req.params.taskId);
   if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+  res.json({ success: true, task });
+});
+
+// Patch task dependencies (called by REPL after two-pass task creation)
+app.patch('/api/tasks/:taskId/dependencies', (req, res) => {
+  const task = taskCoordinator.getTask(req.params.taskId);
+  if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+  const { dependencies } = req.body;
+  if (!Array.isArray(dependencies)) {
+    return res.status(400).json({ success: false, error: 'dependencies must be an array of task IDs' });
+  }
+  // Validate all referenced IDs exist
+  const missing = dependencies.filter((id: string) => !taskCoordinator.getTask(id));
+  if (missing.length > 0) {
+    return res.status(400).json({ success: false, error: `Unknown dependency task IDs: ${missing.join(', ')}` });
+  }
+  task.dependencies = dependencies;
   res.json({ success: true, task });
 });
 
@@ -254,8 +377,53 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
       message: result
     });
 
+    // Auto-release any file locks held by this task
+    const releasedFiles: string[] = [];
+    for (const [fp, lock] of fileLocks.entries()) {
+      if (lock.taskId === taskId) {
+        fileLocks.delete(fp);
+        releasedFiles.push(fp);
+      }
+    }
+    if (releasedFiles.length > 0) {
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: agentId || 'system',
+        message: `auto-released file locks on task complete: ${releasedFiles.join(', ')} (task: ${taskId})`,
+        type: 'file_release'
+      });
+    }
+
     io.emit('task_completed', { taskId, agentId, success: taskSuccess, result, timestamp: new Date().toISOString() });
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Retry a failed task — resets to pending and increments retryCount
+app.post('/api/tasks/:taskId/retry', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const task = taskCoordinator.getTask(taskId);
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+
+    if (task.status !== 'failed') {
+      return res.status(400).json({ success: false, error: `Task is not failed (status: ${task.status})` });
+    }
+
+    const retried = await taskCoordinator.retryTask(taskId);
+    if (!retried) {
+      return res.status(409).json({
+        success: false,
+        permanentlyFailed: true,
+        error: `Task has exceeded max retries (${MAX_TASK_RETRIES}). It is permanently failed.`,
+        task
+      });
+    }
+
+    io.emit('task_retry', { taskId, retryCount: retried.retryCount, timestamp: new Date().toISOString() });
+    res.json({ success: true, task: retried });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -268,13 +436,152 @@ app.post('/api/messages', async (req, res) => {
     if (!sender || !message) return res.status(400).json({ success: false, error: 'sender and message are required' });
 
     const senderAgent = agentRegistry.getAgent(sender);
+    const senderName = senderAgent?.name || sender;
+
+    // Route via EventHub (socket broadcast, classification, rate limiting)
     if (eventHub) {
-      await eventHub.handleAgentMessage(sender, senderAgent?.name || sender, message, new Date().toISOString());
+      await eventHub.handleAgentMessage(sender, senderName, message, new Date().toISOString());
     }
+
+    // Buffer into recipient inbox for MCP agents who can't receive socket events
+    const mentionMatch = message.match(/^@(\S+)/);
+    if (mentionMatch) {
+      // Direct mention — buffer only for the named recipient
+      const recipientName = mentionMatch[1];
+      const allAgents = agentRegistry.getAllAgents();
+      const recipient = allAgents.find(
+        a => a.name.toLowerCase() === recipientName.toLowerCase() || a.id.toLowerCase() === recipientName.toLowerCase()
+      );
+      if (recipient) {
+        bufferMessageForAgent(recipient.id, sender, message, 'direct_mention');
+      }
+    } else {
+      // Broadcast message — buffer for every registered agent except sender
+      const allAgents = agentRegistry.getAllAgents();
+      for (const agent of allAgents) {
+        if (agent.id !== sender) {
+          bufferMessageForAgent(agent.id, sender, message, 'broadcast');
+        }
+      }
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Get messages from an agent's inbox
+app.get('/api/agents/:agentId/messages', (req, res) => {
+  const { agentId } = req.params;
+  const { since, limit } = req.query;
+
+  pruneInbox(agentId);
+  let inbox = agentInboxes.get(agentId) || [];
+
+  if (since) {
+    const sinceTime = new Date(since as string).getTime();
+    if (!isNaN(sinceTime)) {
+      inbox = inbox.filter(m => new Date(m.timestamp).getTime() > sinceTime);
+    }
+  }
+
+  const maxLimit = Math.min(parseInt(limit as string) || 20, 100);
+  const messages = inbox.slice(0, maxLimit);
+
+  // Mark returned messages as read
+  const returnedIds = new Set(messages.map(m => m.id));
+  const fullInbox = agentInboxes.get(agentId) || [];
+  fullInbox.forEach(m => { if (returnedIds.has(m.id)) m.read = true; });
+
+  res.json({ success: true, messages, unread_count: inbox.filter(m => !m.read).length });
+});
+
+// ─── File lock registry ───────────────────────────────────────────────────────
+// Prevents multiple agents editing the same file simultaneously.
+// Locks are in-memory and auto-released on task complete or agent removal.
+
+interface FileLock {
+  filePath: string;
+  agentId: string;
+  taskId: string;
+  lockedAt: string;
+}
+
+const fileLocks = new Map<string, FileLock>(); // filePath → lock
+
+// Claim one or more files for exclusive editing
+app.post('/api/files/claim', (req, res) => {
+  const { agent_id, task_id, file_paths } = req.body;
+  if (!agent_id || !task_id || !Array.isArray(file_paths) || file_paths.length === 0) {
+    return res.status(400).json({ success: false, error: 'agent_id, task_id, and file_paths[] are required' });
+  }
+
+  const conflicts: { filePath: string; lockedBy: string; taskId: string }[] = [];
+  for (const fp of file_paths) {
+    const existing = fileLocks.get(fp);
+    if (existing && existing.agentId !== agent_id) {
+      conflicts.push({ filePath: fp, lockedBy: existing.agentId, taskId: existing.taskId });
+    }
+  }
+
+  if (conflicts.length > 0) {
+    return res.status(409).json({
+      success: false,
+      conflict: true,
+      conflicts,
+      message: `${conflicts.length} file(s) are currently being edited by another agent. Wait or coordinate via send_message.`
+    });
+  }
+
+  // No conflicts — claim all
+  const now = new Date().toISOString();
+  for (const fp of file_paths) {
+    fileLocks.set(fp, { filePath: fp, agentId: agent_id, taskId: task_id, lockedAt: now });
+  }
+
+  // Log to ChronologicalLog so PVM captures file ownership patterns
+  chronologicalLog.append({
+    timestamp: now,
+    agent: agent_id,
+    message: `claimed files for editing: ${file_paths.join(', ')} (task: ${task_id})`,
+    type: 'file_claim'
+  });
+
+  res.json({ success: true, claimed: file_paths });
+});
+
+// Release one or more file locks
+app.post('/api/files/release', (req, res) => {
+  const { agent_id, task_id, file_paths } = req.body;
+  if (!agent_id || !Array.isArray(file_paths)) {
+    return res.status(400).json({ success: false, error: 'agent_id and file_paths[] are required' });
+  }
+
+  const released: string[] = [];
+  for (const fp of file_paths) {
+    const lock = fileLocks.get(fp);
+    if (lock && lock.agentId === agent_id) {
+      fileLocks.delete(fp);
+      released.push(fp);
+    }
+  }
+
+  if (released.length > 0) {
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: agent_id,
+      message: `released file locks: ${released.join(', ')} (task: ${task_id || 'unknown'})`,
+      type: 'file_release'
+    });
+  }
+
+  res.json({ success: true, released });
+});
+
+// Get current file lock state
+app.get('/api/files/locks', (req, res) => {
+  res.json({ success: true, locks: Array.from(fileLocks.values()) });
 });
 
 // Self-improvement endpoints
@@ -311,6 +618,17 @@ app.get('/api/pvm/search', async (req, res) => {
 
 app.get('/api/pvm/status', (req, res) => {
   res.json(pvmIndexer.getStatus());
+});
+
+// Read raw ChronologicalLog — used by import project to reconstruct task history
+app.get('/api/log', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 500;
+    const events = await chronologicalLog.getRecent(limit);
+    res.json({ success: true, events, count: events.length });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // WebSocket connection handling

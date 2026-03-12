@@ -32,7 +32,9 @@ export type MessageType =
   | 'direct_mention'
   | 'help_request'
   | 'question'
-  | 'peer_response';
+  | 'peer_response'
+  | 'file_claim'
+  | 'file_release';
 
 export interface AgentProfile {
   agentId: string;

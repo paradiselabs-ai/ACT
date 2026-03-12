@@ -8,7 +8,8 @@ export const TaskIdSchema = z.string().min(1).describe('Unique identifier for a 
 export const RegisterWithActInputSchema = z.object({
   agent_id: AgentIdSchema.describe('Unique identifier for the agent'),
   name: z.string().min(1).describe('Human-readable name for the agent'),
-  capabilities: z.array(z.string()).describe('List of capabilities the agent possesses')
+  capabilities: z.array(z.string()).describe('List of capabilities the agent possesses'),
+  session_id: z.string().min(1).describe('The CLAUDE_SESSION_ID from your environment. Run: echo $CLAUDE_SESSION_ID in a Bash tool to get it. Required so the stop hook can identify this agent instance.')
 });
 
 // Tool 2: get_task
@@ -56,6 +57,33 @@ export const GetAgentBriefInputSchema = z.object({
   project_name: z.string().min(1).describe('Name of the project to fetch a brief for'),
   agent_id: AgentIdSchema.describe('ID of the agent requesting their brief'),
   write_to_directory: z.string().optional().describe('Directory path to write AGENT.md file (e.g. /path/to/project). If omitted, returns content only.')
+});
+
+// Tool: get_messages
+export const GetMessagesInputSchema = z.object({
+  agent_id: AgentIdSchema.describe('ID of the agent checking their inbox'),
+  since: z.string().optional().describe('ISO timestamp — only return messages after this time'),
+  limit: z.number().min(1).max(100).default(20).describe('Maximum number of messages to return')
+});
+
+// Tool: claim_files
+export const ClaimFilesInputSchema = z.object({
+  agent_id: AgentIdSchema.describe('ID of the agent claiming the files'),
+  task_id: TaskIdSchema.describe('ID of the task this work belongs to'),
+  file_paths: z.array(z.string().min(1)).min(1).describe('List of absolute or relative file paths to claim for exclusive editing')
+});
+
+// Tool: release_files
+export const ReleaseFilesInputSchema = z.object({
+  agent_id: AgentIdSchema.describe('ID of the agent releasing the files'),
+  task_id: TaskIdSchema.optional().describe('Task ID (for logging purposes)'),
+  file_paths: z.array(z.string().min(1)).min(1).describe('List of file paths to release')
+});
+
+// Tool: retry_task
+export const RetryTaskInputSchema = z.object({
+  task_id: TaskIdSchema.describe('ID of the failed task to retry'),
+  agent_id: AgentIdSchema.describe('ID of the agent requesting the retry (must be the task owner)')
 });
 
 // Tool 8: improve_coordination

@@ -13,7 +13,11 @@ import {
   EvaluateCoordinationInputSchema,
   ImproveCoordinationInputSchema,
   SendMessageInputSchema,
-  GetAgentBriefInputSchema
+  GetAgentBriefInputSchema,
+  GetMessagesInputSchema,
+  ClaimFilesInputSchema,
+  ReleaseFilesInputSchema,
+  RetryTaskInputSchema
 } from '../schemas/index.js';
 
 // ACT Server base URL - override with ACT_SERVER_URL env var
@@ -46,10 +50,23 @@ export interface ToolDefinition {
 // Tool 1: register_with_act
 export const registerWithActTool: ToolDefinition = {
   name: 'register_with_act',
-  description: 'Register this agent with the ACT coordination server. Call this once at the start of a session before using any other ACT tools.',
+  description: `Register this agent with the ACT coordination server. Call this once at the start of a session before using any other ACT tools.
+
+BEFORE CALLING THIS TOOL — get your session ID:
+  Run this in a Bash tool: echo $CLAUDE_SESSION_ID
+  Pass the output as the session_id parameter. This is required — without it the stop hook cannot identify this agent instance and autonomous task looping will not work.
+
+CHOOSING AN AGENT ID:
+- Pick a short, descriptive, lowercase ID that reflects your role or instance number.
+- If multiple instances of the same model may be running simultaneously, make the ID unique by appending a number or role: "claude-1", "claude-2", "claude-frontend", "claude-backend".
+- If your chosen ID is already taken, the server will return a conflict error — retry immediately with a different ID (e.g. append "-2").
+- Good examples: "claude-1", "claude-actor", "claude-frontend", "claude-backend", "claude-infra"
+- Bad examples: "agent", "claude", "assistant" (too generic, likely to conflict)
+
+On success, confirm your agent ID to the user by saying: "Successfully registered with agent ID: <agent_id>"`,
   inputSchema: RegisterWithActInputSchema,
   handler: async (input: unknown) => {
-    const { agent_id, name, capabilities } = RegisterWithActInputSchema.parse(input);
+    const { agent_id, name, capabilities, session_id } = RegisterWithActInputSchema.parse(input);
     try {
       const { data } = await http.post('/api/agents/register', {
         agentId: agent_id,
@@ -57,8 +74,34 @@ export const registerWithActTool: ToolDefinition = {
         capabilities
       });
       console.error(`[ACT] Registered agent: ${agent_id}`);
-      return { success: true, agent_id, message: `Registered as "${name}" with capabilities: ${capabilities.join(', ')}` };
-    } catch (e) {
+      // Write agent ID scoped to this Claude Code session so the Stop hook
+      // can identify which agent THIS instance is — without colliding with
+      // other Claude Code windows running on the same machine.
+      // session_id comes from the tool input (agent reads $CLAUDE_SESSION_ID
+      // via Bash before calling this tool) — reliable across all call paths.
+      try {
+        const home = process.env.HOME || process.env.USERPROFILE || '~';
+        const sessionsDir = path.join(home, '.act', 'sessions');
+        fs.mkdirSync(sessionsDir, { recursive: true });
+        fs.writeFileSync(path.join(sessionsDir, session_id), agent_id, 'utf8');
+        console.error(`[ACT] Wrote session identity: ~/.act/sessions/${session_id} → ${agent_id}`);
+      } catch { /* non-fatal */ }
+      return {
+        success: true,
+        agent_id,
+        message: `Successfully registered with agent ID: ${agent_id}. Capabilities: ${capabilities.join(', ')}.`
+      };
+    } catch (e: any) {
+      // Surface conflict errors clearly so the agent knows to retry with a different ID
+      if (e?.response?.status === 409 || e?.response?.data?.conflict) {
+        const serverMsg = e?.response?.data?.error || `Agent ID "${agent_id}" is already registered.`;
+        return {
+          success: false,
+          conflict: true,
+          agent_id,
+          error: `ID conflict: ${serverMsg} Please retry register_with_act with a different agent_id.`
+        };
+      }
       return { success: false, error: errMsg(e) };
     }
   }
@@ -226,6 +269,105 @@ export const getImprovementStatusTool: ToolDefinition = {
     try {
       const status = getImprovementEngineStatus();
       return { success: true, status };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
+    }
+  }
+};
+
+// Tool 10: get_messages
+export const getMessagesTool: ToolDefinition = {
+  name: 'get_messages',
+  description: 'Check your agent inbox for messages from other agents. Use `since` to only fetch new messages since your last check. Messages are automatically marked as read when retrieved.',
+  inputSchema: GetMessagesInputSchema,
+  handler: async (input: unknown) => {
+    const { agent_id, since, limit } = GetMessagesInputSchema.parse(input);
+    try {
+      const params: Record<string, string | number> = { limit };
+      if (since) params.since = since;
+      const { data } = await http.get(`/api/agents/${encodeURIComponent(agent_id)}/messages`, { params });
+      console.error(`[ACT] Inbox for ${agent_id}: ${data.messages?.length ?? 0} message(s), ${data.unread_count ?? 0} unread`);
+      return { success: true, messages: data.messages || [], unread_count: data.unread_count ?? 0 };
+    } catch (e) {
+      return { success: false, error: errMsg(e), messages: [] };
+    }
+  }
+};
+
+// Tool 11: claim_files
+export const claimFilesTool: ToolDefinition = {
+  name: 'claim_files',
+  description: 'Claim one or more files for exclusive editing before modifying them. Returns 409 with conflict details if any file is already locked by another agent — in that case, send_message to coordinate, or wait and retry. Always release_files when done editing.',
+  inputSchema: ClaimFilesInputSchema,
+  handler: async (input: unknown) => {
+    const { agent_id, task_id, file_paths } = ClaimFilesInputSchema.parse(input);
+    try {
+      const { data } = await http.post('/api/files/claim', { agent_id, task_id, file_paths });
+      console.error(`[ACT] ${agent_id} claimed ${data.claimed?.length ?? 0} file(s) for task ${task_id}`);
+      return { success: true, claimed: data.claimed, message: `Successfully claimed ${data.claimed?.length ?? 0} file(s) for exclusive editing.` };
+    } catch (e) {
+      if (e instanceof AxiosError && e.response?.status === 409) {
+        const d = e.response.data;
+        return {
+          success: false,
+          conflict: true,
+          conflicts: d.conflicts || [],
+          error: d.message || 'One or more files are locked by another agent.',
+          suggestion: 'Use send_message to coordinate with the locking agent, or wait and retry claim_files.'
+        };
+      }
+      return { success: false, error: errMsg(e) };
+    }
+  }
+};
+
+// Tool 12: release_files
+export const releaseFilesTool: ToolDefinition = {
+  name: 'release_files',
+  description: 'Release file locks you previously claimed. Call this after you finish editing the files. Locks are also auto-released when you call report_task_complete.',
+  inputSchema: ReleaseFilesInputSchema,
+  handler: async (input: unknown) => {
+    const { agent_id, task_id, file_paths } = ReleaseFilesInputSchema.parse(input);
+    try {
+      const { data } = await http.post('/api/files/release', { agent_id, task_id, file_paths });
+      console.error(`[ACT] ${agent_id} released ${data.released?.length ?? 0} file lock(s)`);
+      return { success: true, released: data.released, message: `Released ${data.released?.length ?? 0} file lock(s).` };
+    } catch (e) {
+      return { success: false, error: errMsg(e) };
+    }
+  }
+};
+
+// Tool 13: retry_task
+export const retryTaskTool: ToolDefinition = {
+  name: 'retry_task',
+  description: `Retry a failed task after receiving peer help. Resets the task to pending so you can pick it up again via get_task.
+
+Use this ONLY after:
+1. Your task failed (report_task_complete with success: false)
+2. You broadcast the failure via send_message
+3. You received helpful information from peer agents via get_messages
+
+This increments the retry counter. After 3 failures the task is permanently failed and the user is notified via the REPL. Returns permanentlyFailed: true if the limit is reached.`,
+  inputSchema: RetryTaskInputSchema,
+  handler: async (input: unknown) => {
+    const { task_id, agent_id } = RetryTaskInputSchema.parse(input);
+    try {
+      const { data } = await http.post(`/api/tasks/${task_id}/retry`);
+      if (data.permanentlyFailed) {
+        console.error(`[ACT] Task ${task_id} permanently failed — max retries exceeded`);
+        return {
+          success: false,
+          permanentlyFailed: true,
+          message: `Task ${task_id} has exceeded the maximum retry limit (3). It is permanently failed. The REPL user has been notified.`
+        };
+      }
+      console.error(`[ACT] Task ${task_id} reset for retry by ${agent_id} (attempt ${data.task?.retryCount ?? '?'}/3)`);
+      return {
+        success: true,
+        retryCount: data.task?.retryCount,
+        message: `Task reset to pending (retry ${data.task?.retryCount ?? '?'}/3). Call get_task to pick it up again.`
+      };
     } catch (e) {
       return { success: false, error: errMsg(e) };
     }

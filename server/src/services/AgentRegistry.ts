@@ -25,6 +25,10 @@ export class AgentRegistry extends EventEmitter {
   private agents: Map<string, Agent> = new Map();
   private socketToAgent: Map<string, string> = new Map();
 
+  isRegistered(agentId: string): boolean {
+    return this.agents.has(agentId);
+  }
+
   async registerAgent(agentId: string, agentData: Partial<Agent>): Promise<Agent> {
     const existingAgent = this.agents.get(agentId);
 
@@ -77,6 +81,11 @@ export class AgentRegistry extends EventEmitter {
       agent.currentTask = currentTask;
     }
 
+    // When an agent goes online, they have no current task (available for assignment)
+    if (status === 'online') {
+      agent.currentTask = undefined;
+    }
+
     if (status === 'offline') {
       if (agent.socketId) {
         this.socketToAgent.delete(agent.socketId);
@@ -85,6 +94,17 @@ export class AgentRegistry extends EventEmitter {
     }
 
     this.emit('agent_status_updated', agent);
+  }
+
+  removeAgent(agentId: string): boolean {
+    if (!this.agents.has(agentId)) return false;
+    this.agents.delete(agentId);
+    // Clean up any socket→agent mapping for this agent
+    for (const [socketId, id] of this.socketToAgent.entries()) {
+      if (id === agentId) this.socketToAgent.delete(socketId);
+    }
+    this.emit('agent_removed', agentId);
+    return true;
   }
 
   getAgent(agentId: string): Agent | undefined {

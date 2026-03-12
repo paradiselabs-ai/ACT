@@ -1,16 +1,16 @@
 import { ChronologicalLog } from './ChronologicalLog';
-import { MockVectorStore } from './MockVectorStore';
+import { VectorMemoryStore } from './VectorMemoryStore';
 import { CoordinationMessage } from '../types/coordination';
 import { logger } from '../utils/logger';
 
 export class PVMIndexer {
   private chronologicalLog: ChronologicalLog;
-  private vectorStore: MockVectorStore;
+  private vectorStore: VectorMemoryStore;
   private lastIndexedTimestamp: string | null = null;
   private indexingInterval: NodeJS.Timeout | null = null;
   private isIndexing: boolean = false;
-  
-  constructor(chronologicalLog: ChronologicalLog, vectorStore: MockVectorStore) {
+
+  constructor(chronologicalLog: ChronologicalLog, vectorStore: VectorMemoryStore) {
     this.chronologicalLog = chronologicalLog;
     this.vectorStore = vectorStore;
   }
@@ -54,32 +54,32 @@ export class PVMIndexer {
       logger.debug('PVMIndexer already indexing, skipping this cycle');
       return;
     }
-    
+
     this.isIndexing = true;
-    
+
     try {
       logger.debug('🔍 PVMIndexer checking for new events to index...');
-      
-      // Query for events after the last indexed timestamp
-      const query: any = {};
+
+      // Fetch all events after the last indexed timestamp.
+      // Use a very high limit so we drain everything in one pass.
+      // ChronologicalLog.query filters with >= on `since`, so we bump the
+      // stored timestamp by 1ms to avoid re-indexing the last seen event.
+      const query: any = { limit: 100000 };
       if (this.lastIndexedTimestamp) {
-        // Note: This assumes the log is queried by timestamp
-        // The actual implementation may need adjustment based on ChronologicalLog API
-        query.since = this.lastIndexedTimestamp;
+        const bumped = new Date(new Date(this.lastIndexedTimestamp).getTime() + 1).toISOString();
+        query.since = bumped;
       }
-      
-      // For now, let's read all events and filter
-      // In a production implementation, we'd use a more efficient approach
+
       const result = await this.chronologicalLog.query(query);
       const events = result.events;
-      
+
       if (events.length === 0) {
         logger.debug('🔍 PVMIndexer: No new events to index');
         return;
       }
-      
-      logger.info(`📥 PVMIndexer found ${events.length} events to index`);
-      
+
+      logger.info(`📥 PVMIndexer found ${events.length} new events to index`);
+
       // Convert events to CoordinationMessages and index them
       const coordinationMessages: CoordinationMessage[] = events.map(event => ({
         timestamp: event.timestamp,
@@ -87,18 +87,15 @@ export class PVMIndexer {
         message: event.message || (event as any).content || 'Unknown event',
         type: event.type || 'coordination'
       }));
-      
+
       // Store in vector store
       await this.vectorStore.batchStore(coordinationMessages);
-      
-      // Update last indexed timestamp
-      if (events.length > 0) {
-        const latestEvent = events[events.length - 1];
-        this.lastIndexedTimestamp = latestEvent.timestamp;
-      }
-      
+
+      // Advance cursor to the latest event's timestamp
+      this.lastIndexedTimestamp = events[events.length - 1].timestamp;
+
       logger.info(`✅ PVMIndexer successfully indexed ${events.length} events`);
-      
+
     } catch (error: any) {
       logger.error(`❌ PVMIndexer failed during indexing: ${error.message}`);
       throw error;
