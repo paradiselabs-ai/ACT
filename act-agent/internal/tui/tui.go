@@ -127,6 +127,9 @@ type appModel struct {
 	showInitDialog bool
 	initDialog     dialog.InitDialogCmp
 
+	showOnboardingDialog bool
+	onboardingDialog     dialog.OnboardingCmp
+
 	showFilepicker bool
 	filepicker     dialog.FilepickerCmp
 
@@ -159,13 +162,18 @@ func (a appModel) Init() tea.Cmd {
 	cmds = append(cmds, cmd)
 	cmd = a.initDialog.Init()
 	cmds = append(cmds, cmd)
+	cmd = a.onboardingDialog.Init()
+	cmds = append(cmds, cmd)
 	cmd = a.filepicker.Init()
 	cmds = append(cmds, cmd)
 	cmd = a.themeDialog.Init()
 	cmds = append(cmds, cmd)
 
-	// Check if we should show the init dialog
+	// Show onboarding wizard on first run; otherwise check project init dialog.
 	cmds = append(cmds, func() tea.Msg {
+		if config.IsFirstRun() && !config.HasConfigFile() {
+			return dialog.ShowOnboardingDialogMsg{Show: true}
+		}
 		shouldShow, err := config.ShouldShowInitDialog()
 		if err != nil {
 			return util.InfoMsg{
@@ -220,6 +228,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
 			cmds = append(cmds, argsCmd, a.multiArgumentsDialog.Init())
 		}
+
+		onboard, onboardCmd := a.onboardingDialog.Update(msg)
+		a.onboardingDialog = onboard.(dialog.OnboardingCmp)
+		cmds = append(cmds, onboardCmd)
 
 		return a, tea.Batch(cmds...)
 	// Status
@@ -368,6 +380,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialog.ShowInitDialogMsg:
 		a.showInitDialog = msg.Show
+		return a, nil
+
+	case dialog.ShowOnboardingDialogMsg:
+		a.showOnboardingDialog = msg.Show
 		return a, nil
 
 	case dialog.CloseInitDialogMsg:
@@ -540,6 +556,13 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return a, nil
 				}
+				if a.showOnboardingDialog {
+					a.showOnboardingDialog = false
+					if err := config.MarkProjectInitialized(); err != nil {
+						return a, util.ReportError(err)
+					}
+					return a, nil
+				}
 				if a.showFilepicker {
 					a.showFilepicker = false
 					a.filepicker.ToggleFilepicker(a.showFilepicker)
@@ -646,6 +669,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if a.showOnboardingDialog {
+		d, onboardCmd := a.onboardingDialog.Update(msg)
+		a.onboardingDialog = d.(dialog.OnboardingCmp)
+		cmds = append(cmds, onboardCmd)
+		if _, ok := msg.(tea.KeyMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+	}
+
 	if a.showThemeDialog {
 		d, themeCmd := a.themeDialog.Update(msg)
 		a.themeDialog = d.(dialog.ThemeDialog)
@@ -717,6 +749,17 @@ func (a appModel) View() string {
 		appView = layout.PlaceOverlay(
 			col,
 			row,
+			overlay,
+			appView,
+			true,
+		)
+	}
+
+	if a.showOnboardingDialog {
+		overlay := a.onboardingDialog.View()
+		appView = layout.PlaceOverlay(
+			a.width/2-lipgloss.Width(overlay)/2,
+			a.height/2-lipgloss.Height(overlay)/2,
 			overlay,
 			appView,
 			true,
@@ -901,19 +944,20 @@ func (a appModel) View() string {
 func New(app *app.App) tea.Model {
 	startPage := page.ChatPage
 	model := &appModel{
-		currentPage:   startPage,
-		loadedPages:   make(map[page.PageID]bool),
-		status:        core.NewStatusCmp(app.LSPClients),
-		help:          dialog.NewHelpCmp(),
-		quit:          dialog.NewQuitCmp(),
-		sessionDialog: dialog.NewSessionDialogCmp(),
-		commandDialog: dialog.NewCommandDialogCmp(),
-		modelDialog:   dialog.NewModelDialogCmp(),
-		permissions:   dialog.NewPermissionDialogCmp(),
-		initDialog:    dialog.NewInitDialogCmp(),
-		themeDialog:   dialog.NewThemeDialogCmp(),
-		app:           app,
-		commands:      []dialog.Command{},
+		currentPage:      startPage,
+		loadedPages:      make(map[page.PageID]bool),
+		status:           core.NewStatusCmp(app.LSPClients),
+		help:             dialog.NewHelpCmp(),
+		quit:             dialog.NewQuitCmp(),
+		sessionDialog:    dialog.NewSessionDialogCmp(),
+		commandDialog:    dialog.NewCommandDialogCmp(),
+		modelDialog:      dialog.NewModelDialogCmp(),
+		permissions:      dialog.NewPermissionDialogCmp(),
+		initDialog:       dialog.NewInitDialogCmp(),
+		onboardingDialog: dialog.NewOnboardingCmp(),
+		themeDialog:      dialog.NewThemeDialogCmp(),
+		app:              app,
+		commands:         []dialog.Command{},
 		pages: map[page.PageID]tea.Model{
 			page.ChatPage: page.NewChatPage(app),
 			page.LogsPage: page.NewLogsPage(),

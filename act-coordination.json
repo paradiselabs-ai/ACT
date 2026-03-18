@@ -768,3 +768,11 @@
   "message": "Workflow 4A complete: Added ACT-specific sections to help dialog (modes, CLI commands, architecture) above keyboard shortcuts in act-agent/internal/tui/components/dialog/help.go. Build passes.",
   "branch": "NesTTY"
 }
+,
+{
+  "timestamp": "2026-03-18T04:12:58Z",
+  "agent": "windsurf",
+  "type": "feature_complete",
+  "message": "Workflow 6B complete: Built onboarding wizard with 5-step flow (welcome, detect keys, tier 1 config, tier 2 config, save) in act-agent/internal/tui/components/dialog/onboarding.go. Wired first-run detection in internal/tui/tui.go to show onboarding on first run and fall back to regular init dialog otherwise. Wizard supports arrow navigation, Enter progression, Escape skip, writes ~/.act.json, and emits CloseInitDialogMsg on completion. Build passes.",
+  "branch": "NesTTY"
+}
