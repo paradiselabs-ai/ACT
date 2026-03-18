@@ -1,0 +1,10 @@
+ACT Agent
+Copyright 2026 Paradise Labs
+
+This product includes software developed by:
+- OpenCode (https://github.com/opencode-ai/opencode)
+  Copyright 2025 Kujtim Hoxha, MIT License
+
+ACT Agent is a fork of OpenCode with Agent Coordination Toolkit (ACT)
+integration for multi-agent coordination. The original MIT license is
+preserved in the LICENSE file in this directory.

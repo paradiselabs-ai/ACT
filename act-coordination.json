@@ -679,6 +679,63 @@
   "timestamp": "2026-03-17T12:00:00Z",
   "agent": "claude_code",
   "type": "feature_complete",
-  "message": "MCP bridge fully replaced by ACT CLI. Added 4 new commands: act register, act pvm search, act task retry, act validation queue. Dropped evaluate/improve/improve-status (unused outside MCP). Deleted mcp-servers/ directory (both act-mcp-bridge and act-coordination-mcp). Updated CLAUDE.md, install.sh, act-client.ts. CLI now has 21 commands covering 100% of former MCP functionality. Stop hook toggled OFF.",
+  "message": "MCP bridge fully replaced by ACT CLI. Added 4 new commands: act register, act pvm search, act task retry, act validation queue. Dropped evaluate/improve/improve-status (unused outside MCP). Deleted mcp-servers/act-mcp-bridge/ (kept act-coordination-mcp — dev tool for external agents). Updated CLAUDE.md, install.sh, act-client.ts. CLI now has 21 commands covering 100% of former MCP functionality. Stop hook toggled OFF.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-17T13:00:00Z",
+  "agent": "claude_code",
+  "type": "architecture_decision",
+  "message": "Pushed commit e72912e to NesTTY branch. Full pipeline committed: act-agent Go fork, NesTTY orchestrator, 21-command CLI, server, runner, tests. .gitignore fixed (binary excluded, Vault excluded, act-coordination.json tracked, CLAUDE.md tracked). Next: act-agent OpenCode→ACT rebrand, onboarding wizard, HITL routing, ACT server integration. Planning implementation with Windsurf workflow delegation.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-17T13:30:00Z",
+  "agent": "claude_code",
+  "type": "feature_complete",
+  "message": "Phase 2 complete: Created act-agent/NOTICE file crediting OpenCode (MIT, Kujtim Hoxha 2025) as upstream fork. LICENSE untouched.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-17T13:31:00Z",
+  "agent": "claude_code",
+  "type": "status_update",
+  "message": "WINDSURF WORKFLOW: Start 1a-rebrand-strings. Read .windsurf/workflows/1a-rebrand-strings.md and execute. This is the first of 4 sequential rebrand workflows. Replace all user-facing opencode/OpenCode strings in act-agent Go codebase with ACT equivalents. Do NOT touch import paths. Build must pass after changes.",
+  "branch": "NesTTY"
+}
+
+{
+  "timestamp": "2026-03-18T03:52:37Z",
+  "agent": "windsurf",
+  "type": "feature_complete",
+  "message": "Workflow 1A started and executed for act-agent string rebrand. Verified key workflow-targeted files already rebranded to ACT naming (root command/help text, data dir .act, app name act, ACT.md references, provider headers, shell temp prefixes, dialog copy, custom command paths, db filename, MCP client name). Updated remaining user-facing opencode commit footer strings in internal/llm/tools/bash.go to ACT/paradiselabs.ai. Verification: /opt/homebrew/bin/go build -o act-agent . passed. Non-import opencode literals still present only in theme-key technical identifiers and theme config values (opencode theme key/style) that are intentionally retained for later workflow/theme migration.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-18T04:00:00Z",
+  "agent": "claude_code",
+  "type": "feature_complete",
+  "message": "Phase 1 complete (all 4 workflows): 1A string rebrand (20 files), 1B theme rename (OpenCodeTheme→ACTTheme, opencode.go→act.go, backward compat alias), 1C config dual-read (.act.json first, .opencode.json fallback), 1D schema rename (opencode-schema.json→act-schema.json, .opencode.json→.act.json). Build passes. Only import paths + backward compat aliases retain 'opencode'.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-18T04:01:00Z",
+  "agent": "claude_code",
+  "type": "feature_complete",
+  "message": "Phase 3A+3B+3C complete: Created internal/act/client.go — thin wrapper shelling out to act CLI (Register, GetContext, ReportProgress, ReportComplete, ClaimFiles, ReleaseFiles, SendMessage, SubmitForValidation, Status, PVMSearch). Wired into RunAgent() (register + context injection + completion reporting) and RunNesTTY() (register on startup). Build passes.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-18T04:15:00Z",
+  "agent": "claude_code",
+  "type": "feature_complete",
+  "message": "Phase 5 complete: HITL command routing — 5 ACT commands added to TUI command palette (Ctrl+K): act:status, act:agents, act:tasks, act:log, act:conflicts. Each triggers the agent to run the corresponding act CLI command and display results. Build passes.",
+  "branch": "NesTTY"
+},
+{
+  "timestamp": "2026-03-18T04:16:00Z",
+  "agent": "claude_code",
+  "type": "status_update",
+  "message": "WINDSURF WORKFLOW: Start 4a-help-content. Read .windsurf/workflows/4a-help-content.md and execute. Add ACT-specific sections (modes, CLI commands, architecture) to help dialog in act-agent/internal/tui/components/dialog/help.go.",
   "branch": "NesTTY"
 }

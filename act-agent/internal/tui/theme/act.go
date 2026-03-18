@@ -4,15 +4,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// OpenCodeTheme implements the Theme interface with OpenCode brand colors.
+// ACTTheme implements the Theme interface with ACT brand colors.
 // It provides both dark and light variants.
-type OpenCodeTheme struct {
+type ACTTheme struct {
 	BaseTheme
 }
 
-// NewOpenCodeTheme creates a new instance of the OpenCode theme.
-func NewOpenCodeTheme() *OpenCodeTheme {
-	// OpenCode color palette
+// NewACTTheme creates a new instance of the ACT theme.
+func NewACTTheme() *ACTTheme {
+	// ACT color palette
 	// Dark mode colors
 	darkBackground := "#212121"
 	darkCurrentLine := "#252525"
@@ -45,7 +45,7 @@ func NewOpenCodeTheme() *OpenCodeTheme {
 	lightYellow := "#b0851f"    // Emphasized text
 	lightBorder := "#d3d3d3"    // Border color
 
-	theme := &OpenCodeTheme{}
+	theme := &ACTTheme{}
 
 	// Base colors
 	theme.PrimaryColor = lipgloss.AdaptiveColor{
@@ -271,7 +271,9 @@ func NewOpenCodeTheme() *OpenCodeTheme {
 }
 
 func init() {
-	// Register the OpenCode theme with the theme manager
-	RegisterTheme("opencode", NewOpenCodeTheme())
+	// Register the ACT theme with the theme manager
+	RegisterTheme("act", NewACTTheme())
+	// Backward compatibility alias
+	RegisterTheme("opencode", NewACTTheme())
 }
 

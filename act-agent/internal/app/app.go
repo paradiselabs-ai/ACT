@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/opencode-ai/opencode/internal/act"
 	"github.com/opencode-ai/opencode/internal/config"
 	"github.com/opencode-ai/opencode/internal/db"
 	"github.com/opencode-ai/opencode/internal/format"
@@ -201,6 +202,23 @@ func (a *App) RunAgent(ctx context.Context, prompt string, agentID string, role 
 		}
 	}
 
+	// ACT coordination: register with server and fetch context
+	project := os.Getenv("ACT_PROJECT")
+	actClient := act.NewClient(agentID, project)
+	if actClient.IsAvailable() {
+		if err := actClient.Register(); err != nil {
+			logging.Warn("ACT registration failed (continuing without coordination)", "error", err)
+		} else {
+			logging.Info("Registered with ACT server", "agent_id", agentID)
+		}
+		// Prepend ACT context (brief, task, parallel agents) to the prompt
+		if project != "" {
+			if actContext, err := actClient.GetContext(); err == nil && actContext != "" {
+				prompt = fmt.Sprintf("## ACT Coordination Context\n%s\n\n## Task\n%s", actContext, prompt)
+			}
+		}
+	}
+
 	sess, err := a.Sessions.Create(ctx, fmt.Sprintf("act-agent:%s", agentID))
 	if err != nil {
 		return a.agentError(agentID, fmt.Errorf("failed to create session: %w", err))
@@ -219,12 +237,25 @@ func (a *App) RunAgent(ctx context.Context, prompt string, agentID string, role 
 		if errors.Is(result.Error, context.Canceled) || errors.Is(result.Error, agent.ErrRequestCancelled) {
 			return a.agentOutput(agentID, "cancelled", "Agent processing was cancelled")
 		}
+		// Report failure to ACT server
+		if actClient.IsAvailable() {
+			_ = actClient.SendMessage(fmt.Sprintf("Task failed: %s", result.Error.Error()))
+		}
 		return a.agentError(agentID, result.Error)
 	}
 
 	content := "No content available"
 	if result.Message.Content().String() != "" {
 		content = result.Message.Content().String()
+	}
+
+	// Report completion to ACT server
+	if actClient.IsAvailable() {
+		summary := content
+		if len(summary) > 500 {
+			summary = summary[:500] + "..."
+		}
+		_ = actClient.SendMessage(fmt.Sprintf("Task completed: %s", summary))
 	}
 
 	return a.agentOutput(agentID, "completed", content)
@@ -262,6 +293,15 @@ func (a *App) agentError(agentID string, err error) error {
 // If an initial prompt is provided, it is processed as the first turn before reading stdin.
 func (a *App) RunNesTTY(ctx context.Context, role string, initialPrompt string) error {
 	logging.Info("Running in NesTTY mode", "role", role)
+
+	// ACT coordination: register NesTTY role agent
+	agentID := fmt.Sprintf("nestty-%s", role)
+	actClient := act.NewClient(agentID, os.Getenv("ACT_PROJECT"))
+	if actClient.IsAvailable() {
+		if err := actClient.Register(); err != nil {
+			logging.Warn("ACT registration failed for NesTTY role", "role", role, "error", err)
+		}
+	}
 
 	// Use role-specific model if configured (e.g., planner uses Claude Opus, observer uses Gemini)
 	roleAgent, err := a.CreateAgentForRole(role)
