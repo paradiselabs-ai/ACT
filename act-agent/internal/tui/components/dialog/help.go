@@ -169,6 +169,43 @@ func (h *helpCmp) View() string {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 
+	sectionTitleStyle := baseStyle.
+		Bold(true).
+		Foreground(t.Primary())
+
+	sectionBodyStyle := baseStyle.
+		Foreground(t.TextMuted())
+
+	actModes := lipgloss.JoinVertical(lipgloss.Left,
+		sectionTitleStyle.Render("ACT Agent Modes"),
+		sectionBodyStyle.Render("  --agent <id>     Headless mode: execute task, return JSON"),
+		sectionBodyStyle.Render("  --nestty <role>  NesTTY mode: persistent conversation relay"),
+		sectionBodyStyle.Render("  --role <role>    Select role-specific model config"),
+		"",
+		sectionBodyStyle.Render("  Roles: planner, observer, assurance, qa,"),
+		sectionBodyStyle.Render("         developer, frontend_dev, backend_dev,"),
+		sectionBodyStyle.Render("         qa_engineer, researcher"),
+	)
+
+	actCLI := lipgloss.JoinVertical(lipgloss.Left,
+		sectionTitleStyle.Render("ACT CLI Commands (use in terminal)"),
+		sectionBodyStyle.Render("  act register       Register with ACT server"),
+		sectionBodyStyle.Render("  act context        Get brief + task + agents"),
+		sectionBodyStyle.Render("  act task complete  Mark task done"),
+		sectionBodyStyle.Render("  act task progress  Report progress %"),
+		sectionBodyStyle.Render("  act status         System overview"),
+		sectionBodyStyle.Render("  act message        Send/read messages"),
+		sectionBodyStyle.Render("  act pvm search     Search coordination memory"),
+	)
+
+	architecture := lipgloss.JoinVertical(lipgloss.Left,
+		sectionTitleStyle.Render("Architecture"),
+		sectionBodyStyle.Render("  Tier 1 (NesTTY)  Planner, Observer, Assurance, QA"),
+		sectionBodyStyle.Render("  Tier 2 (Swarm)   Headless agents with role specializations"),
+		sectionBodyStyle.Render("  ACT Server       Coordination state (port 8080)"),
+		sectionBodyStyle.Render("  Runner           Spawns swarm agents from task queue"),
+	)
+
 	content := h.render()
 	header := baseStyle.
 		Bold(true).
@@ -176,13 +213,24 @@ func (h *helpCmp) View() string {
 		Foreground(t.Primary()).
 		Render("Keyboard Shortcuts")
 
+	sections := lipgloss.JoinVertical(
+		lipgloss.Left,
+		actModes,
+		"",
+		actCLI,
+		"",
+		architecture,
+	)
+
 	return baseStyle.Padding(1).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.TextMuted()).
 		Width(h.width).
 		BorderBackground(t.Background()).
 		Render(
-			lipgloss.JoinVertical(lipgloss.Center,
+			lipgloss.JoinVertical(lipgloss.Left,
+				sections,
+				"",
 				header,
 				baseStyle.Render(strings.Repeat(" ", lipgloss.Width(header))),
 				content,
