@@ -35,7 +35,7 @@ ${p.pvmContext}
 ---
 ` : '';
 
-  return `You are the ACTor — the designated planning agent for ACT multi-agent coordination.
+  return `You are the Planner — the designated planning agent for ACT multi-agent coordination.
 
 Analyze the project below and respond with ONLY a JSON object (no markdown, no prose):
 
@@ -105,7 +105,7 @@ ${context.pvmContext}
 ---
 ` : '';
 
-  return `You are the ACTor — the designated planning agent for ACT multi-agent coordination.
+  return `You are the Planner — the designated planning agent for ACT multi-agent coordination.
 
 You are being asked to analyze an existing codebase and synthesize a project plan.
 ${pvmSection}
@@ -230,6 +230,34 @@ function readDirectoryContext(dirPath: string): {
   return { fileTree, readme, packageJson, gitLog };
 }
 
+/** Kahn's algorithm: returns task indices in dependency-safe creation order. */
+function topoSort(tasks: any[]): number[] {
+  const n = tasks.length;
+  const inDeg = new Array(n).fill(0);
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  for (let i = 0; i < n; i++) {
+    for (const dep of (tasks[i].dependencies || []) as number[]) {
+      if (dep >= 0 && dep < n) {
+        adj[dep].push(i);
+        inDeg[i]++;
+      }
+    }
+  }
+  const queue: number[] = [];
+  for (let i = 0; i < n; i++) if (inDeg[i] === 0) queue.push(i);
+  const order: number[] = [];
+  while (queue.length) {
+    const u = queue.shift()!;
+    order.push(u);
+    for (const v of adj[u]) if (--inDeg[v] === 0) queue.push(v);
+  }
+  // If cycle detected, append remaining indices so nothing is dropped
+  if (order.length < n) {
+    for (let i = 0; i < n; i++) if (!order.includes(i)) order.push(i);
+  }
+  return order;
+}
+
 export class ACTRepl {
   private rl: readline.Interface;
   private client: ACTClient;
@@ -238,6 +266,7 @@ export class ACTRepl {
   private isRunning: boolean = false;
   private isPrompting: boolean = false;
   private spawnedRunners: Map<string, ChildProcess> = new Map(); // agentId → runner process
+  private currentProjectName: string | null = null;
 
   constructor(serverUrl: string = 'http://localhost:8080') {
     this.client = new ACTClient(serverUrl);
@@ -267,6 +296,7 @@ export class ACTRepl {
     this.registerCommand('show project', (args) => this.handleShowProject(args));
     this.registerCommand('stop project', (args) => this.handleStopProject(args));
     this.registerCommand('delete project', (args) => this.handleDeleteProject(args));
+    this.registerCommand('nestty', (args) => this.handleNestTTY(args));
 
     // Ask agents — natural language broadcast
     this.registerCommand('ask agents', (args) => this.handleAskAgents(args));
@@ -359,6 +389,7 @@ export class ACTRepl {
       console.log('  • Import existing project: import project <path>');
       console.log('  • Start new project: create project <name> in <path>');
       console.log('  • Continue project: continue project <name>');
+      console.log('  • Launch NesTTY: nestty [--roles planner,observer] [--mock]');
       console.log('  • List projects: list projects');
       console.log('  • Get help: help\n');
 
@@ -479,6 +510,10 @@ export class ACTRepl {
           } else {
             console.log('Usage: delete project <name>');
           }
+          break;
+
+        case 'nestty':
+          await this.handleNestTTY(args);
           break;
 
         // Ask agents (natural language task/message broadcast)
@@ -632,7 +667,7 @@ export class ACTRepl {
     const success = await this.sessionManager.setDefaultAgent(agentId);
 
     if (success) {
-      console.log(`✓ ACTor set to: ${agentId}`);
+      console.log(`✓ Planner set to: ${agentId}`);
       console.log('  All project decomposition and planning will use this agent.');
       console.log('  Configuration saved to ~/.act/repl-config.json');
     } else {
@@ -684,11 +719,11 @@ export class ACTRepl {
         }
       }
 
-      // Clear stored ACTor if it was among the removed
+      // Clear stored Planner if it was among the removed
       const defaultAgent = this.sessionManager.getDefaultAgent();
       if (defaultAgent) {
         await this.sessionManager.setDefaultAgent('');
-        console.log(`\n  ACTor cleared (was: ${defaultAgent})`);
+        console.log(`\n  Planner cleared (was: ${defaultAgent})`);
       }
       console.log(`\n  Done. Removed ${removed}/${agents.length} agents.\n`);
       return;
@@ -696,9 +731,9 @@ export class ACTRepl {
 
     // ── Single agent removal ───────────────────────────────────────────────────
     const defaultAgent = this.sessionManager.getDefaultAgent();
-    const isACTor = agentId === defaultAgent;
+    const isPlanner = agentId === defaultAgent;
 
-    // Fetch current agents so we can offer a replacement if removing the ACTor
+    // Fetch current agents so we can offer a replacement if removing the Planner
     let agents: any[] = [];
     try {
       agents = await this.client.getAgents();
@@ -706,10 +741,10 @@ export class ACTRepl {
       // non-fatal — we'll still attempt removal
     }
 
-    // If removing the ACTor, require a replacement before proceeding
-    if (isACTor) {
+    // If removing the Planner, require a replacement before proceeding
+    if (isPlanner) {
       const others = agents.filter((a: any) => a.id !== agentId);
-      console.log(`\n  ⚠️  "${agentId}" is the current ACTor (default agent).`);
+      console.log(`\n  ⚠️  "${agentId}" is the current Planner (default agent).`);
 
       if (others.length === 0) {
         console.log('  No other registered agents to replace it with.');
@@ -718,31 +753,31 @@ export class ACTRepl {
         return;
       }
 
-      console.log('  You must set a new ACTor before removing this one.');
+      console.log('  You must set a new Planner before removing this one.');
       console.log('  Currently registered agents:');
       others.forEach((a: any) => console.log(`    • ${a.id}  (${a.name || a.id})`));
       console.log('');
 
-      const newACTor = await this.prompt('  Set new ACTor to (agent_id): ');
-      if (!newACTor || !others.find((a: any) => a.id === newACTor.trim())) {
+      const newPlanner = await this.prompt('  Set new Planner to (agent_id): ');
+      if (!newPlanner || !others.find((a: any) => a.id === newPlanner.trim())) {
         console.log('  ❌ Invalid agent ID. Remove cancelled.\n');
         return;
       }
 
-      const setOk = await this.sessionManager.setDefaultAgent(newACTor.trim());
+      const setOk = await this.sessionManager.setDefaultAgent(newPlanner.trim());
       if (!setOk) {
-        console.log(`  ❌ Could not set "${newACTor.trim()}" as ACTor. Remove cancelled.\n`);
+        console.log(`  ❌ Could not set "${newPlanner.trim()}" as Planner. Remove cancelled.\n`);
         return;
       }
-      console.log(`  ✓ ACTor updated to: ${newACTor.trim()}`);
+      console.log(`  ✓ Planner updated to: ${newPlanner.trim()}`);
     }
 
     // Proceed with removal
     try {
       await this.client.removeAgent(agentId);
       console.log(`\n  ✓ Agent "${agentId}" removed from ACT.\n`);
-      if (isACTor) {
-        console.log(`  ACTor is now: ${this.sessionManager.getDefaultAgent()}`);
+      if (isPlanner) {
+        console.log(`  Planner is now: ${this.sessionManager.getDefaultAgent()}`);
         console.log('');
       }
     } catch (e: any) {
@@ -1051,9 +1086,10 @@ export class ACTRepl {
       return;
     }
     console.log('  ✅ Project saved.');
+    this.currentProjectName = name;
     this.ensureBypassPermissions(path.resolve(workspace));
 
-    // Step 5: Planning via ACTor
+    // Step 5: Planning via Planner
     const defaultAgent = this.sessionManager.getDefaultAgent();
     if (!defaultAgent) {
       console.log('\n  ⚠️  No default agent set — skipping AI planning.');
@@ -1133,7 +1169,7 @@ export class ACTRepl {
     // the tasks that depend on them. Dep IDs are passed at creation time so the
     // server's processPendingTasks correctly blocks dependent tasks immediately —
     // no race condition where everything gets assigned before deps are set.
-    const sortedIndices = this.topoSort(tasks);
+    const sortedIndices = topoSort(tasks);
     const indexToTaskId: string[] = new Array(tasks.length).fill('');
 
     for (const i of sortedIndices) {
@@ -1401,7 +1437,7 @@ export class ACTRepl {
     console.log(`└${bar}┘`);
 
     // ── RESUME CHECK ──────────────────────────────────────────────────────────
-    // Before doing a full ACTor analysis, check if this workspace has prior
+    // Before doing a full Planner analysis, check if this workspace has prior
     // history in the ChronologicalLog and AGENT.md files on disk.
     console.log('\n  Checking for prior session history...');
     const priorHistory = await this.scanPriorHistory(absolutePath);
@@ -1436,7 +1472,7 @@ export class ACTRepl {
     if (context.packageJson) console.log(`  ✓ package.json: found`);
     if (context.gitLog)     console.log(`  ✓ Git log: ${context.gitLog.split('\n').length} commits`);
 
-    // Step 3: Check for default agent (ACTor)
+    // Step 3: Check for default agent (Planner)
     const defaultAgent = this.sessionManager.getDefaultAgent();
     const agents = await this.client.getAgents();
 
@@ -1471,7 +1507,7 @@ export class ACTRepl {
       ? agentsInput.split(',').map(s => s.trim()).filter(Boolean)
       : agents.map(a => a.id);
 
-    // Step 5: Send context to ACTor for synthesis
+    // Step 5: Send context to Planner for synthesis
     const actorAgent = agents.find(a => a.id === defaultAgent)!;
 
     // Wire 1: Search PVM for relevant past coordination patterns before building prompt
@@ -1518,7 +1554,7 @@ export class ACTRepl {
 
     const result = await this.pollWithSpinner(planningTask.id, 600_000);
     if (!result) {
-      console.log('\n  ⏱  Timed out waiting for ACTor analysis.');
+      console.log('\n  ⏱  Timed out waiting for Planner analysis.');
       console.log('  The planning task is still open. Try: continue project <name> after the agent responds.\n');
       return;
     }
@@ -1561,7 +1597,7 @@ export class ACTRepl {
     }
 
     // If they typed actual corrections, loop back with revised context (simplified: just proceed)
-    // Future: pass corrections back as another task to ACTor
+    // Future: pass corrections back as another task to Planner
 
     // Step 8: Create project record
     const projectDescription = summary.description || `Imported from ${absolutePath}`;
@@ -1698,6 +1734,7 @@ export class ACTRepl {
       console.log(`Project "${args}" not found. Run: list projects`);
       return;
     }
+    this.currentProjectName = args;
 
     console.log(`\nResuming project "${args}"...`);
     console.log(`  Status: ${project.status}`);
@@ -1742,7 +1779,7 @@ export class ACTRepl {
 
     const result = await this.pollWithSpinner(planningTask.id, 600_000);
     if (!result) {
-      console.log('\n  ⏱  Timed out waiting for ACTor analysis.');
+      console.log('\n  ⏱  Timed out waiting for Planner analysis.');
       console.log('  The planning task is still open. Try: continue project ' + args + ' after the agent responds.\n');
       return;
     }
@@ -1824,6 +1861,66 @@ export class ACTRepl {
 
     console.log(`\n  🚀 Project "${projectName}" is active with ${createdTaskIds.length} tasks!`);
     console.log('  Agents will pick up tasks automatically via get_task.\n');
+    this.currentProjectName = projectName;
+  }
+
+  private async handleNestTTY(args?: string): Promise<void> {
+    const projectName = this.currentProjectName;
+    if (!projectName) {
+      console.log("No project selected. Use 'create project' or 'import project' first.");
+      return;
+    }
+
+    const argText = (args || '').trim();
+    let roles: string | undefined;
+    let mock = false;
+
+    const rolesMatch = argText.match(/--roles\s+([^\s]+)/);
+    if (rolesMatch) {
+      roles = rolesMatch[1];
+    }
+    if (/\b--mock\b/.test(argText)) {
+      mock = true;
+    }
+
+    const spawnArgs = [
+      'tsx',
+      'nestty/index.ts',
+      '--project',
+      projectName,
+      '--server',
+      this.client.getServerUrl(),
+    ];
+    if (roles) {
+      spawnArgs.push('--roles', roles);
+    }
+
+    console.log(`\nLaunching NesTTY for project "${projectName}"...`);
+    if (roles) console.log(`Roles: ${roles}`);
+    if (mock) console.log('Mock agents enabled (MOCK_AGENT=1).');
+    console.log('');
+
+    await new Promise<void>((resolve, reject) => {
+      this.rl.pause();
+      const child = spawn('npx', spawnArgs, {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          ...(mock ? { MOCK_AGENT: '1' } : {}),
+        },
+      });
+
+      child.on('error', (error) => {
+        this.rl.resume();
+        reject(error);
+      });
+
+      child.on('close', () => {
+        this.rl.resume();
+        console.log('\nNesTTY session ended');
+        resolve();
+      });
+    });
   }
 
   private async handleListProjects(): Promise<void> {
@@ -1949,8 +2046,8 @@ export class ACTRepl {
       console.log('Usage: ask agents <your question or instruction>');
       console.log('       ask <your question or instruction>');
       console.log('');
-      console.log('Broadcasts your message to all registered agents and, if an ACTor is set,');
-      console.log('creates a coordination task for the ACTor to interpret intent and assign work.');
+      console.log('Broadcasts your message to all registered agents and, if an Planner is set,');
+      console.log('creates a coordination task for the Planner to interpret intent and assign work.');
       console.log('');
       console.log('Examples:');
       console.log('  ask agents Who is best suited to handle authentication?');
@@ -1981,13 +2078,13 @@ export class ACTRepl {
       console.log(`  ⚠️  Broadcast failed: ${err.message}`);
     }
 
-    // If ACTor is available, also create a coordination task for structured response
+    // If Planner is available, also create a coordination task for structured response
     if (actorAgent) {
-      console.log(`\n  🎯 Creating coordination task for ACTor (${actorAgent.name || defaultAgent})...`);
+      console.log(`\n  🎯 Creating coordination task for Planner (${actorAgent.name || defaultAgent})...`);
 
       const taskDescription = `[ASK AGENTS] The user has asked: "${prompt}"
 
-Your job as ACTor is to:
+Your job as Planner is to:
 1. Understand the intent of the user's request
 2. Determine which connected agents are best suited to address it
 3. Either: (a) respond directly with a synthesis if this is an informational query, OR (b) create sub-tasks and assign them to appropriate agents if this requires action
@@ -2010,14 +2107,14 @@ Respond by calling report_task_complete with your coordination plan or synthesis
 
         console.log(`  ✅ Coordination task created: ${task.id}`);
         console.log(`\n  ⏳ Agents have been notified. Check back with 'show project' or watch`);
-        console.log(`     agent outputs for responses. The ACTor will coordinate the response.`);
+        console.log(`     agent outputs for responses. The Planner will coordinate the response.`);
       } catch (err: any) {
         console.log(`  ⚠️  Could not create coordination task: ${err.message}`);
         console.log(`     Message was still broadcast — agents may respond via send_message.`);
       }
     } else {
-      console.log(`\n  ℹ️  No ACTor set. Message broadcast only — no coordination task created.`);
-      console.log(`     Set an ACTor with 'default agent <id>' for smarter coordination.`);
+      console.log(`\n  ℹ️  No Planner set. Message broadcast only — no coordination task created.`);
+      console.log(`     Set an Planner with 'default agent <id>' for smarter coordination.`);
     }
 
     console.log('');

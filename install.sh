@@ -69,11 +69,12 @@ if ! command -v npm &>/dev/null; then
 fi
 ok "npm $(npm --version)"
 
-# claude CLI
-if ! command -v claude &>/dev/null; then
-  fail "Claude Code CLI ('claude') is required but not found in PATH. Install from https://claude.ai/code"
+# claude CLI (optional — ACT supports multiple agent shells)
+if command -v claude &>/dev/null; then
+  ok "claude CLI $(claude --version 2>/dev/null | head -1 || echo '(found)')"
+else
+  warn "Claude Code CLI not found. ACT will use act-agent (OpenCode fork) or other configured agent shells."
 fi
-ok "claude CLI $(claude --version 2>/dev/null | head -1 || echo '(found)')"
 
 # curl
 if ! command -v curl &>/dev/null; then
@@ -98,17 +99,6 @@ info "Compiling TypeScript..."
 npm run build --silent
 ok "Server built"
 
-# ─── Build MCP bridge ────────────────────────────────────────────────────────
-
-echo ""
-echo -e "${BOLD}Building MCP bridge...${RESET}"
-cd "${ACT_ROOT}/mcp-servers/act-mcp-bridge"
-info "Installing bridge dependencies..."
-npm install --silent
-info "Compiling TypeScript..."
-npm run build --silent
-ok "MCP bridge built"
-
 # ─── Install CLI dependencies ─────────────────────────────────────────────────
 
 echo ""
@@ -117,56 +107,26 @@ cd "${ACT_ROOT}/cli"
 npm install --silent
 ok "CLI ready"
 
-# ─── Write MCP config for Claude Code CLI ────────────────────────────────────
+# ─── Install NesTTY dependencies ──────────────────────────────────────────────
 
 echo ""
-echo -e "${BOLD}Configuring Claude Code CLI MCP...${RESET}"
-
-# Claude Code CLI stores user-scoped MCP servers in ~/.claude.json
-# This is separate from Claude Desktop's config and is what the `claude` CLI reads.
-CLAUDE_CODE_CONFIG="${HOME}/.claude.json"
-BRIDGE_PATH="${ACT_ROOT}/mcp-servers/act-mcp-bridge/dist/index.js"
-
-python3 - <<PYEOF
-import json, os
-
-config_file = """${CLAUDE_CODE_CONFIG}"""
-bridge_path = """${BRIDGE_PATH}"""
-
-# Load existing config or start fresh
-if os.path.exists(config_file):
-    try:
-        with open(config_file) as f:
-            config = json.load(f)
-    except:
-        config = {}
-else:
-    config = {}
-
-if 'mcpServers' not in config:
-    config['mcpServers'] = {}
-
-config['mcpServers']['act'] = {
-    'command': 'node',
-    'args': [bridge_path],
-    'env': {'ACT_SERVER_URL': 'http://localhost:8080'}
-}
-
-with open(config_file, 'w') as f:
-    json.dump(config, f, indent=2)
-
-print(f"  Written to: {config_file}")
-PYEOF
-
-ok "ACT MCP bridge registered in ~/.claude.json (Claude Code CLI)"
+echo -e "${BOLD}Installing NesTTY dependencies...${RESET}"
+cd "${ACT_ROOT}/nestty"
+npm install --silent
+ok "NesTTY ready"
 
 # ─── Register hooks (SessionStart + Stop) ────────────────────────────────────
 
 echo ""
-echo -e "${BOLD}Registering ACT hooks...${RESET}"
+echo -e "${BOLD}Checking for ACT hooks...${RESET}"
 
 SESSION_HOOK="${ACT_ROOT}/hooks/act-session-start.sh"
 STOP_HOOK="${ACT_ROOT}/hooks/act-stop-hook.sh"
+
+if [[ ! -f "${SESSION_HOOK}" || ! -f "${STOP_HOOK}" ]]; then
+  info "Hook scripts not found. ACT uses NesTTY orchestrator for coordination."
+  info "Skipping hook registration."
+else
 chmod +x "${SESSION_HOOK}" "${STOP_HOOK}"
 
 CLAUDE_SETTINGS="${HOME}/.claude/settings.json"
@@ -227,6 +187,7 @@ print(f"  Written to: {settings_file}")
 PYEOF
 
 ok "Hooks registered (SessionStart + Stop)"
+fi
 
 # ─── Create ~/.act directory ──────────────────────────────────────────────────
 
@@ -270,20 +231,21 @@ echo -e "${BOLD}╚════════════════════�
 echo ""
 echo -e "${BOLD}Getting started:${RESET}"
 echo ""
-echo "  1. Open a terminal in your project directory and run:"
+echo "  1. Start the ACT server:"
+echo -e "     ${CYAN}cd server && npm run dev${RESET}"
 echo ""
+echo "  2. Open REPL and create a project:"
 echo -e "     ${CYAN}act${RESET}"
 echo ""
-echo "  2. In each Claude Code window you want to coordinate:"
-echo "     — Claude Code will register with ACT automatically via the MCP bridge"
-echo "     — The Stop hook will start the autonomous coordination loop"
-echo "     — No additional configuration needed"
+echo "  3. Launch NesTTY (multi-agent coordination):"
+echo -e "     ${CYAN}nestty${RESET}                      (from REPL, all 4 Tier 1 roles)"
+echo -e "     ${CYAN}nestty --mock${RESET}               (mock agents for testing)"
+echo ""
+echo "  4. Configure providers in .opencode.json (see .opencode.example.json)"
 echo ""
 echo -e "${BOLD}Commands:${RESET}"
-echo "  act                  Start server + open REPL"
-echo "  act server start     Start server in background"
-echo "  act server stop      Stop server"
-echo "  act server status    Check server health"
-echo ""
-echo -e "  Server logs: ${CYAN}~/.act/server.log${RESET}"
+echo "  act                          REPL (interactive)"
+echo "  act context <id> --project   Agent context (headless)"
+echo "  act status                   System status"
+echo "  act graph task/unverified/conflicts  Observability"
 echo ""

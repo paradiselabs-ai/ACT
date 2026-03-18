@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
+import { AgentRole } from '../types/roles';
 
 export interface Agent {
   id: string;
@@ -14,6 +15,7 @@ export interface Agent {
   performanceScore: number;
   tasksCompleted: number;
   averageTaskTime: number;
+  role?: AgentRole;
 }
 
 export interface AgentCapability {
@@ -45,6 +47,7 @@ export class AgentRegistry extends EventEmitter {
       performanceScore: existingAgent?.performanceScore || 1.0,
       tasksCompleted: existingAgent?.tasksCompleted || 0,
       averageTaskTime: existingAgent?.averageTaskTime || 0,
+      role: agentData.role ?? AgentRole.DEVELOPER,
       ...agentData
     };
 
@@ -215,8 +218,36 @@ export class AgentRegistry extends EventEmitter {
     return this.agents.size;
   }
 
+  clearAll(): number {
+    const count = this.agents.size;
+    this.agents.clear();
+    this.socketToAgent.clear();
+    return count;
+  }
+
   getOnlineAgentCount(): number {
     return this.getAllAgents().filter(agent => agent.status !== 'offline').length;
+  }
+
+  // Bulk restore agents from event log (used by restoreFromLog)
+  restoreAgents(agentMap: Map<string, any>): void {
+    for (const [id, agentData] of agentMap.entries()) {
+      this.agents.set(id, {
+        id: agentData.id,
+        name: agentData.name,
+        capabilities: agentData.capabilities || [],
+        status: agentData.status || 'offline',
+        model: agentData.model,
+        provider: agentData.provider,
+        socketId: undefined,
+        currentTask: undefined,
+        lastSeen: new Date(agentData.lastSeen || Date.now()),
+        performanceScore: agentData.performanceScore || 1.0,
+        tasksCompleted: agentData.tasksCompleted || 0,
+        averageTaskTime: agentData.averageTaskTime || 0,
+        role: agentData.role
+      });
+    }
   }
 
   // Health check method

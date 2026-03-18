@@ -2,7 +2,7 @@
 
 **Universal coordination infrastructure for autonomous multi-agent systems.**
 
-ACT (Agent Coordination Toolkit) lets AI agents like Claude, Goose, Warp Terminal, as well as IDEs like Cursor, Windsurf, Antigravity, and/or any MCP-compatible Agent or Agent client — all seamlessly collaborate together on coding and development projects as a unified team. Agents register with ACT to receive tasks, communicate with each other, and track and report progress through a central coordination server. A terminal REPL lets you designate a planning agent (the ACTor), create and define new projects, and watch your agent team work even as each agent operates in their own natural environment.
+ACT (Agent Coordination Toolkit) lets AI agents like Claude, Goose, Warp Terminal, as well as IDEs like Cursor, Windsurf, Antigravity, and/or any MCP-compatible Agent or Agent client — all seamlessly collaborate together on coding and development projects as a unified team. Agents register with ACT to receive tasks, communicate with each other, and track and report progress through a central coordination server. A terminal REPL lets you designate a planning agent (the Planner), create and define new projects, and watch your agent team work even as each agent operates in their own natural environment.
 
 This means Claude works through the Claude desktop client, your IDE agent works through the IDE, and so on, with each agent collaborating together on the same project directory, communicating with each other, and working in parallel to complete tasks.
 
@@ -18,7 +18,7 @@ User (REPL)
     │  → guided prompts collect description, stack, agents
     │
     ▼
-ACT Server                         ACTor Agent (Claude Desktop, etc.)
+ACT Server                         Planner Agent (Claude Desktop, etc.)
     │  Planning task assigned  ──────────►  get_task()
     │                                       ... analyzes project ...
     │  Task breakdown received  ◄──────────  report_task_complete({ tasks, briefs })
@@ -223,7 +223,7 @@ ACT/
 
 - ✅ ACT server with REST + Socket.io agent coordination
 - ✅ MCP bridge with 10 real tools (no stubs)
-- ✅ REPL guided `create project` wizard with ACTor planning flow
+- ✅ REPL guided `create project` wizard with Planner planning flow
 - ✅ Intelligent message routing (direct mentions, rate limiting, no feedback loops)
 - ✅ ChronologicalLog — append-only event history
 - ✅ AGENT.md brief generation and per-agent retrieval

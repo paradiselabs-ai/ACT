@@ -11,6 +11,7 @@ import { SelfImprovementEngine } from './services/SelfImprovementEngine';
 import { ChronologicalLog } from './services/ChronologicalLog';
 import { LocalEmbeddingVectorStore } from './services/LocalEmbeddingVectorStore';
 import { PVMIndexer } from './services/PVMIndexer';
+import { extractSuccessCriteria } from './services/SNLPParser';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -50,7 +51,7 @@ const normalizeStatus = (progress: number | undefined, status?: string): Task['s
     return undefined;
   }
   const lowered = status.toLowerCase();
-  if (['completed', 'in_progress', 'assigned', 'pending', 'failed'].includes(lowered)) {
+  if (['completed', 'in_progress', 'assigned', 'pending', 'failed', 'submitted_for_validation', 'validated'].includes(lowered)) {
     return lowered as Task['status'];
   }
   // Map common phrases
@@ -92,7 +93,145 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Agent management endpoints
+// Full system status — used by Observer, REPL `status`, and monitoring
+app.get('/api/status', (req, res) => {
+  const allAgents = agentRegistry.getAllAgents();
+  const allTasks = Array.from(taskCoordinator.getAllTasks());
+
+  // Task counts by status
+  const tasksByStatus: Record<string, number> = {};
+  for (const task of allTasks) {
+    tasksByStatus[task.status] = (tasksByStatus[task.status] || 0) + 1;
+  }
+
+  // Agent counts by status
+  const agentsByStatus: Record<string, number> = {};
+  for (const agent of allAgents) {
+    agentsByStatus[agent.status] = (agentsByStatus[agent.status] || 0) + 1;
+  }
+
+  // File locks
+  const lockCount = fileLocks.size;
+
+  // Projects
+  const projectCount = projects.size;
+
+  res.json({
+    timestamp: new Date().toISOString(),
+    tasks: {
+      total: allTasks.length,
+      byStatus: tasksByStatus,
+    },
+    agents: {
+      total: allAgents.length,
+      byStatus: agentsByStatus,
+      list: allAgents.map(a => ({
+        id: a.id,
+        name: a.name,
+        status: a.status,
+        currentTask: a.currentTask,
+        role: (a as any).role,
+      })),
+    },
+    fileLocks: lockCount,
+    projects: projectCount,
+    pvm: pvmIndexer.getStatus(),
+  });
+});
+
+// Dev reset — clears all in-memory state for test isolation
+app.post('/api/dev/reset', (req, res) => {
+  const taskCount = taskCoordinator.clearAll();
+  const agentCount = agentRegistry.clearAll();
+  const lockCount = fileLocks.size;
+  fileLocks.clear();
+  const inboxCount = agentInboxes.size;
+  agentInboxes.clear();
+
+  chronologicalLog.append({
+    timestamp: new Date().toISOString(),
+    agent: 'system',
+    message: `dev reset: cleared ${taskCount} tasks, ${agentCount} agents, ${lockCount} locks, ${inboxCount} inboxes`,
+    type: 'dev_reset',
+  });
+
+  res.json({ success: true, cleared: { tasks: taskCount, agents: agentCount, fileLocks: lockCount, inboxes: inboxCount } });
+});
+
+// ─── A2A Protocol (Agent-to-Agent) ──────────────────────────────────────────
+// ACT serves Agent Cards on behalf of registered agents (brokered A2A pattern).
+// Planner pushes tasks to ACT targeting role IDs; Runner detects and spawns.
+
+// System-level Agent Card — describes the ACT coordination server itself
+app.get('/.well-known/agent.json', (req, res) => {
+  res.json({
+    id: 'act-server',
+    name: 'ACT Coordination Server',
+    description: 'Agentic harness for multi-agent CLI coordination',
+    capabilities: ['task-coordination', 'pvm-memory', 'file-locking', 'message-routing'],
+    taskEndpoint: `${req.protocol}://${req.get('host')}/api/tasks`,
+    agentsEndpoint: `${req.protocol}://${req.get('host')}/api/agents`,
+    registeredAgents: agentRegistry.getAgentCount(),
+    status: 'online'
+  });
+});
+
+// Per-agent Agent Card — ACT serves this on behalf of the registered agent
+app.get('/api/agents/:agentId/agent.json', (req, res) => {
+  const agent = agentRegistry.getAgent(req.params.agentId);
+  if (!agent) return res.status(404).json({ error: `Agent "${req.params.agentId}" not found` });
+  res.json({
+    id: agent.id,
+    name: agent.name,
+    role: agent.role || 'developer',
+    capabilities: agent.capabilities,
+    taskEndpoint: `${req.protocol}://${req.get('host')}/api/agents/${agent.id}/tasks`,
+    status: agent.status,
+    pvmProfile: {
+      tasksCompleted: agent.tasksCompleted,
+      performanceScore: agent.performanceScore,
+      averageTaskTime: agent.averageTaskTime
+    }
+  });
+});
+
+// Task push — Planner pushes a task to a specific agent via A2A
+app.post('/api/agents/:agentId/tasks', async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const { title, description, snlp, priority, requiredCapabilities, projectName } = req.body;
+
+    // Create the task pre-assigned to the target agent
+    const task = await taskCoordinator.createTask({
+      description: title ? `${title}\n\n${description || snlp || ''}` : (description || snlp || ''),
+      assignedAgent: agentId,
+      priority: priority || 'medium',
+      requiredCapabilities: requiredCapabilities || [],
+      metadata: { projectName, snlp, title }
+    });
+
+    // Mark as assigned
+    await taskCoordinator.updateTaskProgress(task.id, { status: 'assigned' });
+
+    // Log the event with full payload
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: 'planner',
+      message: `A2A task push: ${task.id} -> ${agentId}`,
+      type: 'task_assigned',
+      data: { taskId: task.id, agentId, title, projectName }
+    });
+
+    // Fire Socket.io event — if agent is connected, it gets notified immediately
+    io.emit('task_assigned', { taskId: task.id, agentId, task, timestamp: new Date().toISOString() });
+
+    res.json({ success: true, task });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ─── Agent management endpoints ─────────────────────────────────────────────
 app.get('/api/agents', (req, res) => {
   res.json(agentRegistry.getAllAgents());
 });
@@ -118,6 +257,14 @@ app.post('/api/agents/register', async (req, res) => {
       model,
       provider,
       status: 'online'
+    });
+
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: agentId,
+      message: `agent registered: ${agentId}`,
+      type: 'agent_registered',
+      data: { agentId, name: name || agentId, capabilities: capabilities || [], model, provider }
     });
 
     io.emit('agent_joined', { agent, timestamp: new Date().toISOString() });
@@ -212,6 +359,13 @@ app.post('/api/projects', (req, res) => {
     briefs: {}
   };
   projects.set(name, project);
+  chronologicalLog.append({
+    timestamp: new Date().toISOString(),
+    agent: 'system',
+    message: `project created: ${name}`,
+    type: 'project_created',
+    data: project
+  });
   res.json({ success: true, project });
 });
 
@@ -277,6 +431,13 @@ app.post('/api/projects/:name/briefs', (req, res) => {
   const { agentId, content } = req.body;
   if (!agentId || !content) return res.status(400).json({ success: false, error: 'agentId and content required' });
   project.briefs[agentId] = content;
+  chronologicalLog.append({
+    timestamp: new Date().toISOString(),
+    agent: agentId,
+    message: `brief stored for project: ${project.name}`,
+    type: 'brief_stored',
+    data: { projectName: project.name, agentId, content }
+  });
   res.json({ success: true });
 });
 
@@ -296,12 +457,32 @@ app.get('/api/tasks', (req, res) => {
 app.post('/api/tasks', async (req, res) => {
   try {
     const task = await taskCoordinator.createTask(req.body);
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: 'system',
+      message: `task created: ${task.id}`,
+      type: 'task_created',
+      data: task
+    });
     if (task.assignedAgent) {
       await taskCoordinator.updateTaskProgress(task.id, { status: 'assigned' });
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: task.assignedAgent,
+        message: `task assigned: ${task.id} -> ${task.assignedAgent}`,
+        type: 'task_assigned',
+        data: { taskId: task.id, agentId: task.assignedAgent }
+      });
     } else {
       const assignment = await taskCoordinator.assignOptimalAgent(task.id);
       if (assignment) {
         io.emit('task_assigned', { taskId: task.id, agentId: assignment.agentId, task, timestamp: new Date().toISOString() });
+        chronologicalLog.append({
+          timestamp: new Date().toISOString(),
+          agent: assignment.agentId,
+          message: `task assigned: ${task.id} -> ${assignment.agentId}`,
+          type: 'task_assigned'
+        });
       }
     }
     res.json({ success: true, task: taskCoordinator.getTask(task.id) });
@@ -326,6 +507,23 @@ app.get('/api/tasks/assigned', (req, res) => {
   const tasks = taskCoordinator.getTasksByAgent(agentId);
   const active = tasks.find(t => t.status === 'assigned' || t.status === 'in_progress');
   res.json({ success: true, task: active || null });
+});
+
+// Get tasks pending validation (must be before /:taskId)
+app.get('/api/tasks/pending-validation', (req, res) => {
+  const tasks = taskCoordinator.getTasksByStatus('submitted_for_validation');
+  // Enrich each task with SNLP-extracted success criteria for Assurance
+  const enriched = tasks.map(t => ({
+    ...t,
+    successCriteria: extractSuccessCriteria(t.description || ''),
+  }));
+  res.json({ tasks: enriched });
+});
+
+// Get validated tasks (must be before /:taskId)
+app.get('/api/tasks/validated', (req, res) => {
+  const tasks = taskCoordinator.getTasksByStatus('validated');
+  res.json({ tasks });
 });
 
 app.get('/api/tasks/:taskId', (req, res) => {
@@ -395,6 +593,13 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
     }
 
     io.emit('task_completed', { taskId, agentId, success: taskSuccess, result, timestamp: new Date().toISOString() });
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: agentId || 'system',
+      message: `task completed: ${taskId}, success: ${taskSuccess}`,
+      type: 'task_completed',
+      data: { taskId, agentId, success: taskSuccess, result }
+    });
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -428,6 +633,99 @@ app.post('/api/tasks/:taskId/retry', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// ─── Assurance Validation Endpoints ────────────────────────────────────────
+
+// Submit task for Assurance validation
+app.post('/api/tasks/:taskId/submit-for-validation', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { agentId, selfVerification } = req.body;
+
+    const task = taskCoordinator.getTask(taskId);
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+
+    if (task.status !== 'completed' && task.status !== 'in_progress') {
+      return res.status(400).json({ success: false, error: `Task must be completed or in_progress to submit for validation (current: ${task.status})` });
+    }
+
+    await taskCoordinator.updateTaskProgress(taskId, { status: 'submitted_for_validation' });
+
+    // Store self-verification in metadata
+    if (selfVerification) {
+      task.metadata = { ...(task.metadata || {}), selfVerification };
+    }
+
+    io.emit('task_submitted_for_validation', { taskId, agentId, timestamp: new Date().toISOString() });
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: agentId || 'system',
+      message: `task submitted for validation: ${taskId}`,
+      type: 'task_submitted_for_validation',
+      data: { taskId, agentId }
+    });
+
+    res.json({ success: true, task });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// (pending-validation route moved above /:taskId)
+
+// Submit validation verdict (Assurance reports result)
+app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { agentId, passed, score, criteriaResults, gaps, feedback } = req.body;
+
+    const task = taskCoordinator.getTask(taskId);
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+
+    const verdict = { passed, score, criteriaResults, gaps, feedback, timestamp: new Date().toISOString() };
+
+    if (passed) {
+      // Approved — forward to QA/Synthesizer
+      await taskCoordinator.updateTaskProgress(taskId, { status: 'validated' });
+      task.metadata = { ...(task.metadata || {}), validationVerdict: verdict };
+
+      io.emit('task_validated', { taskId, agentId, score, timestamp: new Date().toISOString() });
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: agentId || 'assurance',
+        message: `task validated (score: ${score}/100): ${taskId}`,
+        type: 'task_validated',
+        data: { taskId, agentId, score, passed: true }
+      });
+
+      res.json({ success: true, task, action: 'validated' });
+    } else {
+      // Failed — return to agent for rework
+      await taskCoordinator.updateTaskProgress(taskId, { status: 'assigned' });
+      task.metadata = {
+        ...(task.metadata || {}),
+        validationVerdict: verdict,
+        validationGaps: gaps,
+        validationAttempts: ((task.metadata?.validationAttempts as number) || 0) + 1,
+      };
+
+      io.emit('task_validation_failed', { taskId, agentId, score, gaps, timestamp: new Date().toISOString() });
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: agentId || 'assurance',
+        message: `task validation failed (score: ${score}/100): ${taskId} — returned to agent`,
+        type: 'task_validation_failed',
+        data: { taskId, agentId, score, passed: false, gaps }
+      });
+
+      res.json({ success: true, task, action: 'returned_to_agent' });
+    }
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// (validated route moved above /:taskId)
 
 // Send an agent message (MCP bridge alternative to socket agent_message)
 app.post('/api/messages', async (req, res) => {
@@ -854,6 +1152,31 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 8080;
+
+// Restore state from ChronologicalLog on startup (event sourcing)
+const briefsMap = new Map<string, Map<string, string>>();
+const taskMap = new Map();
+const agentMap = new Map();
+
+chronologicalLog.initialize().then(async () => {
+  const counts = await chronologicalLog.restoreFromLog(projects, taskMap, briefsMap, agentMap);
+  
+  // Restore agents (marked as offline - they'll re-register)
+  agentRegistry.restoreAgents(agentMap);
+  
+  // Restore tasks to TaskCoordinator
+  if (taskMap.size > 0) {
+    taskCoordinator.restoreTasks(taskMap);
+  }
+  
+  console.log(`Restored from ChronLog: ${counts.projectCount} projects, ${counts.taskCount} tasks, ${counts.briefCount} briefs, ${counts.agentCount} agents`);
+  
+  // Start PVM indexing after restore
+  pvmIndexer.startIndexing(10000);
+  logger.info('✅ ChronologicalLog initialized and PVM indexing started');
+}).catch(err => {
+  logger.error(`❌ Failed to initialize ChronologicalLog: ${err.message}`);
+});
 
 server.listen(PORT, () => {
   logger.info(`🚀 ACT Server running on port ${PORT}`);

@@ -6,10 +6,11 @@ import { logger } from '../utils/logger';
 
 export interface Task {
   id: string;
+  title?: string;       // short display name
   description: string;
   requiredCapabilities: string[];
   priority: 'low' | 'medium' | 'high' | 'critical';
-  status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'failed';
+  status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'failed' | 'submitted_for_validation' | 'validated';
   assignedAgent?: string;
   dependencies: string[];
   progress: number;
@@ -53,6 +54,7 @@ export class TaskCoordinator extends EventEmitter {
   async createTask(taskData: Partial<Task>): Promise<Task> {
     const task: Task = {
       id: uuidv4(),
+      title: taskData.title,
       description: taskData.description || 'Untitled task',
       requiredCapabilities: taskData.requiredCapabilities || [],
       priority: taskData.priority || 'medium',
@@ -62,8 +64,7 @@ export class TaskCoordinator extends EventEmitter {
       estimatedDuration: taskData.estimatedDuration,
       createdAt: new Date(),
       metadata: taskData.metadata || {},
-      retryCount: 0,
-      ...taskData
+      retryCount: 0
     };
 
     this.tasks.set(task.id, task);
@@ -400,6 +401,19 @@ export class TaskCoordinator extends EventEmitter {
 
   getTaskCount(): number {
     return this.tasks.size;
+  }
+
+  clearAll(): number {
+    const count = this.tasks.size;
+    this.tasks.clear();
+    return count;
+  }
+
+  // Bulk restore tasks from event log (used by restoreFromLog)
+  restoreTasks(taskMap: Map<string, Task>): void {
+    for (const [id, task] of taskMap.entries()) {
+      this.tasks.set(id, task);
+    }
   }
 
   // Minimal demo project helper to satisfy EventHub callers

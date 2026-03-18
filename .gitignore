@@ -3,7 +3,6 @@
 # ─────────────────────────────────────────────
 
 # ── Agent/AI context files ──────────────────
-CLAUDE.md
 *.md~
 *.md.bak
 AGENT.md
@@ -23,11 +22,11 @@ WINDSURF_ACT_GUIDANCE.md
 *instance*
 
 # ── Coordination files (runtime / internal) ──
-act-coordination.json
 act-coordination-*.json
 coordination-*.json
 *.coordination
 server/data/
+!act-coordination.json
 
 # ── Test files ──────────────────────────────
 test_*.py
@@ -47,7 +46,11 @@ SETUP.md
 taskade agentics.md
 *.md
 !README.md
+!CLAUDE.md
 !docs/**/*.md
+!nestty/*.md
+!tests/*.md
+!.windsurf/**/*.md
 
 # ── Python environment ───────────────────────
 __pycache__/
@@ -137,3 +140,22 @@ sdk/
 
 # OpenMemory - IDE/Assistant specific rules
 .windsurf/rules/openmemory.md
+
+# NOMIK
+docker/data/
+docker/logs/
+pub/
+.bin/
+**/*.tscom
+
+# ── act-agent binary ─────────────────────────
+act-agent/act-agent
+
+# ── Obsidian Vault (large plugins/caches) ────
+docs/Vault/
+
+# ── Tool-generated state ─────────────────────
+.manifests/
+.nomik/
+**/.nomik/
+.tmp

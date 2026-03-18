@@ -7,6 +7,7 @@ export interface CoordinationMessage {
   agent: string;
   message: string;
   type: MessageType;
+  data?: Record<string, any>;  // Structured payload for event sourcing replay
 }
 
 export type MessageType =
@@ -34,7 +35,19 @@ export type MessageType =
   | 'question'
   | 'peer_response'
   | 'file_claim'
-  | 'file_release';
+  | 'file_release'
+  // Event sourcing types for restoreFromLog
+  | 'project_created'
+  | 'task_created'
+  | 'task_assigned'
+  | 'task_completed'
+  | 'brief_stored'
+  | 'agent_registered'
+  // Assurance validation types
+  | 'task_submitted_for_validation'
+  | 'task_validated'
+  | 'task_validation_failed'
+  | 'dev_reset';
 
 export interface AgentProfile {
   agentId: string;

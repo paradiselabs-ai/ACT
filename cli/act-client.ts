@@ -144,24 +144,6 @@ export class ACTClient {
     }
   }
 
-  async triggerImprovement(request: any): Promise<any> {
-    try {
-      const response = await fetch(`${this.serverUrl}/api/improve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(request)
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return await response.json();
-    } catch (error: any) {
-      throw new Error(`Improvement request failed: ${error.message}`);
-    }
-  }
-
   async createTaskREST(task: any): Promise<any> {
     const response = await fetch(`${this.serverUrl}/api/tasks`, {
       method: 'POST',
@@ -269,6 +251,17 @@ export class ACTClient {
     });
   }
 
+  async getMessages(agentId: string, limit = 10): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/agents/${encodeURIComponent(agentId)}/messages?limit=${limit}`);
+      if (!response.ok) return [];
+      const data = await response.json() as any;
+      return data.messages || [];
+    } catch {
+      return [];
+    }
+  }
+
   async getTasks(): Promise<any[]> {
     try {
       const response = await fetch(`${this.serverUrl}/api/tasks`);
@@ -336,6 +329,131 @@ export class ACTClient {
       });
       const data = await response.json();
       return data;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /** Get the currently assigned task for an agent */
+  async getAssignedTask(agentId: string): Promise<any | null> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/assigned?agent_id=${encodeURIComponent(agentId)}`);
+      if (!response.ok) return null;
+      const data = await response.json();
+      return data.task || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mark a task as complete or failed */
+  async completeTask(taskId: string, agentId: string, success: boolean, result?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, success, result })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /** Update task progress */
+  async updateTaskProgress(taskId: string, agentId: string, progress: number, status?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/progress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, progress, status: status || 'in_progress' })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /** Claim files for exclusive editing */
+  async claimFiles(agentId: string, taskId: string, filePaths: string[]): Promise<{ success: boolean; claimed?: string[]; conflict?: boolean; conflicts?: any[]; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/files/claim`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, task_id: taskId, file_paths: filePaths })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return data;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /** Release file locks */
+  async releaseFiles(agentId: string, filePaths: string[], taskId?: string): Promise<{ success: boolean; released?: string[]; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/files/release`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, task_id: taskId, file_paths: filePaths })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return data;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async submitForValidation(taskId: string, agentId: string, selfVerification?: string): Promise<{ success: boolean; task?: any; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/submit-for-validation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, selfVerification })
+      });
+      const data = await response.json() as any;
+      return data;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getValidationQueue(): Promise<any[]> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/pending-validation`);
+      const data = await response.json() as any;
+      return data.tasks || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async registerAgent(agentId: string, name?: string, capabilities?: string[]): Promise<{ success: boolean; error?: string; conflict?: boolean }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/agents/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, name: name || agentId, capabilities: capabilities || ['code', 'coordination'] })
+      });
+      const data = await response.json() as any;
+      if (!response.ok) {
+        return { success: false, error: data.error || `HTTP ${response.status}`, conflict: response.status === 409 };
+      }
+      return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

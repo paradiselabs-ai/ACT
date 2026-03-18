@@ -415,4 +415,157 @@ export class ChronologicalLog {
 
     this.initialized = false;
   }
+
+  /**
+   * Restore in-memory state from the event log (event sourcing replay)
+   * Reads JSONL file and replays events to rebuild projects, tasks, briefs, agents
+   */
+  async restoreFromLog(
+    projects: Map<string, any>,
+    tasks: Map<string, any>,
+    briefs: Map<string, Map<string, string>>,
+    agents: Map<string, any>
+  ): Promise<{ projectCount: number; taskCount: number; briefCount: number; agentCount: number }> {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    await this.flush();
+
+    const counts = { projectCount: 0, taskCount: 0, briefCount: 0, agentCount: 0 };
+
+    if (!this.config.jsonlPath) {
+      return counts;
+    }
+
+    try {
+      const content = await fs.readFile(this.config.jsonlPath, 'utf-8');
+      const lines = content.trim().split('\n').filter(l => l.length > 0);
+
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line) as { type: string; agent: string; message: string; timestamp: string; data?: any };
+          const d = event.data;
+
+          switch (event.type) {
+            case 'project_created': {
+              if (d && d.name) {
+                projects.set(d.name, d);
+                counts.projectCount++;
+              }
+              break;
+            }
+            case 'task_created': {
+              if (d && d.id) {
+                tasks.set(d.id, d);
+                counts.taskCount++;
+              }
+              break;
+            }
+            case 'task_assigned': {
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.assignedAgent = d.agentId;
+                  task.status = 'assigned';
+                }
+              }
+              break;
+            }
+            case 'task_completed': {
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.status = d.success ? 'completed' : 'failed';
+                  task.progress = d.success ? 100 : task.progress;
+                  if (d.result) {
+                    if (!task.metadata) task.metadata = {};
+                    task.metadata.result = d.result;
+                  }
+                }
+              }
+              break;
+            }
+            case 'brief_stored': {
+              if (d && d.projectName && d.agentId && d.content) {
+                let projectBriefs = briefs.get(d.projectName);
+                if (!projectBriefs) {
+                  projectBriefs = new Map<string, string>();
+                  briefs.set(d.projectName, projectBriefs);
+                }
+                projectBriefs.set(d.agentId, d.content);
+                // Also restore into the project object's briefs
+                const project = projects.get(d.projectName);
+                if (project) {
+                  if (!project.briefs) project.briefs = {};
+                  project.briefs[d.agentId] = d.content;
+                }
+                counts.briefCount++;
+              }
+              break;
+            }
+            case 'task_submitted_for_validation': {
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.status = 'submitted_for_validation';
+                }
+              }
+              break;
+            }
+            case 'task_validated': {
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.status = 'validated';
+                  if (d.score !== undefined) {
+                    if (!task.metadata) task.metadata = {};
+                    task.metadata.validationScore = d.score;
+                  }
+                }
+              }
+              break;
+            }
+            case 'task_validation_failed': {
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.status = 'assigned'; // returned to agent
+                  if (!task.metadata) task.metadata = {};
+                  task.metadata.validationAttempts = (task.metadata.validationAttempts || 0) + 1;
+                  if (d.gaps) task.metadata.validationGaps = d.gaps;
+                }
+              }
+              break;
+            }
+            case 'agent_registered': {
+              if (d && d.agentId) {
+                agents.set(d.agentId, {
+                  id: d.agentId,
+                  name: d.name || d.agentId,
+                  capabilities: d.capabilities || [],
+                  status: 'offline',  // will re-register on connect
+                  lastSeen: event.timestamp,
+                  performanceScore: 1.0,
+                  tasksCompleted: 0,
+                  averageTaskTime: 0
+                });
+                counts.agentCount++;
+              }
+              break;
+            }
+          }
+        } catch (parseError) {
+          // Skip unparseable lines (non-fatal)
+        }
+      }
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') {
+        console.error('Error restoring from log:', error);
+      }
+    }
+
+    return counts;
+  }
+
 }

@@ -30,6 +30,7 @@ const execFileAsync = promisify(execFile);
 
 const ACT_SERVER_URL = (process.env.ACT_SERVER_URL || 'http://localhost:8080').replace(/\/$/, '');
 const CLAUDE_PATH    = process.env.CLAUDE_PATH    || 'claude';
+const AGENT_CLI      = process.env.ACTOR_CLI || process.env.AGENT_CLI || './act-agent/act-agent';
 const POLL_INTERVAL  = parseInt(process.env.POLL_INTERVAL_MS || '5000',  10);
 const TASK_TIMEOUT   = parseInt(process.env.TASK_TIMEOUT_MS  || '120000', 10);
 
@@ -41,6 +42,7 @@ const { values: args } = parseArgs({
   options: {
     'agent-id':       { type: 'string' },
     'name':           { type: 'string' },
+    'role':           { type: 'string' },
     'capabilities':   { type: 'string' },  // comma-separated
     'max-iterations': { type: 'string' },
     'poll-interval':  { type: 'string' },
@@ -62,6 +64,7 @@ Required:
   --name <name>            Human-readable agent name (e.g. "Claude Code 1")
 
 Optional:
+  --role <role>           Agent specialization (e.g. frontend-dev, backend-dev, developer)
   --capabilities <list>    Comma-separated capabilities (e.g. typescript,react,testing)
   --max-iterations <n>     Max coordination loops before exit (default: 100, 0 = unlimited)
   --poll-interval <ms>     Milliseconds between polls (default: 5000)
@@ -69,6 +72,7 @@ Optional:
 
 Environment variables:
   ACT_SERVER_URL           ACT server URL (default: http://localhost:8080)
+  ACTOR_CLI / AGENT_CLI    Agent CLI binary (fallback: ./act-agent/act-agent)
   CLAUDE_PATH              Path to claude binary (default: claude)
   POLL_INTERVAL_MS         Polling interval in ms
   MAX_ITERATIONS           Max loops
@@ -79,7 +83,9 @@ Environment variables:
 
 const AGENT_ID     = args['agent-id'];
 const AGENT_NAME   = args['name'] || AGENT_ID;
+const AGENT_ROLE   = args['role'] || process.env.AGENT_ROLE || undefined;
 const CAPABILITIES = (args['capabilities'] || '').split(',').map(s => s.trim()).filter(Boolean);
+const liveProcesses = new Map(); // agentId -> { pid, startedAt, taskId }
 
 if (!AGENT_ID) {
   console.error('Error: --agent-id is required');
@@ -118,9 +124,10 @@ async function register() {
   await post('/api/agents/register', {
     agentId: AGENT_ID,
     name: AGENT_NAME,
+    role: AGENT_ROLE,
     capabilities: CAPABILITIES,
   });
-  log(`Registered as "${AGENT_NAME}" [${CAPABILITIES.join(', ') || 'no capabilities listed'}]`);
+  log(`Registered as "${AGENT_NAME}"${AGENT_ROLE ? ` (role: ${AGENT_ROLE})` : ''} [${CAPABILITIES.join(', ') || 'no capabilities listed'}]`);
 }
 
 async function getTask() {
@@ -156,22 +163,59 @@ async function sendMessage(message) {
   await post('/api/messages', { sender: AGENT_ID, message });
 }
 
-// ─── Claude invocation ────────────────────────────────────────────────────────
+async function sendSessionEnded(taskId, code) {
+  await post('/api/messages', {
+    sender: AGENT_ID,
+    message: `status: session ended for task ${taskId} (exit code: ${code})`
+  });
+}
 
-async function runClaude(prompt) {
-  log(`  Invoking claude CLI...`);
+// ─── Agent CLI invocation ─────────────────────────────────────────────────────
+
+async function runAgent(prompt) {
+  log(`  Invoking agent CLI (${AGENT_CLI})...`);
   try {
     const { stdout, stderr } = await execFileAsync(
-      CLAUDE_PATH,
-      ['--print', '--dangerously-skip-permissions', prompt],
+      AGENT_CLI,
+      ['--agent', AGENT_ID, ...(AGENT_ROLE ? ['--role', AGENT_ROLE] : []), '--prompt', prompt],
       { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024 }
     );
-    if (stderr) log(`  [claude stderr] ${stderr.trim()}`);
-    return { success: true, output: stdout.trim() };
+    if (stderr) log(`  [agent stderr] ${stderr.trim()}`);
+
+    const raw = stdout.trim();
+    try {
+      const parsed = JSON.parse(raw);
+      const status = parsed?.status;
+      const result = typeof parsed?.result === 'string' ? parsed.result : raw;
+      return {
+        success: status === 'completed',
+        output: result,
+        error: status && status !== 'completed' ? `agent status: ${status}` : undefined,
+        code: 0
+      };
+    } catch {
+      return { success: true, output: raw, code: 0 };
+    }
   } catch (err) {
     const output = err.stdout?.trim() || '';
     const errMsg = err.stderr?.trim() || err.message;
-    return { success: false, output, error: errMsg };
+    const code = Number.isInteger(err.code) ? err.code : 1;
+    if (output) {
+      try {
+        const parsed = JSON.parse(output);
+        const status = parsed?.status;
+        const result = typeof parsed?.result === 'string' ? parsed.result : output;
+        return {
+          success: status === 'completed',
+          output: result,
+          error: status && status !== 'completed' ? `agent status: ${status}` : errMsg,
+          code
+        };
+      } catch {
+        // Backward-compatible fallback for plain text stdout from claude --print
+      }
+    }
+    return { success: false, output, error: errMsg, code };
   }
 }
 
@@ -268,7 +312,7 @@ async function fetchParallelContext() {
 }
 
 /**
- * Ask Claude to identify interface points with parallel agents and send
+ * Ask the agent CLI to identify interface points with parallel agents and send
  * proactive coordination messages where needed. Fire-and-forget.
  */
 async function proactiveCoordination(task, parallelContext) {
@@ -300,7 +344,7 @@ async function proactiveCoordination(task, parallelContext) {
     `Be concise. Only reach out if there is a genuine interface dependency.`,
   ].join('\n');
 
-  const { success, output } = await runClaude(prompt);
+  const { success, output } = await runAgent(prompt);
   if (!success) return;
 
   // Parse and send any SEND directives
@@ -338,7 +382,7 @@ async function broadcastCompletion(task, output) {
     `Keep it under 200 words.`,
   ].join('\n');
 
-  const { success, output: summary } = await runClaude(prompt);
+  const { success, output: summary } = await runAgent(prompt);
   if (!success) return;
 
   const cleaned = summary.trim();
@@ -350,8 +394,28 @@ async function broadcastCompletion(task, output) {
 
 // ─── Task execution ───────────────────────────────────────────────────────────
 
+/**
+ * Fetch the AGENT.md brief for this agent from the ACT server.
+ * Returns the brief content string, or null if not found.
+ */
+async function fetchAgentBrief(projectName) {
+  if (!projectName) return null;
+  try {
+    const data = await get(`/api/projects/${encodeURIComponent(projectName)}/briefs/${encodeURIComponent(AGENT_ID)}`);
+    const content = data.brief?.content || data.content || null;
+    if (content) log(`  [brief] Loaded AGENT.md brief for project "${projectName}"`);
+    return content;
+  } catch {
+    return null; // no brief stored yet — non-fatal
+  }
+}
+
 async function executeTask(task) {
   log(`Task: ${task.id} — ${task.title || task.description}`);
+
+  // Block 1a: inject AGENT.md brief from ACT server
+  const projectName = task.projectName || task.metadata?.projectName || null;
+  const agentBrief = await fetchAgentBrief(projectName);
 
   // Wire 2: inject PVM context for complex tasks
   let pvmContext = null;
@@ -368,10 +432,29 @@ async function executeTask(task) {
     await proactiveCoordination(task, parallelContext);
   }
 
-  const prompt = buildTaskPrompt(task, pvmContext, parallelContext);
+  // Check inbox for pending messages (gap analysis from Assurance, questions from peers)
+  let inboxContext = null;
+  try {
+    const msgs = await getMessages(new Date(Date.now() - 3600000).toISOString()); // last hour
+    if (msgs.length > 0) {
+      log(`  [inbox] ${msgs.length} pending message(s) — including in task context`);
+      inboxContext = msgs
+        .map(m => `[${m.from || m.sender}]: ${m.message}`)
+        .join('\n');
+    }
+  } catch { /* non-fatal */ }
+
+  // Check for validation gaps attached to task metadata (from Assurance rejection)
+  let gapContext = null;
+  if (task.metadata?.validationGaps) {
+    log(`  [assurance] Task was previously rejected — including gap analysis`);
+    gapContext = `VALIDATION FEEDBACK (attempt ${task.metadata.validationAttempts || '?'}):\n${task.metadata.validationGaps}`;
+  }
+
+  const prompt = buildTaskPrompt(task, pvmContext, parallelContext, agentBrief, inboxContext, gapContext);
   await reportProgress(task.id, 10, 'Starting task execution');
 
-  const { success, output, error } = await runClaude(prompt);
+  const { success, output, error, code } = await runAgent(prompt);
 
   if (success) {
     log(`  Task complete. Output length: ${output.length} chars`);
@@ -382,16 +465,26 @@ async function executeTask(task) {
     log(`  Task failed: ${error}`);
     await reportComplete(task.id, false, `Error: ${error}\n\n${output}`.slice(0, 2000));
   }
+
+  return { exitCode: code ?? (success ? 0 : 1) };
 }
 
-function buildTaskPrompt(task, pvmContext = null, parallelContext = null) {
-  const lines = [
+function buildTaskPrompt(task, pvmContext = null, parallelContext = null, agentBrief = null, inboxContext = null, gapContext = null) {
+  const lines = [];
+
+  // AGENT.md brief goes first — establishes agent identity and project context
+  if (agentBrief) {
+    lines.push(`## Project Brief`, ``, agentBrief, ``, `---`, ``);
+  }
+
+  lines.push(
     `You are ${AGENT_NAME}, an autonomous AI agent connected to the ACT coordination system.`,
+    AGENT_ROLE ? `Role: ${AGENT_ROLE}` : null,
     ``,
     `## Task`,
     `Title: ${task.title || '(untitled)'}`,
     `Description: ${task.description || '(no description)'}`,
-  ];
+  );
 
   if (task.metadata?.projectContext) {
     lines.push(``, `## Project Context`, task.metadata.projectContext);
@@ -425,15 +518,75 @@ function buildTaskPrompt(task, pvmContext = null, parallelContext = null) {
     );
   }
 
+  // Pending messages (gap analysis from Assurance, peer questions)
+  if (inboxContext) {
+    lines.push(
+      ``,
+      `## Pending Messages`,
+      `These messages were sent to you by other agents. Read them carefully — they may contain`,
+      `gap analysis from Assurance (what failed validation) or questions from peers:`,
+      ``,
+      inboxContext,
+    );
+  }
+
+  // Validation gap analysis (from Assurance rejection — attached to task metadata)
+  if (gapContext) {
+    lines.push(
+      ``,
+      `## IMPORTANT: Previous Validation Failed`,
+      `This task was previously completed but REJECTED by Assurance. Fix the specific issues below:`,
+      ``,
+      gapContext,
+      ``,
+      `Focus on fixing these gaps. Do not rewrite everything — address the specific failures.`,
+    );
+  }
+
+  // Extract success criteria from SNLP if present
+  const criteria = extractSuccessCriteria(task.description || '');
+  if (criteria.length > 0) {
+    lines.push(
+      ``,
+      `## Success Criteria`,
+      `Your output will be validated against these criteria (95% gate):`,
+    );
+    criteria.forEach((c, i) => lines.push(`  ${i + 1}. ${c}`));
+  }
+
   lines.push(
     ``,
-    `## Instructions`,
-    `Complete this task to the best of your ability. Be thorough and precise.`,
-    `Return your output as a clear, well-structured response.`,
+    `## Workflow`,
+    `1. CLAIM FILES: Before editing any files, run \`act files claim <paths...>\` to prevent conflicts.`,
+    `2. IMPLEMENT: Complete the task. Be thorough and precise.`,
+    `3. SELF-VERIFY (Ralph Wiggum Loop): Before reporting complete, verify your own work:`,
+    `   - Re-read your output critically. Does it actually satisfy each success criterion?`,
+    `   - Run tests/linters if available. Check for obvious errors.`,
+    `   - If you find gaps, fix them before continuing.`,
+    `4. REPORT: Run \`act task complete <task-id> --result "<summary>"\` with a concise summary.`,
+    `5. RELEASE FILES: Run \`act files release <paths...>\` (or they auto-release on complete).`,
+    `6. CHECK MESSAGES: Run \`act message\` to see if other agents need your help.`,
+    ``,
     `If this is a planning task, return valid JSON as specified in the task description.`,
   );
 
   return lines.join('\n');
+}
+
+/** Extract @success_criteria items from SNLP-formatted text */
+function extractSuccessCriteria(text) {
+  const lines = text.split('\\n');
+  let inCriteria = false;
+  const criteria = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^@success_criteria:?\s*$/i.test(trimmed)) { inCriteria = true; continue; }
+    if (trimmed.startsWith('@') && inCriteria) break;
+    if (inCriteria && trimmed.startsWith('- ')) {
+      criteria.push(trimmed.substring(2));
+    }
+  }
+  return criteria;
 }
 
 // ─── Message handling ─────────────────────────────────────────────────────────
@@ -458,7 +611,7 @@ async function processMessages(messages) {
       `Keep your reply under 500 words.`,
     ].join('\n');
 
-    const { success, output, error } = await runClaude(prompt);
+    const { success, output, error } = await runAgent(prompt);
     const reply = success ? output : `I encountered an error: ${error}`;
 
     await sendMessage(`@${msg.from} ${reply.slice(0, 1000)}`);
@@ -482,7 +635,8 @@ function sleep(ms) {
 async function main() {
   log(`ACT Agent Runner starting`);
   log(`Server: ${ACT_SERVER_URL}`);
-  log(`Claude: ${CLAUDE_PATH}`);
+  log(`Agent CLI: ${AGENT_CLI}`);
+  if (AGENT_ROLE) log(`Role: ${AGENT_ROLE}`);
   log(`Poll interval: ${POLL_INTERVAL}ms`);
   log(`Max iterations: ${maxIterations === 0 ? 'unlimited' : maxIterations}`);
   log(``);
@@ -511,7 +665,32 @@ async function main() {
       // 1. Check for assigned task
       const task = await getTask();
       if (task) {
-        await executeTask(task);
+        if (liveProcesses.has(AGENT_ID)) {
+          const live = liveProcesses.get(AGENT_ID);
+          log(`Agent ${AGENT_ID} already has a live process (pid ${live.pid}), skipping`);
+          continue;
+        }
+
+        liveProcesses.set(AGENT_ID, {
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+          taskId: task.id,
+        });
+
+        let taskExitCode = -1;
+        try {
+          const taskResult = await executeTask(task);
+          taskExitCode = taskResult?.exitCode ?? 0;
+        } finally {
+          liveProcesses.delete(AGENT_ID);
+          log(`Agent ${AGENT_ID} process exited`);
+          try {
+            await sendSessionEnded(task.id, taskExitCode);
+          } catch (err) {
+            log(`  [lifecycle] failed to report session end: ${err.message}`);
+          }
+        }
+
         // After finishing a task, skip the sleep and immediately check for the next
         continue;
       }

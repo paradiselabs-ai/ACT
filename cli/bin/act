@@ -3,40 +3,52 @@
 /**
  * ACT CLI Entry Point
  *
- * Launches the ACT Terminal REPL with the specified server URL.
+ * Routes to either:
+ * - Agent CLI (act context, act task, act files, act graph, etc.) — for headless agents
+ * - REPL (act with no args, or act server) — for human operators
  */
 
-import { ACTRepl } from '../dist/act-repl.js';
+// Known agent CLI commands (routed to act-cli)
+const AGENT_COMMANDS = new Set([
+  'context', 'task', 'brief', 'files', 'message', 'log', 'graph'
+]);
 
-// Get server URL from environment or command line
-const serverUrl = process.env.ACT_SERVER_URL ||
-                  process.argv[2] ||
-                  'http://localhost:8080';
-
-// Handle different commands
 const command = process.argv[2];
 
-if (command === 'server') {
+if (command && AGENT_COMMANDS.has(command)) {
+  // Agent CLI mode — dynamically import the agent CLI
+  import('../dist/act-cli.js').catch(() => {
+    // Fallback: try tsx for development
+    import('child_process').then(({ execFileSync }) => {
+      try {
+        execFileSync('npx', ['tsx', require('path').join(__dirname, '..', 'act-cli.ts'), ...process.argv.slice(2)], { stdio: 'inherit' });
+      } catch (e) {
+        process.exit(e.status || 1);
+      }
+    });
+  });
+} else if (command === 'server') {
   const subCommand = process.argv[3];
   if (subCommand === 'start') {
-    console.log('🚀 Starting ACT server...');
-    console.log('This would start the ACT server process.');
-    console.log('For now, please start the server manually with:');
-    console.log('cd /path/to/act/server && npm start');
-    process.exit(0);
-  } else if (subCommand === 'stop') {
-    console.log('🛑 Stopping ACT server...');
-    console.log('This would stop the ACT server process.');
+    console.log('Starting ACT server...');
+    console.log('Run: cd server && npm run dev');
     process.exit(0);
   } else {
     console.log('Usage: act server start|stop');
     process.exit(1);
   }
 } else {
-  // Default: start REPL
-  const repl = new ACTRepl(serverUrl);
-  repl.start().catch(error => {
-    console.error('Failed to start ACT REPL:', error);
+  // REPL mode — interactive terminal
+  import('../dist/act-repl.js').then(({ ACTRepl }) => {
+    const serverUrl = process.env.ACT_SERVER_URL || 'http://localhost:8080';
+    const repl = new ACTRepl(serverUrl);
+    repl.start().catch(error => {
+      console.error('Failed to start ACT REPL:', error);
+      process.exit(1);
+    });
+  }).catch(err => {
+    console.error('Failed to load ACT REPL. Run `npm run build` in cli/ first.');
+    console.error(err.message);
     process.exit(1);
   });
 }

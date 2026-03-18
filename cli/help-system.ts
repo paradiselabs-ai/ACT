@@ -20,8 +20,8 @@ export class HelpSystem {
 
     console.log('Configuration:');
     console.log('  list agents              List connected agents');
-    console.log('  default agent <id>       Set default agent (ACTor) for planning');
-    console.log('  default agent -r         Randomly pick an ACTor from registered agents');
+    console.log('  default agent <id>       Set default agent (Planner) for planning');
+    console.log('  default agent -r         Randomly pick an Planner from registered agents');
     console.log('  remove agent <id>        Deregister an agent from ACT');
     console.log('  show default            Show current default agent\n');
 
@@ -37,6 +37,7 @@ export class HelpSystem {
     console.log('  show project <name>                Show project details');
     console.log('  stop project <name>                Pause project execution');
     console.log('  delete project <name>              Remove project\n');
+    console.log('  nestty [--roles list] [--mock]     Launch NesTTY for current project\n');
 
     console.log('Sessions:');
     console.log('  brainstorm <topic> [--agents list]         Creative ideation');

@@ -1,0 +1,73 @@
+{
+  "$schema": "./act-agent/opencode-schema.json",
+
+  "providers": {
+    "anthropic": { "apiKey": "", "disabled": false },
+    "openai": { "apiKey": "", "disabled": true },
+    "groq": { "apiKey": "", "disabled": true },
+    "openrouter": { "apiKey": "", "disabled": true }
+  },
+
+  "agents": {
+    "coder": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000,
+      "reasoningEffort": "medium"
+    },
+
+    "planner": {
+      "model": "claude-opus-4-20250514",
+      "maxTokens": 8000
+    },
+    "observer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 2000
+    },
+    "assurance": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "qa_synthesizer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+
+    "frontend_dev": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "backend_dev": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "qa_engineer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "researcher": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "developer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+
+    "summarizer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "task": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "title": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 80
+    }
+  },
+
+  "contextPaths": [
+    "CLAUDE.md"
+  ]
+}
