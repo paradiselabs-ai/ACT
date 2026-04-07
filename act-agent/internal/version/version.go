@@ -3,9 +3,9 @@ package version
 import "runtime/debug"
 
 // Build-time parameters set via -ldflags
-var Version = "unknown"
+var Version = "dev"
 
-// A user may install pug using `go install github.com/opencode-ai/opencode@latest`.
+// A user may install pug using `go install github.com/paradiselabs-ai/ACT/act-agent@latest`.
 // without -ldflags, in which case the version above is unset. As a workaround
 // we use the embedded build version that *is* set when using `go install` (and
 // is only set for `go install` and not for `go build`).

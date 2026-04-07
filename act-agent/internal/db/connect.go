@@ -9,8 +9,8 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 
 	"github.com/pressly/goose/v3"
 )

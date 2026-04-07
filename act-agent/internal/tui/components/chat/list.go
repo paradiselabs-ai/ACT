@@ -10,14 +10,14 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
 type cacheItem struct {
@@ -169,7 +169,7 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *messagesCmp) IsAgentWorking() bool {
-	return m.app.CoderAgent.IsSessionBusy(m.session.ID)
+	return m.app.Orchestrator.IsAnyBusy(m.session.ID)
 }
 
 func formatTimeDifference(unixTime1, unixTime2 int64) string {
@@ -217,9 +217,14 @@ func (m *messagesCmp) renderView() {
 				continue
 			}
 			isSummary := m.session.SummaryMessageID == msg.ID
+			role := ""
+			if msg.Role == message.Assistant {
+				role = m.app.Orchestrator.GetOwner(msg.ID)
+			}
 
 			assistantMessages := renderAssistantMessage(
 				msg,
+				role,
 				inx,
 				m.messages,
 				m.app.Messages,
@@ -377,7 +382,7 @@ func (m *messagesCmp) help() string {
 
 	text := ""
 
-	if m.app.CoderAgent.IsBusy() {
+	if m.app.Orchestrator.IsAnyBusy("") {
 		text += lipgloss.JoinHorizontal(
 			lipgloss.Left,
 			baseStyle.Foreground(t.TextMuted()).Bold(true).Render("press "),
@@ -406,9 +411,9 @@ func (m *messagesCmp) initialScreen() string {
 	return baseStyle.Width(m.width).Render(
 		lipgloss.JoinVertical(
 			lipgloss.Top,
-			header(m.width),
+			actBanner(m.width),
 			"",
-			lspsConfigured(m.width),
+			welcomeGuide(m.width),
 		),
 	)
 }

@@ -8,9 +8,9 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 )
 
 func CoderPrompt(provider models.ModelProvider) string {

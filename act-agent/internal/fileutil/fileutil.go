@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/opencode-ai/opencode/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 )
 
 var (
@@ -26,11 +26,7 @@ func init() {
 		logging.Warn("Ripgrep (rg) not found in $PATH. Some features might be limited or slower.")
 		rgPath = ""
 	}
-	fzfPath, err = exec.LookPath("fzf")
-	if err != nil {
-		logging.Warn("FZF not found in $PATH. Some features might be limited or slower.")
-		fzfPath = ""
-	}
+	fzfPath, _ = exec.LookPath("fzf")
 }
 
 func GetRgCmd(globPattern string) *exec.Cmd {

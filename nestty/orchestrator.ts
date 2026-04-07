@@ -21,6 +21,7 @@ import type {
 import { buildValidationPrompt, buildGapAnalysisPrompt, parseValidationResponse, type ValidationVerdict } from './assurance.js';
 import { buildSynthesisPrompt, parseSynthesisResponse, type AssemblyState, type ValidatedOutput } from './synthesizer.js';
 import { buildStatusSnapshot, detectAnomalies, buildObserverPrompt } from './observer.js';
+import { buildKickoffPrompt, buildHumanRequestPrompt, parseCreateTaskDirectives } from './planner.js';
 
 /** Minimal PTY manager interface — decoupled from node-pty implementation */
 export interface PTYManagerInterface {
@@ -151,9 +152,10 @@ export class Orchestrator extends EventEmitter {
       }
     }
 
-    // Default: route to Planner
+    // Default: route to Planner with project context
+    const wrappedInput = buildHumanRequestPrompt(text);
     this.openTurn('human', ['planner']);
-    this.injectContext('planner', `[Human]: ${text}`);
+    this.injectContext('planner', wrappedInput);
   }
 
   /** Start the orchestrator — called after all agents are spawned */
@@ -270,26 +272,9 @@ export class Orchestrator extends EventEmitter {
 
   /** Detect CREATE_TASK directives in Planner's response and POST to server */
   private async detectAndCreateTasks(content: string): Promise<void> {
-    // Pattern 1: CREATE_TASK: { json }
-    const taskMatches = content.matchAll(/CREATE_TASK:\s*(\{[^}]+\})/g);
-    for (const match of taskMatches) {
-      try {
-        const taskDef = JSON.parse(match[1]);
-        await this.createTaskOnServer(taskDef);
-      } catch { /* malformed JSON, skip */ }
-    }
-
-    // Pattern 2: JSON block with "tasks" array (planning response)
-    const jsonMatch = content.match(/\{[\s\S]*"tasks"\s*:\s*\[[\s\S]*\]\s*\}/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed.tasks)) {
-          for (const taskDef of parsed.tasks) {
-            await this.createTaskOnServer(taskDef);
-          }
-        }
-      } catch { /* not valid JSON, skip */ }
+    const tasks = parseCreateTaskDirectives(content);
+    for (const taskDef of tasks) {
+      await this.createTaskOnServer(taskDef);
     }
   }
 
@@ -525,14 +510,7 @@ export class Orchestrator extends EventEmitter {
 
   /** Kick off the session — Planner speaks first */
   private kickoff(): void {
-    const kickoffPrompt = [
-      `You are the Planner for project: ${this.config.projectName}.`,
-      `All agents are ready: ${this.config.roles.join(', ')}.`,
-      `Begin by analyzing the project and creating a task breakdown.`,
-      `Use \`act context --project ${this.config.projectName}\` to load project context.`,
-      `Then share your plan in the conversation.`,
-    ].join('\n');
-
+    const kickoffPrompt = buildKickoffPrompt(this.config.projectName, this.config.roles);
     this.openTurn('system', ['planner']);
     this.injectContext('planner', kickoffPrompt);
   }

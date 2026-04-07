@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/version"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/version"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"

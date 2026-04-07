@@ -7,14 +7,14 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/completions"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/chat"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/util"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/completions"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/chat"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
 var ChatPage PageID = "chat"
@@ -73,10 +73,10 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case dialog.CommandRunCustomMsg:
 		// Check if the agent is busy before executing custom commands
-		if p.app.CoderAgent.IsBusy() {
+		if p.app.Orchestrator.IsAnyBusy(p.session.ID) {
 			return p, util.ReportWarn("Agent is busy, please wait before executing a command...")
 		}
-		
+
 		// Process the command content with arguments if any
 		content := msg.Content
 		if msg.Args != nil {
@@ -86,7 +86,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				content = strings.ReplaceAll(content, placeholder, value)
 			}
 		}
-		
+
 		// Handle custom command execution
 		cmd := p.sendMessage(content, nil)
 		if cmd != nil {
@@ -115,7 +115,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if p.session.ID != "" {
 				// Cancel the current session's generation process
 				// This allows users to interrupt long-running operations
-				p.app.CoderAgent.Cancel(p.session.ID)
+				p.app.Orchestrator.CancelActive(p.session.ID)
 				return p, nil
 			}
 		}
@@ -154,6 +154,15 @@ func (p *chatPage) clearSidebar() tea.Cmd {
 
 func (p *chatPage) sendMessage(text string, attachments []message.Attachment) tea.Cmd {
 	var cmds []tea.Cmd
+
+	// Slash command intercept — handle /swarm, /nomik, /status, /help, etc.
+	// before routing to the Planner. Unknown commands fall through.
+	if strings.HasPrefix(strings.TrimSpace(text), "/") {
+		if response, handled := p.app.HandleSlashCommand(text); handled {
+			return util.ReportInfo(response)
+		}
+	}
+
 	if p.session.ID == "" {
 		session, err := p.app.Sessions.Create(context.Background(), "New Session")
 		if err != nil {
@@ -168,10 +177,12 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 		cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(session)))
 	}
 
-	_, err := p.app.CoderAgent.Run(context.Background(), p.session.ID, text, attachments...)
-	if err != nil {
-		return util.ReportError(err)
-	}
+	// Start orchestrator background loops on first message (idempotent).
+	// This wires Observer monitoring, validation polling, QA polling, swarm
+	// spawn, and Nomik project init to the active NesTTY session.
+	p.app.Orchestrator.Start(context.Background(), p.session.ID)
+
+	go p.app.Orchestrator.HandleHumanInput(context.Background(), p.session.ID, text, attachments...)
 	return tea.Batch(cmds...)
 }
 

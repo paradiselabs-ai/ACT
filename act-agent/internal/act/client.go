@@ -1,139 +1,404 @@
-// Package act provides a thin client for the ACT coordination server.
-// It shells out to the `act` CLI (cli/act-cli.ts) rather than implementing
-// HTTP calls directly, avoiding code duplication with the existing 21-command CLI.
+// Package act provides a native HTTP client for the ACT coordination server.
+// Replaces the previous shell-out implementation (which ran npx tsx cli/act-cli.ts).
 package act
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"strings"
+	"time"
 
-	"github.com/opencode-ai/opencode/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 )
 
-// Client wraps the ACT CLI for coordination server communication.
+// Client communicates with the ACT coordination server via HTTP.
 type Client struct {
-	// CLIPath is the path to act-cli.ts (resolved at init from ACT_CLI_PATH or default)
-	CLIPath string
-	// ServerURL is the ACT server URL (from ACT_SERVER_URL env var)
-	ServerURL string
-	// AgentID is this agent's registered ID
-	AgentID string
-	// Project is the current project name
-	Project string
+	ServerURL  string
+	AgentID    string
+	Project    string
+	httpClient *http.Client
 }
 
-// NewClient creates a new ACT client. It resolves the CLI path from
-// ACT_CLI_PATH env var, falling back to ../cli/act-cli.ts relative to the binary.
+// NewClient creates a new ACT client with native HTTP.
 func NewClient(agentID, project string) *Client {
-	cliPath := os.Getenv("ACT_CLI_PATH")
-	if cliPath == "" {
-		// Default: act-cli.ts relative to the act-agent binary's parent
-		cliPath = "cli/act-cli.ts"
-	}
 	serverURL := os.Getenv("ACT_SERVER_URL")
 	if serverURL == "" {
 		serverURL = "http://localhost:8080"
 	}
+	serverURL = strings.TrimRight(serverURL, "/")
+
 	return &Client{
-		CLIPath:   cliPath,
 		ServerURL: serverURL,
 		AgentID:   agentID,
 		Project:   project,
+		httpClient: &http.Client{
+			Timeout: 15 * time.Second,
+		},
 	}
-}
-
-// run executes an act CLI command and returns stdout output.
-func (c *Client) run(args ...string) (string, error) {
-	cmd := exec.Command("npx", append([]string{"tsx", c.CLIPath}, args...)...)
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("ACT_SERVER_URL=%s", c.ServerURL),
-		fmt.Sprintf("ACT_AGENT_ID=%s", c.AgentID),
-	)
-	out, err := cmd.CombinedOutput()
-	output := strings.TrimSpace(string(out))
-	if err != nil {
-		logging.Warn("ACT CLI command failed", "args", args, "error", err, "output", output)
-		return output, fmt.Errorf("act %s: %w (%s)", strings.Join(args, " "), err, output)
-	}
-	return output, nil
 }
 
 // Register registers this agent with the ACT coordination server.
 func (c *Client) Register() error {
-	_, err := c.run("register", c.AgentID)
-	if err != nil && strings.Contains(err.Error(), "already registered") {
-		// Already registered is fine — idempotent
-		logging.Info("Agent already registered", "agent_id", c.AgentID)
-		return nil
+	body := map[string]any{
+		"agentId":      c.AgentID,
+		"name":         c.AgentID,
+		"capabilities": []string{"code", "coordination"},
 	}
-	return err
+	resp, err := c.post("/api/agents/register", body)
+	if err != nil {
+		if strings.Contains(err.Error(), "409") || strings.Contains(err.Error(), "already registered") {
+			logging.Info("Agent already registered", "agent_id", c.AgentID)
+			return nil
+		}
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // GetContext fetches the full agent context (brief, task, parallel agents, messages).
 func (c *Client) GetContext() (string, error) {
-	return c.run("context", c.AgentID, "--project", c.Project)
+	var sections []string
+
+	// Fetch brief, assigned task, all tasks, agents, locks, messages in parallel
+	type result struct {
+		key string
+		val string
+		err error
+	}
+	ch := make(chan result, 6)
+
+	go func() {
+		brief, err := c.getBrief()
+		ch <- result{"brief", brief, err}
+	}()
+	go func() {
+		task, err := c.getAssignedTask()
+		ch <- result{"task", task, err}
+	}()
+	go func() {
+		tasks, err := c.getString("/api/tasks")
+		ch <- result{"tasks", tasks, err}
+	}()
+	go func() {
+		agents, err := c.getString("/api/agents")
+		ch <- result{"agents", agents, err}
+	}()
+	go func() {
+		locks, err := c.getString("/api/files/locks")
+		ch <- result{"locks", locks, err}
+	}()
+	go func() {
+		msgs, err := c.getMessages(5)
+		ch <- result{"messages", msgs, err}
+	}()
+
+	results := make(map[string]string)
+	for i := 0; i < 6; i++ {
+		r := <-ch
+		if r.err == nil && r.val != "" {
+			results[r.key] = r.val
+		}
+	}
+
+	if v := results["brief"]; v != "" {
+		sections = append(sections, "## Agent Brief\n"+v)
+	}
+	if v := results["task"]; v != "" {
+		sections = append(sections, "## Current Task\n"+v)
+	}
+	if v := results["agents"]; v != "" {
+		sections = append(sections, "## Agents\n"+v)
+	}
+	if v := results["tasks"]; v != "" {
+		sections = append(sections, "## Tasks\n"+v)
+	}
+	if v := results["locks"]; v != "" {
+		sections = append(sections, "## File Locks\n"+v)
+	}
+	if v := results["messages"]; v != "" {
+		sections = append(sections, "## Messages\n"+v)
+	}
+
+	return strings.Join(sections, "\n\n"), nil
 }
 
 // ReportProgress updates task progress percentage.
 func (c *Client) ReportProgress(taskID string, percent int) error {
-	_, err := c.run("task", "progress", taskID,
-		"--agent-id", c.AgentID,
-		"--percent", fmt.Sprintf("%d", percent))
-	return err
+	body := map[string]any{
+		"agentId":  c.AgentID,
+		"progress": percent,
+		"status":   "in_progress",
+	}
+	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/progress", url.PathEscape(taskID)), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // ReportComplete marks a task as complete with a result summary.
 func (c *Client) ReportComplete(taskID string, result string) error {
-	_, err := c.run("task", "complete", taskID,
-		"--agent-id", c.AgentID,
-		"--result", result)
-	return err
+	body := map[string]any{
+		"agentId": c.AgentID,
+		"success": true,
+		"result":  result,
+	}
+	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/complete", url.PathEscape(taskID)), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // ClaimFiles claims exclusive editing rights on files.
 func (c *Client) ClaimFiles(taskID string, files []string) error {
-	args := []string{"files", "claim", "--agent-id", c.AgentID, "--task-id", taskID}
-	args = append(args, files...)
-	_, err := c.run(args...)
-	return err
+	body := map[string]any{
+		"agent_id":   c.AgentID,
+		"task_id":    taskID,
+		"file_paths": files,
+	}
+	resp, err := c.post("/api/files/claim", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // ReleaseFiles releases file locks.
 func (c *Client) ReleaseFiles(files []string) error {
-	args := []string{"files", "release", "--agent-id", c.AgentID}
-	args = append(args, files...)
-	_, err := c.run(args...)
-	return err
+	body := map[string]any{
+		"agent_id":   c.AgentID,
+		"file_paths": files,
+	}
+	resp, err := c.post("/api/files/release", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // SendMessage sends a coordination message to other agents.
 func (c *Client) SendMessage(text string) error {
-	_, err := c.run("message", text, "--agent-id", c.AgentID)
-	return err
+	body := map[string]any{
+		"sender":  c.AgentID,
+		"message": text,
+	}
+	resp, err := c.post("/api/messages", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
 // SubmitForValidation submits a completed task for Assurance review.
 func (c *Client) SubmitForValidation(taskID string) error {
-	_, err := c.run("task", "submit-for-validation",
-		"--task-id", taskID,
-		"--agent-id", c.AgentID)
-	return err
+	body := map[string]any{
+		"agentId": c.AgentID,
+	}
+	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/submit-for-validation", url.PathEscape(taskID)), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }
 
-// Status fetches the ACT system status.
+// Status fetches the ACT system status as a formatted string.
 func (c *Client) Status() (string, error) {
-	return c.run("status")
+	return c.getString("/api/status")
 }
 
 // PVMSearch searches coordination memory for relevant patterns.
 func (c *Client) PVMSearch(query string) (string, error) {
-	return c.run("pvm", "search", query)
+	path := fmt.Sprintf("/api/pvm/search?query=%s&limit=10", url.QueryEscape(query))
+	return c.getString(path)
 }
 
 // IsAvailable returns true if the ACT server is reachable.
 func (c *Client) IsAvailable() bool {
-	_, err := c.run("status")
-	return err == nil
+	resp, err := c.httpClient.Get(c.ServerURL + "/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == 200
+}
+
+// --- internal helpers ---
+
+func (c *Client) getBrief() (string, error) {
+	path := fmt.Sprintf("/api/projects/%s/briefs/%s",
+		url.PathEscape(c.Project), url.PathEscape(c.AgentID))
+	data, err := c.getJSON(path)
+	if err != nil {
+		return "", err
+	}
+	if content, ok := data["content"].(string); ok {
+		return content, nil
+	}
+	return "", nil
+}
+
+func (c *Client) getAssignedTask() (string, error) {
+	path := fmt.Sprintf("/api/tasks/assigned?agent_id=%s", url.QueryEscape(c.AgentID))
+	return c.getString(path)
+}
+
+func (c *Client) getMessages(limit int) (string, error) {
+	path := fmt.Sprintf("/api/agents/%s/messages?limit=%d",
+		url.PathEscape(c.AgentID), limit)
+	return c.getString(path)
+}
+
+func (c *Client) post(path string, body map[string]any) (*http.Response, error) {
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshal body: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(
+		c.ServerURL+path,
+		"application/json",
+		bytes.NewReader(jsonBody),
+	)
+	if err != nil {
+		logging.Warn("ACT HTTP request failed", "path", path, "error", err)
+		return nil, fmt.Errorf("act POST %s: %w", path, err)
+	}
+
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		logging.Warn("ACT HTTP error", "path", path, "status", resp.StatusCode, "body", string(bodyBytes))
+		return nil, fmt.Errorf("act POST %s: HTTP %d: %s", path, resp.StatusCode, string(bodyBytes))
+	}
+
+	return resp, nil
+}
+
+func (c *Client) getJSON(path string) (map[string]any, error) {
+	resp, err := c.httpClient.Get(c.ServerURL + path)
+	if err != nil {
+		return nil, fmt.Errorf("act GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("act GET %s: HTTP %d", path, resp.StatusCode)
+	}
+
+	var data map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("act GET %s: decode: %w", path, err)
+	}
+	return data, nil
+}
+
+func (c *Client) getString(path string) (string, error) {
+	resp, err := c.httpClient.Get(c.ServerURL + path)
+	if err != nil {
+		return "", fmt.Errorf("act GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("act GET %s: HTTP %d", path, resp.StatusCode)
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("act GET %s: read: %w", path, err)
+	}
+	return strings.TrimSpace(string(bodyBytes)), nil
+}
+
+// CreateTask creates a new task on the ACT server.
+// Used by the Planner agent to dispatch work to swarm agents.
+func (c *Client) CreateTask(title, description string, requiredCapabilities []string, priority string, dependencies []string, metadata map[string]any) (string, error) {
+	body := map[string]any{
+		"title":                title,
+		"description":          description,
+		"requiredCapabilities": requiredCapabilities,
+		"priority":             priority,
+		"dependencies":         dependencies,
+		"metadata":             metadata,
+	}
+	resp, err := c.post("/api/tasks", body)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Task struct {
+			ID string `json:"id"`
+		} `json:"task"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", fmt.Errorf("decode create task response: %w", err)
+	}
+	return data.Task.ID, nil
+}
+
+// ListTasks fetches all tasks from the ACT server.
+// Returns the raw JSON string for the orchestrator to parse.
+// (The orchestrator will use orchestrator_types.go structs to decode this.)
+func (c *Client) ListTasks() (string, error) {
+	return c.getString("/api/tasks")
+}
+
+// GetPendingValidation fetches tasks awaiting Assurance validation.
+func (c *Client) GetPendingValidation() (string, error) {
+	return c.getString("/api/tasks/pending-validation")
+}
+
+// GetValidatedTasks fetches tasks that have passed Assurance and are awaiting QA synthesis.
+func (c *Client) GetValidatedTasks() (string, error) {
+	return c.getString("/api/tasks/validated")
+}
+
+// ListAgents fetches all registered agents from the ACT server.
+func (c *Client) ListAgents() (string, error) {
+	return c.getString("/api/agents")
+}
+
+// GetFileLocks fetches the current file locks from the ACT server.
+func (c *Client) GetFileLocks() (string, error) {
+	return c.getString("/api/files/locks")
+}
+
+// GetLog fetches recent coordination log entries.
+// limit is the maximum number of entries to return.
+func (c *Client) GetLog(limit int) (string, error) {
+	return c.getString(fmt.Sprintf("/api/log?limit=%d", limit))
+}
+
+// SubmitVerdict submits an Assurance validation verdict for a task.
+// Used by the orchestrator after the Assurance agent produces a verdict.
+func (c *Client) SubmitVerdict(taskID, agentID string, passed bool, score int, criteriaResults []map[string]any, gaps, feedback string) error {
+	body := map[string]any{
+		"agentId":         agentID,
+		"passed":          passed,
+		"score":           score,
+		"criteriaResults": criteriaResults,
+		"gaps":            gaps,
+		"feedback":        feedback,
+	}
+	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/validation-verdict", url.PathEscape(taskID)), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }

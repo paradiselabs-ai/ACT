@@ -1,0 +1,141 @@
+package app
+
+// Types used by the orchestrator for parsing server responses and passing
+// data between coordination components. These are pure data structs with
+// JSON tags — no methods, no logic.
+
+// TaskSummary is a single task as returned by /api/tasks endpoints.
+type TaskSummary struct {
+	ID                   string         `json:"id"`
+	Title                string         `json:"title"`
+	Description          string         `json:"description"`
+	Status               string         `json:"status"`
+	AssignedAgent        string         `json:"assignedAgent,omitempty"`
+	Priority             string         `json:"priority,omitempty"`
+	RequiredCapabilities []string       `json:"requiredCapabilities,omitempty"`
+	Dependencies         []string       `json:"dependencies,omitempty"`
+	SuccessCriteria      []string       `json:"successCriteria,omitempty"`
+	CreatedAt            string         `json:"createdAt,omitempty"`
+	CompletedAt          string         `json:"completedAt,omitempty"`
+	Metadata             map[string]any `json:"metadata,omitempty"`
+}
+
+// AgentSummary is a single registered agent as returned by /api/agents.
+type AgentSummary struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name,omitempty"`
+	Status       string   `json:"status"`
+	CurrentTask  string   `json:"currentTask,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	LastSeen     string   `json:"lastSeen,omitempty"`
+}
+
+// FileLockSummary is a single file lock as returned by /api/files/locks.
+type FileLockSummary struct {
+	File     string `json:"filePath"`
+	AgentID  string `json:"agentId"`
+	TaskID   string `json:"taskId,omitempty"`
+	LockedAt string `json:"lockedAt,omitempty"`
+}
+
+// LogEntry is a single coordination log event as returned by /api/log.
+type LogEntry struct {
+	Type      string `json:"type"`
+	Agent     string `json:"agent,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Timestamp string `json:"timestamp,omitempty"`
+}
+
+// StatusSnapshot is a point-in-time view of the entire ACT system state.
+// Built by the Observer loop by polling multiple endpoints in parallel.
+type StatusSnapshot struct {
+	Tasks        []TaskSummary     `json:"tasks"`
+	Agents       []AgentSummary    `json:"agents"`
+	FileLocks    []FileLockSummary `json:"fileLocks"`
+	RecentEvents []LogEntry        `json:"recentEvents"`
+	Timestamp    string            `json:"timestamp"`
+}
+
+// AnomalySeverity classifies how urgent an Observer-detected anomaly is.
+type AnomalySeverity string
+
+const (
+	SeverityCritical AnomalySeverity = "critical"
+	SeverityWarning  AnomalySeverity = "warning"
+	SeverityInfo     AnomalySeverity = "info"
+)
+
+// AnomalyCategory groups anomalies by detection rule.
+type AnomalyCategory string
+
+const (
+	CategoryStuckTask    AnomalyCategory = "stuck_task"
+	CategoryStaleLock    AnomalyCategory = "stale_lock"
+	CategoryIdleAgent    AnomalyCategory = "idle_agent"
+	CategoryUnvalidated  AnomalyCategory = "unvalidated"
+	CategoryBottleneck   AnomalyCategory = "bottleneck"
+	CategoryFileConflict AnomalyCategory = "conflict"
+)
+
+// Anomaly is a single issue detected by the Observer's monitoring loop.
+type Anomaly struct {
+	Severity AnomalySeverity `json:"severity"`
+	Category AnomalyCategory `json:"category"`
+	Message  string          `json:"message"`
+	TaskID   string          `json:"taskId,omitempty"`
+	AgentID  string          `json:"agentId,omitempty"`
+}
+
+// CriterionResult is the score and feedback for a single @success_criteria item
+// produced by the Assurance agent.
+type CriterionResult struct {
+	Criterion string `json:"criterion"`
+	Passed    bool   `json:"passed"`
+	Score     int    `json:"score"`
+	Feedback  string `json:"feedback,omitempty"`
+}
+
+// ValidationVerdict is the full Assurance verdict for a task.
+// Score is 0-100, weighted average across all criteria. Pass threshold = 95.
+type ValidationVerdict struct {
+	TaskID                  string            `json:"taskId"`
+	Passed                  bool              `json:"passed"`
+	OverallScore            int               `json:"overallScore"`
+	CriteriaResults         []CriterionResult `json:"criteriaResults"`
+	SelfVerificationChecked bool              `json:"selfVerificationChecked"`
+	SelfVerificationValid   bool              `json:"selfVerificationValid"`
+	Gaps                    string            `json:"gaps,omitempty"`
+	Feedback                string            `json:"feedback,omitempty"`
+	Timestamp               string            `json:"timestamp,omitempty"`
+}
+
+// ValidatedOutput is a single Assurance-passed task output queued for QA assembly.
+type ValidatedOutput struct {
+	TaskID          string `json:"taskId"`
+	TaskTitle       string `json:"taskTitle"`
+	AgentID         string `json:"agentId"`
+	Result          string `json:"result"`
+	ValidationScore int    `json:"validationScore"`
+	AddedAt         string `json:"addedAt"`
+}
+
+// AssemblyState is the QA/Synthesizer's running view of project assembly.
+type AssemblyState struct {
+	ProjectName string            `json:"projectName"`
+	Queue       []ValidatedOutput `json:"queue"`     // Waiting to be integrated
+	Assembled   []ValidatedOutput `json:"assembled"` // Already integrated
+	Deliverable string            `json:"deliverable,omitempty"`
+}
+
+// TaskDef is a parsed CREATE_TASK directive from a Planner response.
+// The orchestrator will pass this to act.Client.CreateTask().
+type TaskDef struct {
+	Title                string         `json:"title"`
+	Name                 string         `json:"name,omitempty"`
+	Description          string         `json:"description"`
+	RequiredCapabilities []string       `json:"requiredCapabilities,omitempty"`
+	Capabilities         []string       `json:"capabilities,omitempty"`
+	Priority             string         `json:"priority,omitempty"`
+	Dependencies         []string       `json:"dependencies,omitempty"`
+	Metadata             map[string]any `json:"metadata,omitempty"`
+}

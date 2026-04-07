@@ -52,6 +52,8 @@ export function buildValidationPrompt(task: {
     .map((c, i) => `  ${i + 1}. ${c}`)
     .join('\n');
 
+  // Identity, scoring rubric, and validation process are in the Go system prompt
+  // (act-agent/internal/llm/prompt/assurance.go). This turn prompt provides the DATA.
   return [
     `VALIDATION REQUEST — Task: ${task.title || task.id}`,
     ``,
@@ -69,32 +71,7 @@ export function buildValidationPrompt(task: {
       task.selfVerification.substring(0, 2000),
       ``,
     ].join('\n') : '',
-    `## Your Task`,
-    `You are Assurance. Validate this completed work:`,
-    ``,
-    `1. SELF-VERIFICATION CHECK: Did the agent actually verify their own work? ` +
-      `Look for evidence of testing, re-reading output, checking edge cases. ` +
-      `Rate: yes/no.`,
-    ``,
-    `2. CRITERIA SCORING: For each success criterion above, score 0-100:`,
-    `   - 100: fully met, evidence clear`,
-    `   - 75-99: mostly met, minor gaps`,
-    `   - 50-74: partially met, significant gaps`,
-    `   - 0-49: not met or no evidence`,
-    ``,
-    `3. OVERALL VERDICT: If weighted average ≥ ${PASS_THRESHOLD}%: PASS. Otherwise: FAIL.`,
-    ``,
-    `Respond with EXACTLY this JSON format (no markdown fences):`,
-    `{`,
-    `  "selfVerificationValid": true/false,`,
-    `  "criteriaResults": [`,
-    `    {"criterion": "...", "passed": true/false, "score": 0-100, "feedback": "..."}`,
-    `  ],`,
-    `  "overallScore": 0-100,`,
-    `  "passed": true/false,`,
-    `  "gaps": "specific gap analysis if failed, null if passed",`,
-    `  "feedback": "overall assessment"`,
-    `}`,
+    `Validate this task now. Respond with the JSON verdict format.`,
   ].join('\n');
 }
 
@@ -151,16 +128,12 @@ export function buildGapAnalysisPrompt(verdict: ValidationVerdict): string {
     .join('\n');
 
   return [
-    `VALIDATION FAILED — Your task did not pass Assurance review.`,
-    ``,
-    `Overall score: ${verdict.overallScore}/100 (need ${PASS_THRESHOLD}+)`,
+    `VALIDATION FAILED — Score: ${verdict.overallScore}/100 (need ${PASS_THRESHOLD}+)`,
     ``,
     `## Failed Criteria`,
     failedCriteria || '(none individually failed, but overall score too low)',
     ``,
     verdict.gaps ? `## Gap Analysis\n${verdict.gaps}\n` : '',
-    `## Required Action`,
-    `Address each failed criterion above, then re-submit with \`act task submit-for-validation\`.`,
-    `Focus on the specific gaps identified. Do not rewrite everything — fix what's broken.`,
+    `Fix the specific gaps above, then re-submit with \`act task submit-for-validation\`.`,
   ].join('\n');
 }

@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/spf13/viper"
 )
 
@@ -65,10 +65,19 @@ const (
 )
 
 // Agent defines configuration for different LLM models and their token limits.
+//
+// Backend selects how Tier 2 swarm agents are executed. Valid values:
+//   - "act-agent" (default): the local Go binary, configured per the rest of this struct
+//   - "claude-code": the official Claude Code CLI (`claude --print`)
+//
+// Backend is ONLY meaningful for Tier 2 swarm roles (developer, frontend_dev,
+// backend_dev, qa_engineer, researcher). Tier 1 agents (planner, observer,
+// assurance, qa_synthesizer) run as in-process goroutines and ignore this field.
 type Agent struct {
 	Model           models.ModelID `json:"model"`
 	MaxTokens       int64          `json:"maxTokens"`
-	ReasoningEffort string         `json:"reasoningEffort"` // For openai models low,medium,heigh
+	ReasoningEffort string         `json:"reasoningEffort,omitempty"` // For openai models low,medium,heigh
+	Backend         string         `json:"backend,omitempty"`         // Tier 2 only: "act-agent" | "claude-code"
 }
 
 // Provider defines configuration for an LLM provider.
@@ -78,7 +87,7 @@ type Provider struct {
 }
 
 // AgentConfigForRole returns the agent config for an ACT role.
-// Looks up agents.<role> first, falls back to agents.coder.
+// Looks up agents.<role> first, falls back to agents.developer, then agents.coder.
 // This enables different models for Planner vs coding agents.
 func AgentConfigForRole(role string) AgentName {
 	roleName := AgentName(role)
@@ -86,7 +95,53 @@ func AgentConfigForRole(role string) AgentName {
 	if _, ok := cfg.Agents[roleName]; ok {
 		return roleName
 	}
+	// Prefer developer as fallback (ACT role), then coder (OpenCode internal)
+	if _, ok := cfg.Agents[RoleDeveloper]; ok {
+		return RoleDeveloper
+	}
 	return AgentCoder
+}
+
+// Tier1AgentNames returns the canonical ordered list of Tier 1 NesTTY roles
+// — the 4 agents bound to the TUI window. There is no "default" agent in ACT;
+// these four all share the conversation and each has its own LLM model.
+func Tier1AgentNames() []AgentName {
+	return []AgentName{RolePlanner, RoleObserver, RoleAssurance, RoleQASynthesizer}
+}
+
+// Tier1Configs returns the configured Agent struct for each Tier 1 role.
+// Roles that aren't in the user's config are returned as zero-value Agents.
+// Used by the status bar (to show all 4 models) and the model selection
+// dialog (to let users pick which Tier 1 role to edit).
+func Tier1Configs() map[AgentName]Agent {
+	cfg := Get()
+	out := make(map[AgentName]Agent, 4)
+	if cfg == nil {
+		return out
+	}
+	for _, name := range Tier1AgentNames() {
+		if a, ok := cfg.Agents[name]; ok {
+			out[name] = a
+		}
+	}
+	return out
+}
+
+// Tier1ShortLabel returns a single-character abbreviation for a Tier 1 role,
+// used by compact status bar displays.
+func Tier1ShortLabel(name AgentName) string {
+	switch name {
+	case RolePlanner:
+		return "P"
+	case RoleObserver:
+		return "O"
+	case RoleAssurance:
+		return "A"
+	case RoleQASynthesizer:
+		return "Q"
+	default:
+		return string(name)
+	}
 }
 
 // Data defines storage configuration.

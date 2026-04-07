@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
 )
 
 type agentTool struct {

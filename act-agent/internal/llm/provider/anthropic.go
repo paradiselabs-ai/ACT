@@ -12,11 +12,11 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	toolsPkg "github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	toolsPkg "github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 )
 
 type anthropicOptions struct {

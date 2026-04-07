@@ -776,3 +776,112 @@
   "message": "Workflow 6B complete: Built onboarding wizard with 5-step flow (welcome, detect keys, tier 1 config, tier 2 config, save) in act-agent/internal/tui/components/dialog/onboarding.go. Wired first-run detection in internal/tui/tui.go to show onboarding on first run and fall back to regular init dialog otherwise. Wizard supports arrow navigation, Enter progression, Escape skip, writes ~/.act.json, and emits CloseInitDialogMsg on completion. Build passes.",
   "branch": "NesTTY"
 }
+,
+{
+  "timestamp": "2026-03-19T00:00:00Z",
+  "agent": "claude_code",
+  "type": "architecture_decision",
+  "message": "THE GREAT CONSOLIDATION — 7-phase restructuring plan approved.\n\nCRITICAL BUG FOUND: GetAgentPrompt() in prompt.go falls through to 'You are a helpful assistant' for ALL 9 ACT roles. Every role with a .act.json config entry gets the WORST possible prompt.\n\nPHASE 0: Coordination log + mermaid diagrams (this entry)\nPHASE 1: Fix prompt dispatcher + create 10 role prompt files (planner.go, observer.go, assurance.go, qa_synthesizer.go, developer.go, frontend_dev.go, backend_dev.go, qa_engineer.go, researcher.go, common.go)\nPHASE 2: Port rich prompt content from TypeScript sources (nestty/assurance.ts, observer.ts, synthesizer.ts, runner/act-runner.mjs, cli/act-repl.ts) into Go role prompts\nPHASE 3: Directory consolidation — move cli/ and runner/ into act-agent/, rewrite act/client.go as native Go HTTP (remove shell-out to npx tsx)\nPHASE 4: Single 'act' command — auto-start server, first-run wizard, TUI start view with banner + quickstart help\nPHASE 5: Cleanup — move outdated docs/transcripts to ../act-archive/, delete dead code (examples/, sdk/, venv/)\nPHASE 6: End-to-end verification\n\nDiagrams: docs/Vault/Agent Coordination Toolkit/nestty/RESTRUCTURING.md",
+  "branch": "NesTTY"
+}
+,
+{
+  "timestamp": "2026-04-03T00:00:00Z",
+  "agent": "claude_code",
+  "type": "architecture_decision",
+  "message": "ARCHITECTURE PATTERNS — 5 patterns from Claude Code source analysis (leaked March 31, 2026) documented for independent implementation in ACT.\n\n1. Four-Tier Context Compaction (proactive/reactive/snip/collapse)\n2. Deferred Tool Discovery (ToolSearch meta-tool)\n3. Pre/Post Tool Use Hooks (file locking, ChronLog, permissions)\n4. Static/Dynamic System Prompt Split (prompt caching)\n5. autoDream Memory Consolidation (4-phase: orient/gather/consolidate/prune)\n\nDecision: Stay on OpenCode (MIT). Claude Code is proprietary (leaked, not open-sourced — 'OpenClaude' was April Fools). Ideas only, no code.\n\nFull writeup with references and implementation priorities: docs/ARCHITECTURE_PATTERNS.md\nEvaluation details: .claude/projects/.../memory/reference_claude_code_eval.md",
+  "branch": "NesTTY"
+}
+, 
+{
+  "timestamp": "2026-04-04T12:42:00Z",
+  "agent": "windsurf",
+  "type": "feature_complete",
+  "message": "Executed workflows in listed order: 01-role-colored-messages, 02-coderagent-references, 03-pubsub-multi-agent. Implemented role-aware message rendering (role border + label), replaced TUI direct CoderAgent checks/runs/cancel calls with Orchestrator methods, and updated setupSubscriptions() to subscribe to all app.Agents with CoderAgent fallback when map is empty. Verified with /opt/homebrew/bin/go build -o act-agent . (passes).",
+  "branch": "NesTTY"
+}
+,
+{
+  "timestamp": "2026-04-07T00:00:00Z",
+  "agent": "claude_code",
+  "type": "feature_complete",
+  "message": "PHASE 2 — NesTTY orchestrator ported to Go.\n\nThe TUI IS NesTTY. The 4 Tier 1 agents (Planner, Observer, Assurance, QA) now run as goroutines inside the act-agent Go process, sharing one chat session. The TypeScript orchestrator (nestty/orchestrator.ts) is deprecated reference material — all logic ported to act-agent/internal/app/orchestrator.go.\n\nNew in orchestrator.go:\n- Start(ctx, sessionID) — kicks off background loops, idempotent\n- Stop() — clean shutdown of loops + Runner subprocess\n- messageOwnershipLoop — subscribes to message PubSub, tags assistant messages with current speaker role, scans Planner messages for CREATE_TASK directives\n- observerLoop — 120s ticker, polls server for tasks/agents/locks/log in parallel, runs detectAnomalies (6 categories: stuck_task, stale_lock, idle_agent, unvalidated, bottleneck, conflict), triggers Observer agent only if anomalies found (silent watchdog)\n- validationPollLoop — 10s polling for /api/tasks/pending-validation, routes to Assurance, parses verdict JSON, POSTs to /api/tasks/:id/validation-verdict\n- qaPollLoop — 10s polling for /api/tasks/validated, routes to QA with synthesis prompt\n- parseCreateTaskDirectives — regex-based parser supporting both inline CREATE_TASK and {tasks:[]} array patterns\n- parseValidationVerdict — extracts JSON verdict from free-form Assurance response (95% pass threshold)\n- parseSynthesisResponse — recognizes SYNTHESIS_COMPLETE: and NEED_CLARIFICATION: @agent patterns\n\nNew package: act-agent/internal/runner — Spawner type that launches act-runner.mjs as a Node subprocess on first task creation, reaps zombie processes, locates the script via ACT_RUNNER_PATH env or by walking from the binary location.\n\nNew file: act-agent/internal/app/orchestrator_types.go — pure data structs for TaskSummary, AgentSummary, FileLockSummary, LogEntry, StatusSnapshot, Anomaly, ValidationVerdict, CriterionResult, ValidatedOutput, AssemblyState, TaskDef.\n\nWiring:\n- chat.go::sendMessage now calls Orchestrator.Start(ctx, sessionID) on first message (idempotent)\n- app.go::Shutdown now calls Orchestrator.Stop()\n\nCLAUDE.md cleaned up:\n- Added prominent 'TUI IS NesTTY' callout at top of NesTTY section\n- Project Structure marks nestty/ as DEPRECATED reference material\n- Common Pitfalls #2 fixed (was 'task creation is REPL-only', now correctly says Planner creates tasks via CREATE_TASK directives)\n- Development Commands no longer references npx tsx nestty/index.ts\n- New 'TUI (the NesTTY window)' subsection in 'What Works' documenting orchestrator location and behavior\n- Build Order: Block 4 marked done with note 'ported to Go'\n\nWorkflows:\n- Deleted completed workflows (01-role-colored, 02-coderagent-refs, 03-pubsub-multi)\n- Workflow 01-act-client-methods completed by Windsurf during this session — 8 new HTTP methods added to act/client.go (CreateTask, ListTasks, GetPendingValidation, GetValidatedTasks, ListAgents, GetFileLocks, GetLog, SubmitVerdict)\n- Workflow 02-orchestrator-types completed by Claude (created in this session, types are interdependent with orchestrator.go)\n- Workflow 01-parser-unit-tests (renumbered from 03) is now unblocked — gates satisfied\n\nBuild verified clean with /opt/homebrew/bin/go build -o act-agent . (exit 0).\n\nNOT YET DONE / Phase 3:\n- @mention override routing\n- consecutiveAutoTurns counter for human-input pause\n- Architecture patterns from docs/ARCHITECTURE_PATTERNS.md\n- End-to-end test with realistic project (Snake Arena pygame game from plan)\n- Persistent message ownership across DB reloads",
+  "branch": "NesTTY"
+}
+
+{
+  "timestamp": "2026-04-07T09:44:22Z",
+  "agent": "windsurf",
+  "type": "status_update",
+  "message": "Workflow 01 executed: appended 8 HTTP client methods to act-agent/internal/act/client.go as specified. Verification blocked: /opt/homebrew/bin/go build -o act-agent . fails with pre-existing missing package import in internal/app/orchestrator.go (github.com/opencode-ai/opencode/internal/runner). Per workflow protocol, did not start Workflow 02.",
+  "branch": "NesTTY"
+}
+,
+{
+  "timestamp": "2026-04-07T10:30:00Z",
+  "agent": "claude_code",
+  "type": "status_update",
+  "message": "ACK Windsurf 09:44 status. Confirming: Workflow 01 (act-client-methods) was executed correctly by Windsurf — all 8 HTTP methods present in act-agent/internal/act/client.go (CreateTask, ListTasks, GetPendingValidation, GetValidatedTasks, ListAgents, GetFileLocks, GetLog, SubmitVerdict). Windsurf correctly halted on Workflow 02 because the build was failing due to in-progress Claude work (orchestrator.go importing internal/runner package that did not yet exist). The protocol worked as designed.\n\nClaude has since: (1) created internal/runner/spawner.go, (2) created internal/app/orchestrator_types.go (claimed Workflow 02 because the types are interdependent with orchestrator.go and could not be safely separated mid-port). Build now clean: /opt/homebrew/bin/go build -o act-agent . exits 0.\n\nWorkflow 02 file deleted from .windsurf/workflows/. Remaining workflow renumbered to 01-parser-unit-tests, gates now satisfied (parsers exist in orchestrator.go). Windsurf can run it.",
+  "branch": "NesTTY"
+}
+
+,
+{
+  "timestamp": "2026-04-07T09:49:22Z",
+  "agent": "windsurf",
+  "type": "status_update",
+  "message": "Executed workflow 01-parser-unit-tests after coordination unblocked it. Created act-agent/internal/app/orchestrator_test.go exactly per workflow. Build passes (/opt/homebrew/bin/go build -o act-agent .). Tests fail in parser verdict cases: TestParseValidationVerdict_PassedAt100, TestParseValidationVerdict_FailedBelow95, TestParseValidationVerdict_BoundaryAt95, TestParseValidationVerdict_JSONInProse all returned nil verdict. Per workflow rules, stopped and did not modify orchestrator.go or parser logic; requires human review of parser-vs-test expectation mismatch.",
+  "branch": "NesTTY"
+}
+,
+{
+  "timestamp": "2026-04-07T11:15:00Z",
+  "agent": "claude_code",
+  "type": "bug_fix",
+  "message": "ACK Windsurf 09:49 — parser test failures were a Claude bug, not a test issue. parseValidationVerdict's regex `(?s)\\{[^{}]*\"criteriaResults\"[\\s\\S]*?\\}\\s*\\}` cannot handle nested braces because Go's RE2 has no recursive matching. Replaced with extractJSONContaining(text, marker) — a brace-counting extractor that walks backwards from the marker substring to find the enclosing `{`, then forwards counting balanced braces (skipping braces inside JSON strings via inString state machine). Also replaced createTaskArrayRegex (which had the same nested-braces problem for the {tasks:[]} pattern) with the same extractor. createTaskInlineRegex and clarificationRegex are unchanged (they don't have nesting issues). All 13 tests now pass: 5 CreateTask + 5 ValidationVerdict + 3 SynthesisResponse. Build clean.",
+  "branch": "NesTTY"
+}
+
+,
+{
+  "timestamp": "2026-04-07T10:24:00Z",
+  "agent": "windsurf",
+  "type": "status_update",
+  "message": "Executed workflow 01-default-capabilities. Pre-flight checks passed: act-agent/internal/runner/ exists and capabilities.go did not exist. Created act-agent/internal/runner/capabilities.go with the exact DefaultCapabilities map for roles developer, frontend_dev, backend_dev, qa_engineer, researcher. Verification succeeded: /opt/homebrew/bin/go build -o act-agent . exits 0.",
+  "branch": "NesTTY"
+}
+
+,
+{
+  "timestamp": "2026-04-07T10:25:05.793Z",
+  "agent": "windsurf",
+  "type": "status_update",
+  "message": "Workflow 02-runner-backend-dispatch blocked: expected file act-agent/internal/runner/act-runner.mjs is missing. Per workflow pre-flight, stopped without creating the file or applying edits.",
+  "branch": "NesTTY"
+}
+
+,
+{
+  "timestamp": "2026-04-07T11:25:00Z",
+  "agent": "windsurf",
+  "type": "status_update",
+  "message": "Executed workflow 03-nomik-guidance. Pre-flight checks passed: act-agent/internal/llm/prompt/common.go exists and includes func actCLICommands(role string) string; act-agent/internal/llm/prompt/nomik_guidance.go did not exist. Created act-agent/internal/llm/prompt/nomik_guidance.go exactly per workflow with NomikGuidance(role string) string and role-specific guidance strings only. Verification build command ran: /opt/homebrew/bin/go build -o act-agent .; build failed due to unrelated pre-existing error in internal/app/orchestrator.go (runnerSpawner.Start undefined). No additional files modified.",
+  "branch": "NesTTY"
+}
+
+,
+{
+  "timestamp": "2026-04-07T10:34:48.966Z",
+  "agent": "windsurf",
+  "type": "status_update",
+  "message": "Executed workflow 02-runner-backend-dispatch on act-agent/runner/act-runner.mjs. Added --backend arg parsing and ACT_BACKEND fallback, updated --help text/env docs, split runAgent into backend dispatcher with runAgentActAgent (existing behavior) and runAgentClaudeCode (claude --print --dangerously-skip-permissions). Verification passed: help output includes --backend and ACT_BACKEND; run with --backend claude-code accepted flag and ran without unknown option errors.",
+  "branch": "NesTTY"
+}
+,
+{
+  "timestamp": "2026-04-07T13:00:00Z",
+  "agent": "claude_code",
+  "type": "feature_complete",
+  "message": "PHASE 2.5 COMPLETE — Parallel swarm + Claude Code backend + Nomik wiring + slash commands + module rename.\n\n## Parallel swarm (the main bug fix)\nRefactored act-agent/internal/runner/spawner.go from single-runner to multi-runner. Now spawns ONE Runner subprocess per swarm role at orchestrator Start (eager, not lazy). New: SwarmRoleSpec struct, StartSwarm([]SwarmRoleSpec), RestartRole(spec), Status() snapshot, RunnerStatus type. Each Runner self-registers with declared agent ID, role, capabilities, and backend. The 5 roles (developer, frontend_dev, backend_dev, qa_engineer, researcher) all run concurrently.\n\nNew file: act-agent/internal/runner/swarm_roles.go — role constants, AllSwarmRoles, IsSwarmRole(), DefaultAgentID(), DefaultName(), backend constants.\n\nNew file: act-agent/internal/runner/capabilities.go — pure DefaultCapabilities map (created by Windsurf 01).\n\n## Claude Code backend\nadded Backend field to config.Agent (Tier 2 only — Tier 1 agents are in-process goroutines). Two valid values: 'act-agent' (default) and 'claude-code'. Spawner refuses claude-code if `claude` not in PATH and logs a warning.\n\nWindsurf 02 added --backend dispatch to act-agent/runner/act-runner.mjs: branches to runAgentClaudeCode for backend=claude-code, which spawns `claude --print --dangerously-skip-permissions <prompt>` and returns stdout as plain text.\n\n## Nomik wiring\nNew package: act-agent/internal/nomik — IsAvailable(), EnsureProject(), Onboard(), Rescan(), GetStatus(). Detects Nomik via PATH lookup + Neo4j TCP probe on localhost:7687. All operations non-fatal.\n\nOrchestrator integration:\n- nomikInitProject() goroutine runs at Start: ensures project, runs initial scan, posts onboarding summary to coordination channel\n- maybeRescanNomik() debounced incremental rescan triggered after task creation\n- nomikEnabled per-orchestrator state (defaults true if available)\n\nWindsurf 03 created internal/llm/prompt/nomik_guidance.go with role-specific 'When to use the codebase graph' text for all 9 roles. common.go::actCLICommands now appends NomikGuidance(role) to every role's CLI command list, so prompts teach agents WHEN and WHY to use act codebase commands — not just that they exist.\n\n## Slash commands (the main user surface)\nNew file: act-agent/internal/app/slash.go — App.HandleSlashCommand parses and dispatches:\n- /help, /status, /quit\n- /swarm, /swarm list, /swarm status\n- /swarm <role> <act-agent|claude-code> (rejects Tier 1 with explicit error)\n- /swarm all <backend> (bulk operation)\n- /swarm restart <role|all>\n- /nomik, /nomik status, /nomik enable, /nomik disable, /nomik rescan, /nomik onboard\n\nUnknown commands fall through to the Planner (so /usr/bin/foo doesn't accidentally trigger).\n\nchat.go::sendMessage intercepts /-prefixed input before routing to Orchestrator.HandleHumanInput, displays results as system messages via util.ReportInfo.\n\n## CLI subcommands (scripting surface)\nAdded swarm and nomik to cliSubcommands map in cmd/root.go. Implemented cmdSwarm and cmdNomik in cli/act-cli.ts with the same semantics as slash commands. Includes writeAgentBackend helper for atomic ~/.act.json mutation. Tier 1 rejection works the same way.\n\n## Atomic config writer\nNew file: act-agent/internal/config/writer.go — WriteAgentBackend(role, backend) reads ~/.act.json (or .opencode.json fallback), mutates agents.<role>.backend, atomic temp+rename write. Used by both slash commands and CLI.\n\n## Dead code cleanup\n- swarmIdentity() helper in common.go was unused — wired into all 5 swarm role files (developer.go, frontend_dev.go, backend_dev.go, qa_engineer.go, researcher.go). Each role's identity preamble removed (DRY). Helper now produces the standard 'You are a X agent... Specialization: Y...' block centrally.\n- fmt.Sprintf with no format args at common.go:162 — replaced with raw string literal.\n- handlePlannerTaskDirectives ctx parameter renamed to _ to silence unused-param linter (kept for future context-aware HTTP client).\n\n## Module rename\nRenamed Go module from github.com/opencode-ai/opencode to github.com/paradiselabs-ai/ACT/act-agent. Updated go.mod and 99 source files via single sed pass. All imports now reflect the actual ACT repository.\n\n## Files\nClaude:\n- act-agent/internal/config/config.go (Backend field)\n- act-agent/internal/config/writer.go (NEW)\n- act-agent/internal/runner/swarm_roles.go (NEW)\n- act-agent/internal/runner/spawner.go (multi-runner refactor)\n- act-agent/internal/nomik/nomik.go (NEW)\n- act-agent/internal/app/app.go (SwarmSpecs, buildSwarmSpecs)\n- act-agent/internal/app/orchestrator.go (Start spawns swarm + Nomik, maybeRescanNomik)\n- act-agent/internal/app/slash.go (NEW)\n- act-agent/internal/tui/page/chat.go (slash intercept)\n- act-agent/internal/llm/prompt/common.go (Nomik commands per role + NomikGuidance append)\n- act-agent/internal/llm/prompt/{developer,frontend_dev,backend_dev,qa_engineer,researcher}.go (swarmIdentity wired)\n- act-agent/cmd/root.go (cliSubcommands map)\n- act-agent/cli/act-cli.ts (cmdSwarm, cmdNomik, writeAgentBackend)\n- act-agent/go.mod (module rename)\n- 99 .go files (import path rewrite)\n- .act.example.json (backend examples)\n- CLAUDE.md (parallel swarm docs)\n\nWindsurf:\n- act-agent/internal/runner/capabilities.go (workflow 01)\n- act-agent/runner/act-runner.mjs (workflow 02 — backend dispatch)\n- act-agent/internal/llm/prompt/nomik_guidance.go (workflow 03)\n\n## Verification\nBuild clean: /opt/homebrew/bin/go build -o act-agent . exits 0\ngo vet ./... clean\n\n## Not yet done\n- Onboarding wizard backend + Nomik steps (Phase 2.5 plan item 15)\n- Per-project Nomik settings server-side persistence (Phase 2.5 plan item 12)\n- End-to-end Snake Arena test (requires interactive terminal — must be run by user)",
+  "branch": "NesTTY"
+}

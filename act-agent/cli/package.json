@@ -1,0 +1,45 @@
+{
+  "name": "@agentmix/act-repl",
+  "version": "1.0.0",
+  "description": "ACT Terminal REPL - Agent Coordination Toolkit command-line interface",
+  "main": "dist/act-repl.js",
+  "type": "module",
+  "bin": {
+    "act": "./bin/act",
+    "act-repl": "./bin/act"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/act-repl.js",
+    "dev": "tsx src/act-repl.ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "act",
+    "agent-coordination",
+    "repl",
+    "cli",
+    "multi-agent",
+    "coordination"
+  ],
+  "author": "AgentMix",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentmix/act"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ]
+}

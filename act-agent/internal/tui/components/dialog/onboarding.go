@@ -3,16 +3,19 @@ package dialog
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
 type ShowOnboardingDialogMsg struct {
@@ -49,6 +52,17 @@ type onboardingCmp struct {
 	tier1 []onboardingRole
 	tier2 []onboardingRole
 
+	// Per-Tier-2-role backend selection ("act-agent" or "claude-code").
+	// Index matches o.tier2 by position.
+	tier2Backends []string
+
+	// Nomik state — detected at construction time
+	nomikAvailable bool
+	nomikEnabled   bool
+
+	// Claude Code availability — detected at construction time
+	claudeAvailable bool
+
 	detected []detectedProvider
 	saveErr  error
 }
@@ -62,6 +76,23 @@ func NewOnboardingCmp() OnboardingCmp {
 	defaultTier1 := bestTier1(detected)
 	defaultTier2 := bestTier2(detected)
 
+	tier2 := []onboardingRole{
+		{Label: "Developer", AgentKey: "developer", Options: tierOptions(detected), Selected: defaultTier2},
+		{Label: "Frontend", AgentKey: "frontend_dev", Options: tierOptions(detected), Selected: defaultTier2},
+		{Label: "Backend", AgentKey: "backend_dev", Options: tierOptions(detected), Selected: defaultTier2},
+		{Label: "QA Engineer", AgentKey: "qa_engineer", Options: tierOptions(detected), Selected: defaultTier2},
+		{Label: "Researcher", AgentKey: "researcher", Options: tierOptions(detected), Selected: defaultTier2},
+	}
+
+	// Default every Tier 2 role to act-agent backend
+	tier2Backends := make([]string, len(tier2))
+	for i := range tier2Backends {
+		tier2Backends[i] = "act-agent"
+	}
+
+	nomikAvail := detectNomik()
+	claudeAvail := detectClaudeCode()
+
 	return &onboardingCmp{
 		step: 0,
 		tier1: []onboardingRole{
@@ -70,19 +101,67 @@ func NewOnboardingCmp() OnboardingCmp {
 			{Label: "Assurance", AgentKey: "assurance", Options: tierOptions(detected), Selected: defaultTier1},
 			{Label: "QA", AgentKey: "qa_synthesizer", Options: tierOptions(detected), Selected: defaultTier1},
 		},
-		tier2: []onboardingRole{
-			{Label: "Developer", AgentKey: "developer", Options: tierOptions(detected), Selected: defaultTier2},
-			{Label: "Frontend", AgentKey: "frontend_dev", Options: tierOptions(detected), Selected: defaultTier2},
-			{Label: "Backend", AgentKey: "backend_dev", Options: tierOptions(detected), Selected: defaultTier2},
-			{Label: "QA Engineer", AgentKey: "qa_engineer", Options: tierOptions(detected), Selected: defaultTier2},
-			{Label: "Researcher", AgentKey: "researcher", Options: tierOptions(detected), Selected: defaultTier2},
-		},
-		detected: detected,
+		tier2:           tier2,
+		tier2Backends:   tier2Backends,
+		nomikAvailable:  nomikAvail,
+		nomikEnabled:    nomikAvail, // default ON if available
+		claudeAvailable: claudeAvail,
+		detected:        detected,
 	}
+}
+
+// detectNomik returns true if both `nomik` is in PATH and a TCP connection
+// to localhost:7687 (Neo4j Bolt) succeeds within 1 second.
+func detectNomik() bool {
+	if _, err := exec.LookPath("nomik"); err != nil {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", "localhost:7687", 1*time.Second)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// detectClaudeCode returns true if the `claude` binary is in PATH.
+func detectClaudeCode() bool {
+	_, err := exec.LookPath("claude")
+	return err == nil
 }
 
 func (o *onboardingCmp) Init() tea.Cmd {
 	return nil
+}
+
+// Wizard step constants. The step machine skips backend (4) and nomik (5)
+// when their respective binaries aren't available, so the user only sees
+// steps that are actually meaningful on their machine.
+const (
+	stepWelcome      = 0
+	stepKeys         = 1
+	stepTier1Models  = 2
+	stepTier2Models  = 3
+	stepTier2Backend = 4 // skipped if claude not in PATH
+	stepNomik        = 5 // skipped if nomik unavailable
+	stepSave         = 6
+)
+
+// nextStep advances past steps that should be skipped (backend if no claude,
+// nomik if no nomik). Always lands on a meaningful step.
+func (o *onboardingCmp) nextStep(from int) int {
+	next := from + 1
+	for {
+		if next == stepTier2Backend && !o.claudeAvailable {
+			next++
+			continue
+		}
+		if next == stepNomik && !o.nomikAvailable {
+			next++
+			continue
+		}
+		return next
+	}
 }
 
 func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -98,24 +177,36 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch o.step {
-		case 0, 1:
+		case stepWelcome, stepKeys:
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				o.step++
+				o.step = o.nextStep(o.step)
 				o.cursor = 0
 			}
-		case 2:
+		case stepTier1Models:
 			o.handleRoleSelection(msg, &o.tier1)
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				o.step = 3
+				o.step = o.nextStep(o.step)
 				o.cursor = 0
 			}
-		case 3:
+		case stepTier2Models:
 			o.handleRoleSelection(msg, &o.tier2)
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				o.step = 4
+				o.step = o.nextStep(o.step)
+				o.cursor = 0
+			}
+		case stepTier2Backend:
+			o.handleBackendSelection(msg)
+			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
+				o.step = o.nextStep(o.step)
+				o.cursor = 0
+			}
+		case stepNomik:
+			o.handleNomikToggle(msg)
+			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
+				o.step = o.nextStep(o.step)
 				o.saveErr = o.writeConfig()
 			}
-		case 4:
+		case stepSave:
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
 				if o.saveErr != nil {
 					return o, util.ReportError(o.saveErr)
@@ -125,6 +216,43 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return o, nil
+}
+
+// handleBackendSelection drives the Tier 2 backend picker step.
+// ↑/↓ moves between roles, ←/→ toggles act-agent vs claude-code.
+func (o *onboardingCmp) handleBackendSelection(msg tea.KeyMsg) {
+	if len(o.tier2Backends) == 0 {
+		return
+	}
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys("up", "k"))):
+		if o.cursor > 0 {
+			o.cursor--
+		} else {
+			o.cursor = len(o.tier2Backends) - 1
+		}
+	case key.Matches(msg, key.NewBinding(key.WithKeys("down", "j"))):
+		o.cursor = (o.cursor + 1) % len(o.tier2Backends)
+	case key.Matches(msg, key.NewBinding(key.WithKeys("left", "h", "right", "l", " "))):
+		if o.tier2Backends[o.cursor] == "act-agent" {
+			o.tier2Backends[o.cursor] = "claude-code"
+		} else {
+			o.tier2Backends[o.cursor] = "act-agent"
+		}
+	}
+}
+
+// handleNomikToggle drives the Nomik enable/disable step.
+// Space, ←, →, y, n all toggle. Enter advances.
+func (o *onboardingCmp) handleNomikToggle(msg tea.KeyMsg) {
+	switch {
+	case key.Matches(msg, key.NewBinding(key.WithKeys(" ", "h", "l", "left", "right"))):
+		o.nomikEnabled = !o.nomikEnabled
+	case key.Matches(msg, key.NewBinding(key.WithKeys("y", "Y"))):
+		o.nomikEnabled = true
+	case key.Matches(msg, key.NewBinding(key.WithKeys("n", "N"))):
+		o.nomikEnabled = false
+	}
 }
 
 func (o *onboardingCmp) handleRoleSelection(msg tea.KeyMsg, roles *[]onboardingRole) {
@@ -163,7 +291,7 @@ func (o *onboardingCmp) View() string {
 
 	var content string
 	switch o.step {
-	case 0:
+	case stepWelcome:
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			titleStyle.Render("Welcome to ACT - Agent Coordination Toolkit"),
 			"",
@@ -177,7 +305,7 @@ func (o *onboardingCmp) View() string {
 			"",
 			mutedStyle.Render("Press Enter to configure your providers ->"),
 		)
-	case 1:
+	case stepKeys:
 		lines := []string{
 			titleStyle.Render("Detected API Keys:"),
 			"",
@@ -198,24 +326,45 @@ func (o *onboardingCmp) View() string {
 			mutedStyle.Render("Press Enter to configure roles ->"),
 		)
 		content = lipgloss.JoinVertical(lipgloss.Left, lines...)
-	case 2:
+	case stepTier1Models:
 		content = o.renderRoleStep("Tier 1 - NesTTY Roles (stronger models recommended)", o.tier1, "Enter to continue ->")
-	case 3:
-		content = o.renderRoleStep("Tier 2 - Swarm Agents (cheaper/local models work well)", o.tier2, "Enter to save configuration ->")
-	case 4:
+	case stepTier2Models:
+		content = o.renderRoleStep("Tier 2 - Swarm Agents (cheaper/local models work well)", o.tier2, "Enter to continue ->")
+	case stepTier2Backend:
+		content = o.renderBackendStep()
+	case stepNomik:
+		content = o.renderNomikStep()
+	case stepSave:
 		tier1Summary, tier2Summary := o.selectedTierSummary()
 		status := "Configuration saved to ~/.act.json"
 		if o.saveErr != nil {
 			status = "Failed to save ~/.act.json: " + o.saveErr.Error()
 		}
-		content = lipgloss.JoinVertical(lipgloss.Left,
+		summaryLines := []string{
 			titleStyle.Render(status),
 			"",
-			bodyStyle.Render("  Tier 1: "+tier1Summary),
-			bodyStyle.Render("  Tier 2: "+tier2Summary),
+			bodyStyle.Render("  Tier 1: " + tier1Summary),
+			bodyStyle.Render("  Tier 2: " + tier2Summary),
+		}
+		if o.claudeAvailable {
+			summaryLines = append(summaryLines,
+				bodyStyle.Render("  Backends: "+o.backendSummary()),
+			)
+		}
+		if o.nomikAvailable {
+			nomikState := "disabled"
+			if o.nomikEnabled {
+				nomikState = "enabled"
+			}
+			summaryLines = append(summaryLines,
+				bodyStyle.Render("  Nomik: "+nomikState),
+			)
+		}
+		summaryLines = append(summaryLines,
 			"",
-			mutedStyle.Render("You can edit this file anytime. Press Enter to start ->"),
+			mutedStyle.Render("You can change these later via /swarm and /nomik. Press Enter to start ->"),
 		)
+		content = lipgloss.JoinVertical(lipgloss.Left, summaryLines...)
 	}
 
 	return baseStyle.Padding(1, 2).
@@ -224,6 +373,90 @@ func (o *onboardingCmp) View() string {
 		BorderForeground(t.TextMuted()).
 		Width(maxWidth + 4).
 		Render(content)
+}
+
+func (o *onboardingCmp) renderBackendStep() string {
+	t := theme.CurrentTheme()
+	baseStyle := styles.BaseStyle()
+	maxWidth := min(90, max(70, o.width-12))
+
+	titleStyle := baseStyle.Foreground(t.Primary()).Bold(true).Width(maxWidth)
+	lineStyle := baseStyle.Foreground(t.Text()).Width(maxWidth)
+	mutedStyle := baseStyle.Foreground(t.TextMuted()).Width(maxWidth)
+	selectedStyle := baseStyle.Foreground(t.Background()).Background(t.Primary()).Bold(true).Width(maxWidth)
+
+	lines := []string{
+		titleStyle.Render("Tier 2 Backend - Choose how each swarm role executes"),
+		"",
+		mutedStyle.Render("  act-agent  = the local Go binary (default, fast, configured per-role above)"),
+		mutedStyle.Render("  claude-code = the official Claude Code CLI (uses your Claude session)"),
+		"",
+	}
+	for i, role := range o.tier2 {
+		backend := o.tier2Backends[i]
+		line := fmt.Sprintf("  %-12s [%s]", role.Label+":", backend)
+		if i == o.cursor {
+			lines = append(lines, selectedStyle.Render(line))
+		} else {
+			lines = append(lines, lineStyle.Render(line))
+		}
+	}
+	lines = append(lines,
+		"",
+		mutedStyle.Render("  ↑/↓ to select role, ←/→ or space to toggle backend"),
+		mutedStyle.Render("  Enter to continue ->"),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func (o *onboardingCmp) renderNomikStep() string {
+	t := theme.CurrentTheme()
+	baseStyle := styles.BaseStyle()
+	maxWidth := min(90, max(70, o.width-12))
+
+	titleStyle := baseStyle.Foreground(t.Primary()).Bold(true).Width(maxWidth)
+	bodyStyle := baseStyle.Foreground(t.Text()).Width(maxWidth)
+	mutedStyle := baseStyle.Foreground(t.TextMuted()).Width(maxWidth)
+	selectedStyle := baseStyle.Foreground(t.Background()).Background(t.Primary()).Bold(true).Width(maxWidth)
+
+	lines := []string{
+		titleStyle.Render("Nomik - Codebase Knowledge Graph"),
+		"",
+		bodyStyle.Render("Detected nomik + Neo4j on localhost:7687."),
+		"",
+		mutedStyle.Render("Nomik scans your project's source code into a graph that agents can"),
+		mutedStyle.Render("query for impact analysis, architecture rules, and module clusters."),
+		mutedStyle.Render("Recommended: Yes. Disable for non-code projects or when Neo4j is busy."),
+		"",
+	}
+	yesLine := "  [ ] Yes - enable Nomik for new projects"
+	noLine := "  [ ] No  - disable (agents will skip codebase graph queries)"
+	if o.nomikEnabled {
+		yesLine = "  [x] Yes - enable Nomik for new projects"
+	} else {
+		noLine = "  [x] No  - disable (agents will skip codebase graph queries)"
+	}
+	if o.nomikEnabled {
+		lines = append(lines, selectedStyle.Render(yesLine))
+		lines = append(lines, bodyStyle.Render(noLine))
+	} else {
+		lines = append(lines, bodyStyle.Render(yesLine))
+		lines = append(lines, selectedStyle.Render(noLine))
+	}
+	lines = append(lines,
+		"",
+		mutedStyle.Render("  Space / ←→ to toggle, y / n to set directly"),
+		mutedStyle.Render("  Enter to save and start ->"),
+	)
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+func (o *onboardingCmp) backendSummary() string {
+	parts := []string{}
+	for i, role := range o.tier2 {
+		parts = append(parts, fmt.Sprintf("%s=%s", role.Label, o.tier2Backends[i]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (o *onboardingCmp) renderRoleStep(title string, roles []onboardingRole, footer string) string {
@@ -285,36 +518,60 @@ func (o *onboardingCmp) writeConfig() error {
 	type agentCfg struct {
 		Model     string `json:"model"`
 		MaxTokens int    `json:"maxTokens"`
+		Backend   string `json:"backend,omitempty"` // Tier 2 only
+	}
+	type nomikCfg struct {
+		Enabled bool `json:"enabled"`
 	}
 	type fileCfg struct {
 		Schema    string                 `json:"$schema"`
 		Providers map[string]providerCfg `json:"providers"`
 		Agents    map[string]agentCfg    `json:"agents"`
+		Nomik     *nomikCfg              `json:"nomik,omitempty"`
 	}
 
 	providers := map[string]providerCfg{}
 	agents := map[string]agentCfg{}
 
-	for _, role := range append([]onboardingRole{}, append(o.tier1, o.tier2...)...) {
+	// Tier 1 — model only, no backend (in-process goroutines)
+	for _, role := range o.tier1 {
 		choice := role.Options[role.Selected]
 		providers[choice.Provider] = providerCfg{Disabled: false}
 		agents[role.AgentKey] = agentCfg{Model: choice.Model, MaxTokens: 5000}
+	}
+
+	// Tier 2 — model + backend per role
+	for i, role := range o.tier2 {
+		choice := role.Options[role.Selected]
+		providers[choice.Provider] = providerCfg{Disabled: false}
+		backend := "act-agent"
+		if i < len(o.tier2Backends) {
+			backend = o.tier2Backends[i]
+		}
+		agents[role.AgentKey] = agentCfg{
+			Model:     choice.Model,
+			MaxTokens: 5000,
+			Backend:   backend,
+		}
 	}
 
 	if planner, ok := agents["planner"]; ok {
 		planner.MaxTokens = 8000
 		agents["planner"] = planner
 	}
-	if _, ok := agents["coder"]; !ok {
-		if planner, ok := agents["observer"]; ok {
-			agents["coder"] = agentCfg{Model: planner.Model, MaxTokens: 5000}
-		}
-	}
+	// Note: we no longer write a "coder" entry. The OpenCode internal "coder"
+	// agent name is hidden from users. The 4 Tier 1 agents (planner, observer,
+	// assurance, qa_synthesizer) and 5 Tier 2 swarm roles each have their own
+	// model — there is no "default" agent in ACT. UI surfaces that need to
+	// display "current model" use config.Tier1Configs() to show all 4.
 
 	payload := fileCfg{
 		Schema:    "./act-schema.json",
 		Providers: providers,
 		Agents:    agents,
+	}
+	if o.nomikAvailable {
+		payload.Nomik = &nomikCfg{Enabled: o.nomikEnabled}
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

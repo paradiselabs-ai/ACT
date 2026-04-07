@@ -3,12 +3,12 @@ package agent
 import (
 	"context"
 
-	"github.com/opencode-ai/opencode/internal/history"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/history"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
 )
 
 func CoderAgentTools(

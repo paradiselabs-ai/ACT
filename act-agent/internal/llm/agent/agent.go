@@ -8,16 +8,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/prompt"
-	"github.com/opencode-ai/opencode/internal/llm/provider"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/provider"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
 )
 
 // Common errors

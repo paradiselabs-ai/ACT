@@ -8,12 +8,12 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
 const (
@@ -281,10 +281,15 @@ func (m *modelDialogCmp) setupModels() {
 }
 
 func GetSelectedModel(cfg *config.Config) models.Model {
-
-	agentCfg := cfg.Agents[config.AgentCoder]
-	selectedModelId := agentCfg.Model
-	return models.SupportedModels[selectedModelId]
+	// TODO Phase 3: this dialog should show a Tier 1 role picker first
+	// (Planner / Observer / Assurance / QA). For now we read the Planner
+	// config since that's the agent the human is actively talking to.
+	if cfg != nil {
+		if a, ok := cfg.Agents[config.RolePlanner]; ok {
+			return models.SupportedModels[a.Model]
+		}
+	}
+	return models.Model{}
 }
 
 func getEnabledProviders(cfg *config.Config) []models.ModelProvider {
@@ -323,8 +328,14 @@ func findProviderIndex(providers []models.ModelProvider, provider models.ModelPr
 }
 
 func (m *modelDialogCmp) setupModelsForProvider(provider models.ModelProvider) {
+	// TODO Phase 3: this dialog should show a Tier 1 role picker first
+	// (Planner / Observer / Assurance / QA). For now we use the Planner
+	// config since that's the agent the human is actively talking to.
 	cfg := config.Get()
-	agentCfg := cfg.Agents[config.AgentCoder]
+	var agentCfg config.Agent
+	if cfg != nil {
+		agentCfg = cfg.Agents[config.RolePlanner]
+	}
 	selectedModelId := agentCfg.Model
 
 	m.provider = provider

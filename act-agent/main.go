@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/opencode-ai/opencode/cmd"
-	"github.com/opencode-ai/opencode/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/cmd"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 )
 
 func main() {

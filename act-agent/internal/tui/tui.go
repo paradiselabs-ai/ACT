@@ -8,20 +8,20 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/chat"
-	"github.com/opencode-ai/opencode/internal/tui/components/core"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
-	"github.com/opencode-ai/opencode/internal/tui/layout"
-	"github.com/opencode-ai/opencode/internal/tui/page"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/chat"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/core"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/page"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
 type keyMap struct {
@@ -581,7 +581,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.showHelp = !a.showHelp
 			return a, nil
 		case key.Matches(msg, helpEsc):
-			if a.app.CoderAgent.IsBusy() {
+			if a.app.Orchestrator.IsAnyBusy("") {
 				if a.showQuit {
 					return a, nil
 				}
@@ -710,7 +710,7 @@ func (a *appModel) findCommand(id string) (dialog.Command, bool) {
 }
 
 func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
-	if a.app.CoderAgent.IsBusy() {
+	if a.app.Orchestrator.IsAnyBusy("") {
 		// For now we don't move to any page if the agent is busy
 		return util.ReportWarn("Agent is busy, please wait...")
 	}
@@ -818,7 +818,7 @@ func (a appModel) View() string {
 		if a.currentPage == page.LogsPage {
 			bindings = append(bindings, logsKeyReturnKey)
 		}
-		if !a.app.CoderAgent.IsBusy() {
+		if !a.app.Orchestrator.IsAnyBusy("") {
 			bindings = append(bindings, helpEsc)
 		}
 		a.help.SetBindings(bindings)
@@ -970,13 +970,16 @@ func New(app *app.App) tea.Model {
 		Title:       "Initialize Project",
 		Description: "Create/Update the ACT.md memory file",
 		Handler: func(cmd dialog.Command) tea.Cmd {
-			prompt := `Please analyze this codebase and create a ACT.md file containing:
-1. Build/lint/test commands - especially for running a single test
-2. Code style guidelines including imports, formatting, types, naming conventions, error handling, etc.
+			prompt := `Please analyze this codebase and create an ACT.md file for multi-agent coordination. Include:
 
-The file you create will be given to agentic coding agents (such as yourself) that operate in this repository. Make it about 20 lines long.
-If there's already a act.md, improve it.
-If there are Cursor rules (in .cursor/rules/ or .cursorrules) or Copilot rules (in .github/copilot-instructions.md), make sure to include them.`
+1. Build/lint/test commands (especially for running a single test)
+2. Code style guidelines (imports, formatting, types, naming conventions, error handling)
+3. Key architecture decisions and patterns that agents should follow
+4. File ownership or areas of concern (which directories map to which functionality)
+
+This file will be read by ACT swarm agents (developer, frontend, backend, QA, researcher) operating in this repository. Keep it about 20-30 lines.
+If there's already an ACT.md or CLAUDE.md, improve it — don't overwrite important context.
+If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-instructions.md), incorporate them.`
 			return tea.Batch(
 				util.CmdHandler(chat.SendMsg{
 					Text: prompt,

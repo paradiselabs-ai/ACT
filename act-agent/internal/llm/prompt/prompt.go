@@ -7,14 +7,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 )
 
 func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) string {
 	basePrompt := ""
 	switch agentName {
+	// Built-in agents
 	case config.AgentCoder:
 		basePrompt = CoderPrompt(provider)
 	case config.AgentTitle:
@@ -23,16 +24,37 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 		basePrompt = TaskPrompt(provider)
 	case config.AgentSummarizer:
 		basePrompt = SummarizerPrompt(provider)
+	// Tier 1 — Interactive (NesTTY window)
+	case config.RolePlanner:
+		basePrompt = PlannerPrompt(provider)
+	case config.RoleObserver:
+		basePrompt = ObserverPrompt(provider)
+	case config.RoleAssurance:
+		basePrompt = AssurancePrompt(provider)
+	case config.RoleQASynthesizer:
+		basePrompt = QASynthesizerPrompt(provider)
+	// Tier 2 — The Swarm (headless)
+	case config.RoleDeveloper:
+		basePrompt = DeveloperPrompt(provider)
+	case config.RoleFrontendDev:
+		basePrompt = FrontendDevPrompt(provider)
+	case config.RoleBackendDev:
+		basePrompt = BackendDevPrompt(provider)
+	case config.RoleQAEngineer:
+		basePrompt = QAEngineerPrompt(provider)
+	case config.RoleResearcher:
+		basePrompt = ResearcherPrompt(provider)
 	default:
-		basePrompt = "You are a helpful assistant"
+		// Fallback to developer prompt — "coder" is an OpenCode internal, not an ACT role
+		basePrompt = DeveloperPrompt(provider)
 	}
 
-	if agentName == config.AgentCoder || agentName == config.AgentTask {
-		// Add context from project-specific instruction files if they exist
+	// All roles get project-specific context (CLAUDE.md, ACT.md, etc.)
+	if agentName != config.AgentTitle && agentName != config.AgentSummarizer {
 		contextContent := getContextFromPaths()
 		logging.Debug("Context content", "Context", contextContent)
 		if contextContent != "" {
-			return fmt.Sprintf("%s\n\n# Project-Specific Context\n Make sure to follow the instructions in the context below\n%s", basePrompt, contextContent)
+			return fmt.Sprintf("%s\n\n# Project-Specific Context\nFollow the instructions in the context below:\n%s", basePrompt, contextContent)
 		}
 	}
 	return basePrompt

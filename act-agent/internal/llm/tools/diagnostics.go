@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/lsp/protocol"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp/protocol"
 )
 
 type DiagnosticsParams struct {

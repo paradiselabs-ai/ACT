@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/opencode-ai/opencode/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 )
 
 type LSParams struct {

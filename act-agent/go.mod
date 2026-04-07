@@ -1,4 +1,4 @@
-module github.com/opencode-ai/opencode
+module github.com/paradiselabs-ai/ACT/act-agent
 
 go 1.24.0
 

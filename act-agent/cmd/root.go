@@ -4,49 +4,52 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	zone "github.com/lrstanley/bubblezone"
-	"github.com/opencode-ai/opencode/internal/app"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/db"
-	"github.com/opencode-ai/opencode/internal/format"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/tui"
-	"github.com/opencode-ai/opencode/internal/version"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/format"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/version"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "act-agent",
-	Short: "ACT Agent — terminal-based AI agent for multi-agent coordination",
-	Long: `ACT Agent is a powerful terminal-based AI agent for multi-agent coordination.
-It provides an interactive chat interface with AI capabilities, code analysis, and LSP integration
-to assist developers in writing, debugging, and understanding code directly from the terminal.`,
+	Use:   "act",
+	Short: "ACT — Agent Coordination Toolkit",
+	Long:  `ACT launches the multi-agent coordination harness with NesTTY.`,
 	Example: `
-  # Run in interactive mode
-  act-agent
+  # Launch NesTTY (default — interactive project selection)
+  act
 
-  # Run with debug logging
-  act-agent -d
+  # Launch with a specific project
+  act --project my-app
 
-  # Run with debug logging in a specific directory
-  act-agent -d -c /path/to/project
+  # Headless agent mode (used by runner)
+  act --agent dev-1 --role developer -p "implement auth"
 
-  # Print version
-  act-agent -v
-
-  # Run a single non-interactive prompt
-  act-agent -p "Explain the use of context in Go"
-
-  # Run a single non-interactive prompt with JSON output format
-  act-agent -p "Explain the use of context in Go" -f json
+  # Single non-interactive prompt
+  act -p "Explain this codebase"
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Route CLI subcommands (e.g., `act context`, `act task complete`, `act files claim`,
+		// `act swarm set`, `act nomik enable`) to the TypeScript CLI. This prevents agents
+		// from accidentally launching the TUI when they run `act <subcommand>` via their
+		// bash tool.
+		if len(args) > 0 && isCLISubcommand(args[0]) {
+			return routeToCLI(args)
+		}
+
 		// If the help flag is set, show the help message
 		if cmd.Flag("help").Changed {
 			cmd.Help()
@@ -130,73 +133,60 @@ to assist developers in writing, debugging, and understanding code directly from
 			return app.RunNonInteractive(ctx, prompt, outputFormat, quiet)
 		}
 
-		// Interactive mode
-		// Set up the TUI
-		zone.NewGlobal()
-		program := tea.NewProgram(
-			tui.New(app),
-			tea.WithAltScreen(),
-		)
-
-		// Setup the subscriptions, this will send services events to the TUI
-		ch, cancelSubs := setupSubscriptions(app, ctx)
-
-		// Create a context for the TUI message handler
-		tuiCtx, tuiCancel := context.WithCancel(ctx)
-		var tuiWg sync.WaitGroup
-		tuiWg.Add(1)
-
-		// Set up message handling for the TUI
-		go func() {
-			defer tuiWg.Done()
-			defer logging.RecoverPanic("TUI-message-handler", func() {
-				attemptTUIRecovery(program)
-			})
-
-			for {
-				select {
-				case <-tuiCtx.Done():
-					logging.Info("TUI message handler shutting down")
-					return
-				case msg, ok := <-ch:
-					if !ok {
-						logging.Info("TUI message channel closed")
-						return
-					}
-					program.Send(msg)
-				}
-			}
-		}()
-
-		// Cleanup function for when the program exits
-		cleanup := func() {
-			// Shutdown the app
-			app.Shutdown()
-
-			// Cancel subscriptions first
-			cancelSubs()
-
-			// Then cancel TUI message handler
-			tuiCancel()
-
-			// Wait for TUI message handler to finish
-			tuiWg.Wait()
-
-			logging.Info("All goroutines cleaned up")
-		}
-
-		// Run the TUI
-		result, err := program.Run()
-		cleanup()
-
-		if err != nil {
-			logging.Error("TUI error: %v", err)
-			return fmt.Errorf("TUI error: %v", err)
-		}
-
-		logging.Info("TUI exited with result: %v", result)
-		return nil
+		// Interactive mode — launch the ACT TUI
+		// The TUI provides onboarding, help, project management, sessions, and stats.
+		// NesTTY orchestration is triggered from within the TUI or via `act orchestrate`.
+		return runTUI(app, ctx)
 	},
+}
+
+// runTUI launches the ACT TUI (the OpenCode-fork Bubble Tea interface).
+// This IS NesTTY — the TUI hosts the 4 Tier 1 agents as in-process goroutines
+// and the orchestrator spawns the Tier 2 swarm via runner.Spawner.
+// There is no separate "NesTTY launcher" — the deprecated TypeScript orchestrator
+// at nestty/ is reference material only.
+func runTUI(a *app.App, ctx context.Context) error {
+	zone.NewGlobal()
+	program := tea.NewProgram(
+		tui.New(a),
+		tea.WithAltScreen(),
+	)
+
+	ch, cancelSubs := setupSubscriptions(a, ctx)
+
+	tuiCtx, tuiCancel := context.WithCancel(ctx)
+	var tuiWg sync.WaitGroup
+	tuiWg.Add(1)
+
+	go func() {
+		defer tuiWg.Done()
+		defer logging.RecoverPanic("TUI-message-handler", func() {
+			attemptTUIRecovery(program)
+		})
+
+		for {
+			select {
+			case <-tuiCtx.Done():
+				return
+			case msg, ok := <-ch:
+				if !ok {
+					return
+				}
+				program.Send(msg)
+			}
+		}
+	}()
+
+	cleanup := func() {
+		a.Shutdown()
+		cancelSubs()
+		tuiCancel()
+		tuiWg.Wait()
+	}
+
+	_, err := program.Run()
+	cleanup()
+	return err
 }
 
 // attemptTUIRecovery tries to recover the TUI after a panic
@@ -272,7 +262,16 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 	setupSubscriber(ctx, &wg, "sessions", app.Sessions.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "messages", app.Messages.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "permissions", app.Permissions.Subscribe, ch)
-	setupSubscriber(ctx, &wg, "coderAgent", app.CoderAgent.Subscribe, ch)
+
+	if len(app.Agents) > 0 {
+		for role, agentSvc := range app.Agents {
+			if agentSvc != nil {
+				setupSubscriber(ctx, &wg, "agent-"+role, agentSvc.Subscribe, ch)
+			}
+		}
+	} else {
+		setupSubscriber(ctx, &wg, "coderAgent", app.CoderAgent.Subscribe, ch)
+	}
 
 	cleanupFunc := func() {
 		logging.Info("Cancelling all subscriptions")
@@ -297,7 +296,60 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 	return ch, cleanupFunc
 }
 
+// CLI subcommands recognized by the act CLI.
+// When `act <subcommand>` is called, route to the TypeScript CLI instead of the TUI.
+var cliSubcommands = map[string]bool{
+	"register": true, "context": true, "task": true, "brief": true,
+	"pvm": true, "validation": true, "files": true, "message": true,
+	"log": true, "graph": true, "status": true, "codebase": true,
+	"swarm": true, "nomik": true,
+}
+
+func isCLISubcommand(arg string) bool {
+	return cliSubcommands[arg]
+}
+
+// routeToCLI finds and execs into the TypeScript act CLI.
+func routeToCLI(args []string) error {
+	cliScript := findCLIScript()
+	if cliScript == "" {
+		return fmt.Errorf("act CLI not found — expected cli/act-cli.ts or act-agent/cli/act-cli.ts")
+	}
+
+	bin, err := exec.LookPath("npx")
+	if err != nil {
+		return fmt.Errorf("npx not found: %w", err)
+	}
+
+	execArgs := append([]string{"npx", "tsx", cliScript}, args...)
+	return syscall.Exec(bin, execArgs, os.Environ())
+}
+
+func findCLIScript() string {
+	candidates := []string{
+		"cli/act-cli.ts",
+		"act-agent/cli/act-cli.ts",
+	}
+	if execPath, err := os.Executable(); err == nil {
+		dir := filepath.Dir(execPath)
+		candidates = append(candidates,
+			filepath.Join(dir, "cli", "act-cli.ts"),
+			filepath.Join(dir, "..", "cli", "act-cli.ts"),
+		)
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			abs, _ := filepath.Abs(c)
+			return abs
+		}
+	}
+	return ""
+}
+
 func Execute() {
+	// Allow positional args (for CLI subcommand routing)
+	rootCmd.Args = cobra.ArbitraryArgs
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -322,6 +374,7 @@ func init() {
 	rootCmd.Flags().String("agent", "", "ACT agent ID — headless mode with JSON stdout, wired to act CLI")
 	rootCmd.Flags().String("role", "", "ACT role — selects model config (developer|planner|observer|assurance|qa)")
 	rootCmd.Flags().String("nestty", "", "NesTTY role (planner|observer|assurance|qa) — PTY split mode")
+	rootCmd.Flags().String("project", "", "Project name for NesTTY session")
 
 	// Register custom validation for the format flag
 	rootCmd.RegisterFlagCompletionFunc("output-format", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

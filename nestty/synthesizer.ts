@@ -45,6 +45,8 @@ export function buildSynthesisPrompt(state: AssemblyState): string {
         .join('\n')
     : '  (none yet)';
 
+  // Identity, assembly process, and integration strategies are in the Go system prompt
+  // (act-agent/internal/llm/prompt/qa_synthesizer.go). This turn prompt provides the DATA.
   return [
     `SYNTHESIS REQUEST — Project: ${state.projectName}`,
     ``,
@@ -59,20 +61,7 @@ export function buildSynthesisPrompt(state: AssemblyState): string {
       state.deliverable.substring(0, 2000),
       ``,
     ].join('\n') : '',
-    `## Your Task`,
-    `You are QA/Synthesizer. Integrate the new validated outputs into the deliverable.`,
-    ``,
-    `1. Read each new output carefully`,
-    `2. Check for conflicts or gaps between outputs`,
-    `3. If something doesn't fit, @mention the specific agent for clarification`,
-    `4. Assemble into a coherent whole`,
-    `5. Report the updated deliverable status to @planner`,
-    ``,
-    `If all pieces fit together cleanly, respond with:`,
-    `SYNTHESIS_COMPLETE: <brief summary of what was assembled>`,
-    ``,
-    `If you need clarification from an agent, respond with:`,
-    `NEED_CLARIFICATION: @<agent-id> <your question>`,
+    `Integrate the new outputs. Use SYNTHESIS_COMPLETE: or NEED_CLARIFICATION: as appropriate.`,
   ].join('\n');
 }
 

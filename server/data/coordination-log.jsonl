@@ -1,0 +1,2 @@
+{"timestamp":"2026-04-07T10:26:21.466Z","agent":"test","message":"agent_registered: {\"agentId\":\"test\",\"agent\":{\"id\":\"test\",\"name\":\"test\",\"capabilities\":[],\"status\":\"online\"}}","type":"coordination"}
+{"timestamp":"2026-04-07T10:26:21.471Z","agent":"test","message":"agent registered: test","type":"agent_registered","data":{"agentId":"test","name":"test","capabilities":[]}}

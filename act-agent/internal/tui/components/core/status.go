@@ -7,16 +7,16 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/lsp/protocol"
-	"github.com/opencode-ai/opencode/internal/pubsub"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/components/chat"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
-	"github.com/opencode-ai/opencode/internal/tui/util"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp/protocol"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/chat"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
 type StatusCmp interface {
@@ -118,20 +118,28 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 
 func (m statusCmp) View() string {
 	t := theme.CurrentTheme()
-	modelID := config.Get().Agents[config.AgentCoder].Model
-	model := models.SupportedModels[modelID]
+
+	// For session token tracking, use the largest context window across all
+	// Tier 1 agents — the conversation as a whole is bounded by whichever
+	// agent has the most headroom.
+	var contextWindow int64
+	for _, cfg := range config.Tier1Configs() {
+		if w := models.SupportedModels[cfg.Model].ContextWindow; w > contextWindow {
+			contextWindow = w
+		}
+	}
 
 	// Initialize the help widget
 	status := getHelpWidget()
 
 	tokenInfoWidth := 0
-	if m.session.ID != "" {
+	if m.session.ID != "" && contextWindow > 0 {
 		totalTokens := m.session.PromptTokens + m.session.CompletionTokens
-		tokens := formatTokensAndCost(totalTokens, model.ContextWindow, m.session.Cost)
+		tokens := formatTokensAndCost(totalTokens, contextWindow, m.session.Cost)
 		tokensStyle := styles.Padded().
 			Background(t.Text()).
 			Foreground(t.BackgroundSecondary())
-		percentage := (float64(totalTokens) / float64(model.ContextWindow)) * 100
+		percentage := (float64(totalTokens) / float64(contextWindow)) * 100
 		if percentage > 80 {
 			tokensStyle = tokensStyle.Background(t.Warning())
 		}
@@ -143,7 +151,7 @@ func (m statusCmp) View() string {
 		Background(t.BackgroundDarker()).
 		Render(m.projectDiagnostics())
 
-	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokenInfoWidth)
+	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.tier1Models())-lipgloss.Width(diagnostics)-tokenInfoWidth)
 
 	if m.info.Msg != "" {
 		infoStyle := styles.Padded().
@@ -175,7 +183,7 @@ func (m statusCmp) View() string {
 	}
 
 	status += diagnostics
-	status += m.model()
+	status += m.tier1Models()
 	return status
 }
 
@@ -263,24 +271,40 @@ func (m statusCmp) availableFooterMsgWidth(diagnostics, tokenInfo string) int {
 	if m.session.ID != "" {
 		tokensWidth = lipgloss.Width(tokenInfo) + 2
 	}
-	return max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.model())-lipgloss.Width(diagnostics)-tokensWidth)
+	return max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.tier1Models())-lipgloss.Width(diagnostics)-tokensWidth)
 }
 
-func (m statusCmp) model() string {
+// tier1Models renders a compact display of all four Tier 1 agents and their
+// configured models in the form "P:Opus O:Sonnet A:Sonnet Q:Sonnet". There
+// is no "default" agent in ACT — the four NesTTY agents share the conversation
+// and each has its own LLM. The status bar reflects that reality.
+func (m statusCmp) tier1Models() string {
 	t := theme.CurrentTheme()
+	tier1 := config.Tier1Configs()
 
-	cfg := config.Get()
-
-	coder, ok := cfg.Agents[config.AgentCoder]
-	if !ok {
-		return "Unknown"
+	parts := make([]string, 0, 4)
+	for _, name := range config.Tier1AgentNames() {
+		cfg, ok := tier1[name]
+		label := config.Tier1ShortLabel(name)
+		if !ok || cfg.Model == "" {
+			parts = append(parts, label+":-")
+			continue
+		}
+		modelName := models.SupportedModels[cfg.Model].Name
+		if modelName == "" {
+			modelName = string(cfg.Model)
+		}
+		// Trim long model names so the status bar doesn't blow out
+		if len(modelName) > 12 {
+			modelName = modelName[:12]
+		}
+		parts = append(parts, label+":"+modelName)
 	}
-	model := models.SupportedModels[coder.Model]
 
 	return styles.Padded().
 		Background(t.Secondary()).
 		Foreground(t.Background()).
-		Render(model.Name)
+		Render(strings.Join(parts, " "))
 }
 
 func NewStatusCmp(lspClients map[string]*lsp.Client) StatusCmp {

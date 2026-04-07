@@ -1,5 +1,5 @@
 {
-  "$schema": "./act-agent/opencode-schema.json",
+  "$schema": "./act-agent/act-schema.json",
 
   "providers": {
     "anthropic": { "apiKey": "", "disabled": false },
@@ -34,23 +34,28 @@
 
     "frontend_dev": {
       "model": "claude-sonnet-4-20250514",
-      "maxTokens": 5000
+      "maxTokens": 5000,
+      "backend": "act-agent"
     },
     "backend_dev": {
       "model": "claude-sonnet-4-20250514",
-      "maxTokens": 5000
+      "maxTokens": 5000,
+      "backend": "act-agent"
     },
     "qa_engineer": {
       "model": "claude-sonnet-4-20250514",
-      "maxTokens": 5000
+      "maxTokens": 5000,
+      "backend": "act-agent"
     },
     "researcher": {
       "model": "claude-sonnet-4-20250514",
-      "maxTokens": 5000
+      "maxTokens": 5000,
+      "backend": "act-agent"
     },
     "developer": {
       "model": "claude-sonnet-4-20250514",
-      "maxTokens": 5000
+      "maxTokens": 5000,
+      "backend": "act-agent"
     },
 
     "summarizer": {

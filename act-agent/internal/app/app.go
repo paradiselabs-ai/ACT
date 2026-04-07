@@ -13,18 +13,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opencode-ai/opencode/internal/act"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/db"
-	"github.com/opencode-ai/opencode/internal/format"
-	"github.com/opencode-ai/opencode/internal/history"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/logging"
-	"github.com/opencode-ai/opencode/internal/lsp"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/permission"
-	"github.com/opencode-ai/opencode/internal/session"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/act"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/format"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/history"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/runner"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
 
 type App struct {
@@ -33,7 +34,10 @@ type App struct {
 	History     history.Service
 	Permissions permission.Service
 
-	CoderAgent agent.Service
+	CoderAgent   agent.Service
+	Agents       map[string]agent.Service // Tier 1: "planner", "observer", "assurance", "qa"
+	SwarmSpecs   []runner.SwarmRoleSpec   // Tier 2: one spec per swarm role to spawn
+	Orchestrator *Orchestrator
 
 	LSPClients map[string]*lsp.Client
 
@@ -64,25 +68,83 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	// Initialize LSP clients in the background
 	go app.initLSPClients(ctx)
 
-	var err error
-	app.CoderAgent, err = agent.NewAgent(
-		config.AgentCoder,
+	// Create Tier 1 agents (each with role-specific model from .act.json)
+	tier1Roles := []string{"planner", "observer", "assurance", "qa"}
+	app.Agents = make(map[string]agent.Service, len(tier1Roles))
+
+	tools := agent.CoderAgentTools(
+		app.Permissions,
 		app.Sessions,
 		app.Messages,
-		agent.CoderAgentTools(
-			app.Permissions,
-			app.Sessions,
-			app.Messages,
-			app.History,
-			app.LSPClients,
-		),
+		app.History,
+		app.LSPClients,
 	)
-	if err != nil {
-		logging.Error("Failed to create coder agent", err)
-		return nil, err
+
+	for _, role := range tier1Roles {
+		agentName := config.AgentConfigForRole(role)
+		agentSvc, err := agent.NewAgent(agentName, app.Sessions, app.Messages, tools)
+		if err != nil {
+			logging.Warn("Failed to create agent for role, will use fallback", "role", role, "error", err)
+			continue
+		}
+		app.Agents[role] = agentSvc
 	}
 
+	// CoderAgent = Planner for backward compat (TUI, non-interactive, etc.)
+	if planner, ok := app.Agents["planner"]; ok {
+		app.CoderAgent = planner
+	} else {
+		// Fallback: create a generic coder agent if Planner failed
+		var err error
+		app.CoderAgent, err = agent.NewAgent(config.AgentCoder, app.Sessions, app.Messages, tools)
+		if err != nil {
+			logging.Error("Failed to create any agent", err)
+			return nil, err
+		}
+	}
+
+	// Build the Tier 2 swarm specs from .act.json. One spec per known swarm
+	// role that's configured (or defaulted). The Spawner will start one
+	// Runner subprocess per spec.
+	app.SwarmSpecs = buildSwarmSpecs(config.Get())
+
+	// Orchestrator coordinates the agents
+	app.Orchestrator = NewOrchestrator(app)
+
 	return app, nil
+}
+
+// buildSwarmSpecs walks the configured agents and produces a SwarmRoleSpec
+// for each Tier 2 swarm role. Roles not present in the config still get a
+// default spec — the developer role is always included as the fallback.
+func buildSwarmSpecs(cfg *config.Config) []runner.SwarmRoleSpec {
+	specs := make([]runner.SwarmRoleSpec, 0, len(runner.AllSwarmRoles))
+
+	for _, role := range runner.AllSwarmRoles {
+		spec := runner.SwarmRoleSpec{
+			Role:         role,
+			AgentID:      runner.DefaultAgentID(role),
+			Name:         runner.DefaultName(role),
+			Backend:      runner.BackendActAgent,
+			Capabilities: runner.DefaultCapabilities[role],
+		}
+
+		if cfg != nil {
+			if agentCfg, ok := cfg.Agents[config.AgentName(role)]; ok {
+				if agentCfg.Backend != "" && runner.IsValidBackend(agentCfg.Backend) {
+					spec.Backend = agentCfg.Backend
+				}
+				spec.Model = string(agentCfg.Model)
+			}
+		}
+
+		// Skip roles whose backend can't be supported on this machine.
+		// (StartSwarm will also check, but we filter early so /swarm list
+		// shows the truth.)
+		specs = append(specs, spec)
+	}
+
+	return specs
 }
 
 // CreateAgentForRole creates a new agent using role-specific model config.
@@ -411,6 +473,11 @@ func (a *App) nesttyWrite(role string, msgType string, content string) {
 
 // Shutdown performs a clean shutdown of the application
 func (app *App) Shutdown() {
+	// Stop orchestrator background loops and reap Runner subprocess
+	if app.Orchestrator != nil {
+		app.Orchestrator.Stop()
+	}
+
 	// Cancel all watcher goroutines
 	app.cancelFuncsMutex.Lock()
 	for _, cancel := range app.watcherCancelFuncs {

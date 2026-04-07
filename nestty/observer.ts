@@ -264,14 +264,8 @@ export function buildObserverPrompt(snapshot: StatusSnapshot, anomalies: Anomaly
   }
   lines.push('');
 
-  // Instructions
-  lines.push('## Your Task');
-  if (anomalies.length > 0) {
-    lines.push('Report these issues to @planner with your assessment and suggested actions.');
-    lines.push('Be specific: which tasks, which agents, what should change.');
-  } else {
-    lines.push('No action needed. Acknowledge the status if Planner asked, otherwise stay quiet.');
-  }
+  // Instruction text is in the Go system prompt (observer.go).
+  // Just provide the data — the system prompt tells the Observer how to act on it.
 
   return lines.join('\n');
 }

@@ -22,7 +22,7 @@ import { ALL_ROLES } from './types.js';
 
 // ─── CLI args ──────────────────────────────────────────────────────────────
 
-function parseArgs(): { projectName: string; roles: NestTTYRole[]; serverUrl: string } {
+async function parseArgs(): Promise<{ projectName: string; roles: NestTTYRole[]; serverUrl: string }> {
   const args = process.argv.slice(2);
   let projectName = '';
   let roles: NestTTYRole[] = [...ALL_ROLES];
@@ -39,11 +39,72 @@ function parseArgs(): { projectName: string; roles: NestTTYRole[]; serverUrl: st
   }
 
   if (!projectName) {
-    console.error('Usage: npx tsx nestty/index.ts --project <name> [--roles planner,observer,...] [--server http://...]');
-    process.exit(1);
+    // Interactive project selection — ask the user
+    projectName = await promptForProject(serverUrl);
   }
 
   return { projectName, roles, serverUrl };
+}
+
+async function promptForProject(serverUrl: string): Promise<string> {
+  const rl = await import('readline');
+  const iface = rl.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> => new Promise(r => iface.question(q, a => { r(a.trim()); }));
+
+  console.log(`\n  \x1b[36m╔═══════════════════════════════════════╗\x1b[0m`);
+  console.log(`  \x1b[36m║\x1b[0m     \x1b[1mACT — Agent Coordination Toolkit\x1b[0m  \x1b[36m║\x1b[0m`);
+  console.log(`  \x1b[36m╚═══════════════════════════════════════╝\x1b[0m\n`);
+
+  // Check for existing projects
+  let existing: string[] = [];
+  try {
+    const res = await fetch(`${serverUrl}/api/projects`);
+    const data = await res.json() as any;
+    existing = (Array.isArray(data) ? data : data.projects || []).map((p: any) => p.name || p.id);
+  } catch { /* server not reachable yet */ }
+
+  if (existing.length > 0) {
+    console.log(`  \x1b[33mExisting projects:\x1b[0m`);
+    existing.forEach((name, i) => console.log(`    ${i + 1}. ${name}`));
+    console.log(`    ${existing.length + 1}. Create new project`);
+    console.log();
+
+    const choice = await ask('  Select project (number or name): ');
+    const num = parseInt(choice);
+    if (num > 0 && num <= existing.length) {
+      iface.close();
+      return existing[num - 1];
+    }
+    if (existing.includes(choice)) {
+      iface.close();
+      return choice;
+    }
+  }
+
+  // Create new project
+  const name = await ask('  Project name: ');
+  if (!name) {
+    console.error('  Project name is required.');
+    process.exit(1);
+  }
+
+  const workspace = await ask(`  Workspace path [${process.cwd()}]: `) || process.cwd();
+  const description = await ask('  Description (optional): ');
+
+  // Create project on server
+  try {
+    await fetch(`${serverUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, workspace, description: description || name }),
+    });
+    console.log(`\n  \x1b[32mProject "${name}" created.\x1b[0m\n`);
+  } catch {
+    console.log(`\n  \x1b[33mWarning: Could not create project on server — continuing anyway.\x1b[0m\n`);
+  }
+
+  iface.close();
+  return name;
 }
 
 // ─── Display ───────────────────────────────────────────────────────────────
@@ -71,7 +132,7 @@ function printSystem(msg: string): void {
 // ─── Main ──────────────────────────────────────────────────────────────────
 
 async function main() {
-  const { projectName, roles, serverUrl } = parseArgs();
+  const { projectName, roles, serverUrl } = await parseArgs();
 
   printSystem(`\n  ACT — ${projectName}    [${roles.length} agents: ${roles.join(', ')}]`);
   printSystem(`  Server: ${serverUrl}\n`);

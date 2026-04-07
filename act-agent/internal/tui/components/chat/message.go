@@ -10,14 +10,14 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/opencode-ai/opencode/internal/config"
-	"github.com/opencode-ai/opencode/internal/diff"
-	"github.com/opencode-ai/opencode/internal/llm/agent"
-	"github.com/opencode-ai/opencode/internal/llm/models"
-	"github.com/opencode-ai/opencode/internal/llm/tools"
-	"github.com/opencode-ai/opencode/internal/message"
-	"github.com/opencode-ai/opencode/internal/tui/styles"
-	"github.com/opencode-ai/opencode/internal/tui/theme"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
 
 type uiMessageType int
@@ -44,7 +44,38 @@ func toMarkdown(content string, focused bool, width int) string {
 	return rendered
 }
 
-func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...string) string {
+func roleColor(role string) lipgloss.TerminalColor {
+	t := theme.CurrentTheme()
+	switch role {
+	case "planner":
+		return t.Primary()
+	case "observer":
+		return t.Info()
+	case "assurance":
+		return t.Warning()
+	case "qa", "qa_synthesizer":
+		return t.Success()
+	default:
+		return t.Primary()
+	}
+}
+
+func roleLabel(role string, width int) string {
+	if role == "" {
+		return ""
+	}
+	label := strings.ToUpper(role)
+	if role == "qa_synthesizer" {
+		label = "QA"
+	}
+	return styles.BaseStyle().
+		Foreground(roleColor(role)).
+		Bold(true).
+		Width(width).
+		Render("  " + label)
+}
+
+func renderMessage(msg string, isUser bool, isFocused bool, width int, role string, info ...string) string {
 	t := theme.CurrentTheme()
 
 	style := styles.BaseStyle().
@@ -56,6 +87,8 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, info ...s
 
 	if isUser {
 		style = style.BorderForeground(t.Secondary())
+	} else if role != "" {
+		style = style.BorderForeground(roleColor(role))
 	}
 
 	// Apply markdown formatting and handle background color
@@ -99,9 +132,9 @@ func renderUserMessage(msg message.Message, isFocused bool, width int, position 
 	content := ""
 	if len(styledAttachments) > 0 {
 		attachmentContent := styles.BaseStyle().Width(width).Render(lipgloss.JoinHorizontal(lipgloss.Left, styledAttachments...))
-		content = renderMessage(msg.Content().String(), true, isFocused, width, attachmentContent)
+		content = renderMessage(msg.Content().String(), true, isFocused, width, "", attachmentContent)
 	} else {
-		content = renderMessage(msg.Content().String(), true, isFocused, width)
+		content = renderMessage(msg.Content().String(), true, isFocused, width, "")
 	}
 	userMsg := uiMessage{
 		ID:          msg.ID,
@@ -116,6 +149,7 @@ func renderUserMessage(msg message.Message, isFocused bool, width int, position 
 // Returns multiple uiMessages because of the tool calls
 func renderAssistantMessage(
 	msg message.Message,
+	role string,
 	msgIndex int,
 	allMessages []message.Message, // we need this to get tool results and the user message
 	messagesService message.Service, // We need this to get the task tool messages
@@ -173,7 +207,12 @@ func renderAssistantMessage(
 			info = append(info, baseStyle.Width(width-1).Foreground(t.TextMuted()).Render(" (summary)"))
 		}
 
-		content = renderMessage(content, false, true, width, info...)
+		body := renderMessage(content, false, true, width, role, info...)
+		if label := roleLabel(role, width-1); label != "" {
+			content = lipgloss.JoinVertical(lipgloss.Left, label, body)
+		} else {
+			content = body
+		}
 		messages = append(messages, uiMessage{
 			ID:          msg.ID,
 			messageType: assistantMessageType,
@@ -185,7 +224,7 @@ func renderAssistantMessage(
 		position++ // for the space
 	} else if thinking && thinkingContent != "" {
 		// Render the thinking content
-		content = renderMessage(thinkingContent, false, msg.ID == focusedUIMessageId, width)
+		content = renderMessage(thinkingContent, false, msg.ID == focusedUIMessageId, width, role)
 	}
 
 	for i, toolCall := range msg.ToolCalls() {
