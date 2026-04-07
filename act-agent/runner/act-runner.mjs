@@ -125,12 +125,31 @@ const post = (path, body) => request('POST', path, body);
 // ─── ACT API calls ────────────────────────────────────────────────────────────
 
 async function register() {
-  await post('/api/agents/register', {
+  const body = {
     agentId: AGENT_ID,
     name: AGENT_NAME,
     role: AGENT_ROLE,
     capabilities: CAPABILITIES,
-  });
+  };
+  try {
+    await post('/api/agents/register', body);
+  } catch (err) {
+    // 409 = stale registration from a previous run that never cleaned up.
+    // The server's in-memory registry survives runner restarts. Self-heal:
+    // DELETE the stale entry and retry once. If the second attempt also
+    // fails, propagate the error.
+    if (String(err.message).includes('HTTP 409')) {
+      log(`Stale registration for "${AGENT_ID}" — deregistering and retrying`);
+      try {
+        await request('DELETE', `/api/agents/${encodeURIComponent(AGENT_ID)}`);
+      } catch (delErr) {
+        // Ignore — the retry will surface any remaining problem.
+      }
+      await post('/api/agents/register', body);
+    } else {
+      throw err;
+    }
+  }
   log(`Registered as "${AGENT_NAME}"${AGENT_ROLE ? ` (role: ${AGENT_ROLE})` : ''} [${CAPABILITIES.join(', ') || 'no capabilities listed'}]`);
 }
 
@@ -149,11 +168,27 @@ async function reportProgress(taskId, progress, message) {
 }
 
 async function reportComplete(taskId, success, result) {
+  // Always mark the task complete first so it has a result body.
   await post(`/api/tasks/${taskId}/complete`, {
     agentId: AGENT_ID,
     success,
     result,
   });
+  // Then, on success, route through the validation pipeline so Assurance
+  // can score against @success_criteria. Without this step, completed work
+  // is accepted on the swarm agent's word alone and Assurance/QA never run.
+  // Failures skip validation — there's nothing valid to score.
+  if (success) {
+    try {
+      await post(`/api/tasks/${taskId}/submit-for-validation`, {
+        agentId: AGENT_ID,
+      });
+    } catch (err) {
+      // Non-fatal: the task is still marked complete, validation just won't
+      // run for this one. Log and move on.
+      log(`  submit-for-validation failed for ${taskId}: ${err.message}`);
+    }
+  }
 }
 
 async function getMessages(since) {
@@ -683,9 +718,15 @@ async function main() {
   try {
     await register();
   } catch (err) {
+    const msg = String(err.message);
     console.error(`Fatal: Could not register with ACT server at ${ACT_SERVER_URL}`);
-    console.error(`  ${err.message}`);
-    console.error(`  Is the server running? cd server && npm run dev`);
+    console.error(`  ${msg}`);
+    if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
+      console.error(`  Server is unreachable. Is it running? cd server && npm run dev`);
+    } else if (msg.includes('HTTP 409')) {
+      console.error(`  Stale agent registration that self-heal could not clear.`);
+      console.error(`  Try: curl -X DELETE ${ACT_SERVER_URL}/api/agents/${AGENT_ID}`);
+    }
     process.exit(1);
   }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
+	actserver "github.com/paradiselabs-ai/ACT/act-agent/internal/server"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/version"
 	"github.com/spf13/cobra"
@@ -66,6 +68,7 @@ var rootCmd = &cobra.Command{
 		prompt, _ := cmd.Flags().GetString("prompt")
 		outputFormat, _ := cmd.Flags().GetString("output-format")
 		quiet, _ := cmd.Flags().GetBool("quiet")
+		projectFlag, _ := cmd.Flags().GetString("project")
 
 		// Validate format option
 		if !format.IsValid(outputFormat) {
@@ -88,6 +91,25 @@ var rootCmd = &cobra.Command{
 		_, err := config.Load(cwd, debug)
 		if err != nil {
 			return err
+		}
+
+		// Resolve project name: explicit --project flag wins, else basename of cwd.
+		// All orchestrator/client code reads this via os.Getenv("ACT_PROJECT").
+		if os.Getenv("ACT_PROJECT") == "" {
+			projectName := projectFlag
+			if projectName == "" {
+				projectName = filepath.Base(cwd)
+			}
+			os.Setenv("ACT_PROJECT", projectName)
+		}
+
+		// Ensure the ACT coordination server is running. Idempotent: returns
+		// immediately if a server is already healthy at ACT_SERVER_URL,
+		// otherwise spawns one in the background and waits for /health.
+		// Non-fatal — agents can still partially work without a server, but
+		// the swarm Runners will fail to register and we'll log it.
+		if err := actserver.EnsureServerRunning(""); err != nil {
+			logging.Warn("ACT server auto-start failed", "error", err)
 		}
 
 		// Connect DB, this will also run migrations
@@ -325,25 +347,91 @@ func routeToCLI(args []string) error {
 	return syscall.Exec(bin, execArgs, os.Environ())
 }
 
+// findCLIScript locates act-cli.ts. Search order:
+//  1. ~/.act/config.json `actRoot` field (canonical install path)
+//  2. Walk up from the resolved binary location, sibling `act-agent/cli/`
+//  3. cwd-relative fallbacks (only useful when running inside the ACT repo)
+//
+// This is the same problem-shape as findRunnerScript and findServerScript:
+// `act` is a globally-symlinked binary that users invoke from arbitrary cwds,
+// so the .ts file lookup must NOT depend on cwd.
 func findCLIScript() string {
-	candidates := []string{
-		"cli/act-cli.ts",
-		"act-agent/cli/act-cli.ts",
+	// Strategy 1: ~/.act/config.json
+	if home, err := os.UserHomeDir(); err == nil {
+		cfgPath := filepath.Join(home, ".act", "config.json")
+		if data, err := os.ReadFile(cfgPath); err == nil {
+			if root := extractActRoot(string(data)); root != "" {
+				for _, rel := range []string{
+					filepath.Join("act-agent", "cli", "act-cli.ts"),
+					filepath.Join("cli", "act-cli.ts"),
+				} {
+					full := filepath.Join(root, rel)
+					if _, err := os.Stat(full); err == nil {
+						return full
+					}
+				}
+			}
+		}
 	}
+
+	// Strategy 2: walk up from the resolved binary
 	if execPath, err := os.Executable(); err == nil {
 		dir := filepath.Dir(execPath)
-		candidates = append(candidates,
-			filepath.Join(dir, "cli", "act-cli.ts"),
-			filepath.Join(dir, "..", "cli", "act-cli.ts"),
-		)
+		if resolved, rerr := filepath.EvalSymlinks(execPath); rerr == nil {
+			dir = filepath.Dir(resolved)
+		}
+		for i := 0; i < 5; i++ {
+			for _, rel := range []string{
+				filepath.Join("cli", "act-cli.ts"),
+				filepath.Join("act-agent", "cli", "act-cli.ts"),
+			} {
+				full := filepath.Join(dir, rel)
+				if _, err := os.Stat(full); err == nil {
+					return full
+				}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
 	}
-	for _, c := range candidates {
+
+	// Strategy 3: cwd-relative fallback
+	for _, c := range []string{"cli/act-cli.ts", "act-agent/cli/act-cli.ts"} {
 		if _, err := os.Stat(c); err == nil {
 			abs, _ := filepath.Abs(c)
 			return abs
 		}
 	}
 	return ""
+}
+
+// extractActRoot pulls the actRoot string field from a minimal JSON document.
+// Avoids importing encoding/json into cmd/ for one field.
+func extractActRoot(doc string) string {
+	const key = `"actRoot"`
+	idx := strings.Index(doc, key)
+	if idx == -1 {
+		return ""
+	}
+	rest := doc[idx+len(key):]
+	colon := strings.Index(rest, ":")
+	if colon == -1 {
+		return ""
+	}
+	rest = rest[colon+1:]
+	open := strings.Index(rest, `"`)
+	if open == -1 {
+		return ""
+	}
+	rest = rest[open+1:]
+	closeIdx := strings.Index(rest, `"`)
+	if closeIdx == -1 {
+		return ""
+	}
+	return rest[:closeIdx]
 }
 
 func Execute() {

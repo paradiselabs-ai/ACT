@@ -4,6 +4,17 @@ package app
 // data between coordination components. These are pure data structs with
 // JSON tags — no methods, no logic.
 
+// ProjectBrief is the structured intake artifact the Planner produces during
+// INTAKE mode and POSTs to the ACT server. The 5 fields map directly to the
+// server's ProjectRecord type — see server/src/index.ts.
+type ProjectBrief struct {
+	Description     string   `json:"description"`
+	TechStack       string   `json:"techStack"`
+	Constraints     string   `json:"constraints,omitempty"`
+	SuccessCriteria string   `json:"successCriteria"`
+	AgentsInvolved  []string `json:"agentsInvolved"`
+}
+
 // TaskSummary is a single task as returned by /api/tasks endpoints.
 type TaskSummary struct {
 	ID                   string         `json:"id"`

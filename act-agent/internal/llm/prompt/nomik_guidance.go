@@ -13,15 +13,9 @@ func NomikGuidance(role string) string {
 	switch role {
 
 	case "planner":
-		return `## When to use the codebase graph
-You have access to a Nomik-powered codebase knowledge graph via these commands:
-- ` + "`act codebase onboard`" + ` — high-level architecture overview (modules, key files, APIs, data tables)
-- ` + "`act codebase communities`" + ` — functional clusters / natural module boundaries
-
-USE THEM:
-- At the start of any project decomposition, run ` + "`act codebase onboard`" + ` once. The output tells you the existing architecture so your task plan respects it instead of fighting it.
-- Before assigning tasks to swarm agents, run ` + "`act codebase communities`" + ` to identify which files belong together. Tasks that touch the same community should be sequenced (not parallelized) to avoid conflicts.
-- If Nomik returns "disabled" or an error, continue without it — the graph is optional, not required.`
+		return "## Codebase graph (Nomik, optional)\n" +
+			"- `act codebase onboard` once at decomposition start to learn existing architecture\n" +
+			"- `act codebase communities` before assigning tasks to detect file groups that must be sequenced (not parallelized)"
 
 	case "observer":
 		return `## When to use the codebase graph

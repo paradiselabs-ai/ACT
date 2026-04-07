@@ -193,14 +193,13 @@ const (
 	MaxTokensFallbackDefault = 4096
 )
 
+// defaultContextPaths are files auto-loaded into every agent's system prompt
+// at startup. ACT.md is the canonical (and only) project memory file for ACT.
+// Other-agent conventions (CLAUDE.md, .cursorrules, copilot-instructions.md,
+// etc.) are intentionally NOT auto-loaded — they bloat prompts by tens of
+// thousands of tokens and break free-tier rate limits. Users who want to share
+// memory with another tool can symlink ACT.md to that tool's filename.
 var defaultContextPaths = []string{
-	".github/copilot-instructions.md",
-	".cursorrules",
-	".cursor/rules/",
-	"CLAUDE.md",
-	"CLAUDE.local.md",
-	"act.md",
-	"act.local.md",
 	"ACT.md",
 	"ACT.local.md",
 }
@@ -564,8 +563,51 @@ func applyDefaultValues() {
 	}
 }
 
+// resolveModelAlias accepts either a synthetic ModelID (e.g.
+// "openrouter.deepseek-v3-free") OR a real upstream API ID (e.g.
+// "nvidia/nemotron-3-super-120b-a12b:free") and returns the synthetic ID if
+// either form resolves to a registered model. Returns empty string if no
+// match. Lets users write the actual provider model string in .act.json
+// instead of memorizing ACT's internal aliases.
+func resolveModelAlias(input string) models.ModelID {
+	if input == "" {
+		return ""
+	}
+	id := models.ModelID(input)
+	if _, ok := models.SupportedModels[id]; ok {
+		return id
+	}
+	// Reverse lookup by APIModel (the actual upstream string).
+	for mid, m := range models.SupportedModels {
+		if m.APIModel == input {
+			return mid
+		}
+	}
+	return ""
+}
+
 // It validates model IDs and providers, ensuring they are supported.
 func validateAgent(cfg *Config, name AgentName, agent Agent) error {
+	// Tier 2 swarm agents using the claude-code backend don't have an
+	// act-agent-side model — Claude Code's own config picks the model. Skip
+	// model/provider validation entirely for these. The model field is
+	// expected to be empty in this case.
+	if agent.Backend == "claude-code" {
+		return nil
+	}
+
+	// Resolve real-API-ID aliases to synthetic IDs so users can write either
+	// in .act.json. After this, agent.Model is always a synthetic ModelID
+	// that downstream code can look up directly.
+	if resolved := resolveModelAlias(string(agent.Model)); resolved != "" {
+		if resolved != agent.Model {
+			updated := cfg.Agents[name]
+			updated.Model = resolved
+			cfg.Agents[name] = updated
+			agent.Model = resolved
+		}
+	}
+
 	// Check if model exists
 	// TODO:	If a copilot model is specified, but model is not found,
 	// 		 	it might be new model. The https://api.githubcopilot.com/models

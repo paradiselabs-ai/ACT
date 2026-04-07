@@ -54,6 +54,27 @@ type Orchestrator struct {
 	projectDir      string // working directory for Nomik commands
 	rescanInflight  bool   // debounce flag
 	rescanInflightMu sync.Mutex
+
+	// Intake state — set in Start() by detectProjectState. While intakeMode is
+	// true, the orchestrator prepends prompt.IntakePromptPrefix() to every
+	// Planner turn and the message ownership loop scans Planner output for
+	// PROJECT_BRIEF directives instead of CREATE_TASK. Cleared atomically when
+	// the brief is successfully POSTed to the server.
+	intakeMode  bool
+	projectName string // ACT_PROJECT — derived from --project flag or cwd basename
+
+	// Coordination event polling state. Tracks the most recent event timestamp
+	// the loop has surfaced as a chat system message, so we never re-emit.
+	lastCoordEventAt string
+
+	// Observer cycle counter — used to emit periodic "all clear" health
+	// messages every observerHealthEvery cycles when no anomalies are found.
+	observerCycles int
+
+	// consecutiveAutoTurns counts auto-routed Planner turns chained without a
+	// human input in between. Capped at autoTurnCap to prevent agent loops.
+	// Reset to 0 by HandleHumanInput.
+	consecutiveAutoTurns int
 }
 
 // NewOrchestrator creates an orchestrator wired to the given app.
@@ -84,19 +105,21 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 
 	cwd, _ := os.Getwd()
 	o.projectDir = cwd
+	o.projectName = os.Getenv("ACT_PROJECT")
 
 	ctx, cancel := context.WithCancel(parentCtx)
 	o.loopCancel = cancel
 	o.mu.Unlock()
 
-	// Spawn the Tier 2 swarm — one Runner subprocess per role.
-	// Eager (not lazy) so agents are registered before the Planner starts
-	// producing tasks. Failures are logged but non-fatal.
-	if len(o.app.SwarmSpecs) > 0 {
-		if err := o.runnerSpawner.StartSwarm(o.app.SwarmSpecs); err != nil {
-			logging.Warn("Failed to start swarm", "error", err)
-		}
-	}
+	// Detect intake state: if the ACT server has no project record matching
+	// our name, the Planner enters INTAKE mode for the first conversation.
+	o.detectProjectState()
+
+	// Tier 2 swarm is spawned LAZILY — only when the Planner emits its first
+	// CREATE_TASK directive. Spawning 5 Node subprocesses on every `act` launch
+	// (even when the user is just chatting or running intake) is wasteful and
+	// fills the chat with runner registration logs. See
+	// handlePlannerTaskDirectives for the lazy spawn trigger.
 
 	// Detect Nomik availability for this session
 	o.mu.Lock()
@@ -110,11 +133,26 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 		logging.Info("Nomik unavailable — codebase graph features disabled")
 	}
 
-	o.loopWG.Add(4)
+	o.loopWG.Add(5)
 	go o.messageOwnershipLoop(ctx)
 	go o.observerLoop(ctx)
 	go o.validationPollLoop(ctx)
 	go o.qaPollLoop(ctx)
+	go o.coordinationEventLoop(ctx)
+
+	// Tier 1 "I'm alive" pings — without these the user has no way to know
+	// Observer/Assurance/QA exist (they're event-driven and stay silent on
+	// healthy runs). Pinged once at startup, after a short delay so they
+	// land after the welcome message.
+	go func() {
+		time.Sleep(2 * time.Second)
+		o.mu.RLock()
+		sid := o.sessionID
+		o.mu.RUnlock()
+		o.emitSystemMessage(context.Background(), sid, "👁  Observer online — monitoring every 120s")
+		o.emitSystemMessage(context.Background(), sid, "✅  Assurance online — waiting for tasks to validate")
+		o.emitSystemMessage(context.Background(), sid, "🧩  QA/Synthesizer online — waiting for validated outputs")
+	}()
 
 	logging.Info("Orchestrator started", "session_id", sessionID, "swarm_specs", len(o.app.SwarmSpecs), "nomik", o.nomikAvailable)
 }
@@ -178,7 +216,43 @@ func (o *Orchestrator) Stop() {
 // This is the main entry point from the TUI — replaces direct CoderAgent.Run() calls.
 // Runs in a goroutine from the caller; blocks until the Planner finishes its turn.
 func (o *Orchestrator) HandleHumanInput(ctx context.Context, sessionID string, text string, attachments ...message.Attachment) {
+	// Reset the auto-turn counter — every human input gets a fresh budget of
+	// chained auto-routed Planner turns from the other Tier 1 agents.
+	o.mu.Lock()
+	o.consecutiveAutoTurns = 0
+	o.mu.Unlock()
+
 	o.runAgentTurn(ctx, sessionID, "planner", text, attachments...)
+}
+
+// detectProjectState queries the ACT server for a project matching o.projectName.
+// 404 → intake mode on. 200 → intake mode off (resume). Network failure → intake
+// mode off (we don't want to gate the user behind an unreachable server).
+func (o *Orchestrator) detectProjectState() {
+	o.mu.Lock()
+	name := o.projectName
+	o.mu.Unlock()
+	if name == "" {
+		return
+	}
+	client := act.NewClient("orchestrator", name)
+	if !client.IsAvailable() {
+		logging.Info("ACT server unavailable — skipping intake detection")
+		return
+	}
+	_, found, err := client.GetProject(name)
+	if err != nil {
+		logging.Warn("Project lookup failed — skipping intake", "project", name, "error", err)
+		return
+	}
+	o.mu.Lock()
+	o.intakeMode = !found
+	o.mu.Unlock()
+	if !found {
+		logging.Info("No server-side project record — entering INTAKE mode", "project", name)
+	} else {
+		logging.Info("Project found on server — RESUME mode", "project", name)
+	}
 }
 
 // runAgentTurn executes a single turn for the given role.
@@ -191,11 +265,33 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 		agentSvc = o.app.CoderAgent
 	}
 
+	// Note: intake instructions live in the Planner's static system prompt
+	// (see prompt/planner.go). The orchestrator only watches output for
+	// PROJECT_BRIEF directives — no per-turn content injection.
+
+	// For non-Planner Tier 1 agents, the content is an orchestrator-generated
+	// prompt (Observer monitoring report, Assurance validation request, QA
+	// synthesis instructions). The user did not type it and shouldn't see it
+	// in the chat. Prepend the InternalPromptMarker so the chat list filters
+	// the resulting User-role message out of the rendered view. The LLM still
+	// sees the full content because we pass it as the actual message body.
+	if role != "planner" {
+		content = InternalPromptMarker + content
+	}
+
 	o.mu.Lock()
 	o.currentSpeaker = role
 	o.mu.Unlock()
 
-	done, err := agentSvc.Run(ctx, sessionID, content, attachments...)
+	// Per-turn timeout: an agent that hasn't produced a response in this long
+	// is almost certainly stuck (LLM provider hanging, infinite tool loop,
+	// stale streaming connection). Cancel the context so the user isn't
+	// trapped forever in "Generating...". The timeout is intentionally
+	// generous because Llama-class models on free tiers are slow.
+	turnCtx, cancelTurn := context.WithTimeout(ctx, agentTurnTimeout)
+	defer cancelTurn()
+
+	done, err := agentSvc.Run(turnCtx, sessionID, content, attachments...)
 	if err != nil {
 		logging.Error("Agent turn failed to start", "role", role, "error", err)
 		o.mu.Lock()
@@ -204,8 +300,20 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 		return
 	}
 
-	// Wait for completion
-	result := <-done
+	// Wait for completion or timeout.
+	var result agent.AgentEvent
+	select {
+	case result = <-done:
+	case <-turnCtx.Done():
+		logging.Warn("Agent turn timed out", "role", role, "timeout", agentTurnTimeout)
+		// Cancel via the agent service so any in-flight provider stream stops.
+		agentSvc.Cancel(sessionID)
+		// Surface a system message so the user knows what happened instead of
+		// staring at "Generating..." forever.
+		o.emitSystemMessage(context.Background(), sessionID, fmt.Sprintf("⏱  %s turn timed out after %s — cancelled", role, agentTurnTimeout))
+		// Drain done to avoid leaking the goroutine that fed it.
+		go func() { <-done }()
+	}
 
 	o.mu.Lock()
 	o.currentSpeaker = ""
@@ -213,6 +321,178 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 
 	if result.Error != nil {
 		logging.Warn("Agent turn completed with error", "role", role, "error", result.Error)
+	}
+}
+
+// agentTurnTimeout is the maximum wall-clock time a single agent turn is
+// allowed to run before the orchestrator force-cancels it. Tuned for free-tier
+// LLM providers which can be slow but should never legitimately exceed this.
+const agentTurnTimeout = 5 * time.Minute
+
+// InternalPromptMarker is the leading sentinel the orchestrator prepends to
+// any user-message content it injects on behalf of an agent (Observer
+// monitoring report, Assurance validation prompt, QA synthesis prompt, etc).
+//
+// The chat list checks for this marker and HIDES the message from the human.
+// The agent still receives the full content via the LLM provider — the marker
+// is just text and the model ignores it. Without this filtering, the user
+// sees Observer's monitoring snapshots, Assurance's validation prompts, and
+// QA's synthesis instructions polluting the chat as if they typed them.
+const InternalPromptMarker = "\x00ACT_INTERNAL\x00"
+
+// coordinationEventInterval is how often the orchestrator polls the server's
+// chronological log for new events to surface in the chat as system messages.
+const coordinationEventInterval = 3 * time.Second
+
+// coordinationEventLoop polls the ACT server's chronological log every few
+// seconds for new coordination events (task created, completed, validation
+// passed/failed, agent message, etc) and renders each as a system message in
+// the active chat session. This is how the user sees real-time swarm progress
+// without having to tail JSONL log files.
+//
+// Dedupes by timestamp — only events strictly newer than lastCoordEventAt
+// are emitted. Survives transient server failures (logged + retried).
+func (o *Orchestrator) coordinationEventLoop(ctx context.Context) {
+	defer o.loopWG.Done()
+
+	ticker := time.NewTicker(coordinationEventInterval)
+	defer ticker.Stop()
+
+	// Seed lastCoordEventAt to "now" so the first poll doesn't dump the entire
+	// historical log into the chat on startup. The user only cares about
+	// events from this session forward.
+	o.mu.Lock()
+	if o.lastCoordEventAt == "" {
+		o.lastCoordEventAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	o.mu.Unlock()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			o.pollCoordinationEvents(ctx)
+		}
+	}
+}
+
+func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
+	o.mu.RLock()
+	sid := o.sessionID
+	since := o.lastCoordEventAt
+	o.mu.RUnlock()
+	if sid == "" {
+		return
+	}
+
+	client := act.NewClient("orchestrator", o.projectName)
+	if !client.IsAvailable() {
+		return
+	}
+	raw, err := client.GetLog(50)
+	if err != nil {
+		logging.Debug("Coordination event poll failed", "error", err)
+		return
+	}
+
+	var resp struct {
+		Events []LogEntry `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		return
+	}
+
+	// /api/log returns events newest-first; iterate oldest-first so they
+	// appear chronologically in the chat.
+	newest := since
+	for i := len(resp.Events) - 1; i >= 0; i-- {
+		ev := resp.Events[i]
+		if ev.Timestamp == "" || ev.Timestamp <= since {
+			continue
+		}
+		text := formatCoordEvent(ev)
+		if text == "" {
+			continue
+		}
+		o.emitSystemMessage(ctx, sid, text)
+		if ev.Timestamp > newest {
+			newest = ev.Timestamp
+		}
+	}
+
+	if newest != since {
+		o.mu.Lock()
+		o.lastCoordEventAt = newest
+		o.mu.Unlock()
+	}
+}
+
+// formatCoordEvent renders a server log entry as a single user-friendly chat
+// line. Returns empty string for event types that aren't worth surfacing
+// (registration, system bookkeeping, etc).
+func formatCoordEvent(ev LogEntry) string {
+	switch ev.Type {
+	case "task_created":
+		return fmt.Sprintf("📝  task created — %s", truncate(ev.Message, 120))
+	case "task_assigned":
+		return fmt.Sprintf("👤  %s assigned: %s", ev.Agent, truncate(ev.Message, 120))
+	case "task_progress":
+		return fmt.Sprintf("⚙   %s — %s", ev.Agent, truncate(ev.Message, 140))
+	case "task_completed":
+		return fmt.Sprintf("✓   %s completed: %s", ev.Agent, truncate(ev.Message, 140))
+	case "task_failed":
+		return fmt.Sprintf("✗   %s failed: %s", ev.Agent, truncate(ev.Message, 140))
+	case "task_submitted_for_validation":
+		return fmt.Sprintf("📤  %s submitted for validation: %s", ev.Agent, truncate(ev.Message, 120))
+	case "validation_passed":
+		return fmt.Sprintf("✅  validation passed — %s", truncate(ev.Message, 140))
+	case "validation_failed":
+		return fmt.Sprintf("❌  validation failed — %s", truncate(ev.Message, 140))
+	case "agent_message", "message":
+		return fmt.Sprintf("→   %s: %s", ev.Agent, truncate(ev.Message, 140))
+	case "peer_response":
+		// Peer responses can be very chatty (every 10s status ping); only
+		// surface ones that look substantive (>40 chars after the prefix).
+		if len(ev.Message) > 50 {
+			return fmt.Sprintf("→   %s: %s", ev.Agent, truncate(stripStatusPrefix(ev.Message), 140))
+		}
+		return ""
+	case "project_created":
+		return fmt.Sprintf("📦  project created — %s", truncate(ev.Message, 120))
+	case "brief_stored":
+		return "" // internal
+	case "agent_registered", "agent_joined":
+		return "" // internal
+	default:
+		return ""
+	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+func stripStatusPrefix(s string) string {
+	return strings.TrimPrefix(s, "status: ")
+}
+
+// emitSystemMessage creates a Role=System message in the active chat session.
+// The TUI's chat list renders these via renderSystemMessage as muted lines
+// (no avatar, no header). Used for orchestrator-level coordination events
+// and turn-timeout notices.
+func (o *Orchestrator) emitSystemMessage(ctx context.Context, sessionID, text string) {
+	if sessionID == "" || text == "" {
+		return
+	}
+	if _, err := o.app.Messages.Create(ctx, sessionID, message.CreateMessageParams{
+		Role:  message.System,
+		Parts: []message.ContentPart{message.TextContent{Text: text}},
+	}); err != nil {
+		logging.Debug("Failed to emit system message", "error", err)
 	}
 }
 
@@ -325,17 +605,95 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 					continue
 				}
 				role := o.GetOwner(msg.ID)
-				if role != "planner" {
-					continue
-				}
 				content := msg.Content().String()
 				if content == "" {
 					continue
 				}
-				go o.handlePlannerTaskDirectives(ctx, content)
+
+				switch role {
+				case "planner":
+					// During intake mode, look for PROJECT_BRIEF first. CREATE_TASK
+					// directives in the same response are ignored until the brief
+					// is accepted (the prompt forbids them, but we defend anyway).
+					o.mu.RLock()
+					intake := o.intakeMode
+					o.mu.RUnlock()
+					if intake {
+						go o.handleProjectBrief(ctx, content)
+						continue
+					}
+					go o.handlePlannerTaskDirectives(ctx, content)
+
+				case "observer", "assurance", "qa", "qa_synthesizer":
+					// Auto-route Tier 1 reports into a Planner turn so the
+					// Planner can react (typically by emitting CREATE_TASK
+					// directives, occasionally by speaking to the human). The
+					// chain stops at Planner — Planner replies are NOT
+					// auto-routed anywhere, breaking the loop.
+					go o.autoRoutePlanner(ctx, role, content)
+				}
 			}
 		}
 	}
+}
+
+// autoRoutePlanner forwards a non-Planner Tier 1 message into a Planner turn.
+// Recursion-safe via consecutiveAutoTurns: at most autoTurnCap chained turns
+// per human input. Reset by HandleHumanInput.
+func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromContent string) {
+	o.mu.Lock()
+	if o.consecutiveAutoTurns >= autoTurnCap {
+		o.mu.Unlock()
+		logging.Warn("Auto-turn cap reached — dropping forwarded message", "from", fromRole, "cap", autoTurnCap)
+		return
+	}
+	o.consecutiveAutoTurns++
+	sid := o.sessionID
+	o.mu.Unlock()
+	if sid == "" {
+		return
+	}
+	// Brief delay so the source message has fully rendered before Planner runs.
+	time.Sleep(200 * time.Millisecond)
+	prompt := fmt.Sprintf(
+		"The %s agent just sent the following report. React by taking action — emit CREATE_TASK: directives if work needs to be created or reassigned, or only write a chat reply if you need to inform the human. Do NOT echo this report back. Stay silent in chat unless you have something for the human.\n\n[%s]: %s",
+		fromRole, fromRole, fromContent,
+	)
+	o.runAgentTurn(ctx, sid, "planner", prompt)
+}
+
+// autoTurnCap is the maximum number of consecutive auto-routed Planner turns
+// per human input. Resets when the user types something. Prevents agent loops
+// (Observer → Planner → action → Observer notices → Planner → ...).
+const autoTurnCap = 5
+
+// handleProjectBrief parses a PROJECT_BRIEF directive from a Planner intake-mode
+// response and POSTs it to the ACT server. On success, clears intakeMode so the
+// next Planner turn falls back to normal task-decomposition behavior.
+func (o *Orchestrator) handleProjectBrief(_ context.Context, content string) {
+	brief := parseProjectBrief(content)
+	if brief == nil {
+		return // still gathering — Planner hasn't summarized yet
+	}
+
+	o.mu.RLock()
+	name := o.projectName
+	dir := o.projectDir
+	o.mu.RUnlock()
+
+	client := act.NewClient("planner", name)
+	if !client.IsAvailable() {
+		logging.Warn("ACT server unavailable — cannot persist PROJECT_BRIEF")
+		return
+	}
+	if err := client.CreateProject(name, dir, brief.Description, brief.TechStack, brief.Constraints, brief.SuccessCriteria, brief.AgentsInvolved); err != nil {
+		logging.Warn("Failed to POST project brief", "project", name, "error", err)
+		return
+	}
+	o.mu.Lock()
+	o.intakeMode = false
+	o.mu.Unlock()
+	logging.Info("PROJECT_BRIEF accepted — exiting INTAKE mode", "project", name)
 }
 
 // handlePlannerTaskDirectives parses CREATE_TASK directives from a Planner
@@ -355,6 +713,15 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 	if !client.IsAvailable() {
 		logging.Warn("ACT server unavailable — cannot create tasks from Planner directives")
 		return
+	}
+
+	// Lazy spawn: the first time tasks appear, bring up the Tier 2 swarm.
+	// StartSwarm is idempotent per-role so calling it on every batch is safe.
+	if len(o.app.SwarmSpecs) > 0 && !o.runnerSpawner.IsRunning() {
+		logging.Info("First task batch — spawning Tier 2 swarm", "task_count", len(tasks))
+		if err := o.runnerSpawner.StartSwarm(o.app.SwarmSpecs); err != nil {
+			logging.Warn("Failed to start swarm", "error", err)
+		}
 	}
 
 	created := 0
@@ -388,7 +755,6 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 		logging.Info("Task created from Planner directive", "task_id", taskID, "title", title)
 		created++
 	}
-	// Note: the swarm is already running (spawned at orchestrator Start, not lazily).
 	// Trigger a Nomik incremental rescan after task creation so Planner sees fresh
 	// graph state on next iteration.
 	if created > 0 {
@@ -430,11 +796,18 @@ func (o *Orchestrator) maybeRescanNomik(ctx context.Context) {
 // ─── Background loop: Observer monitoring ──────────────────────────────────────
 
 const (
-	observerInterval     = 120 * time.Second
-	stuckTaskMinutes     = 30
-	staleLockMinutes     = 20
+	observerInterval = 120 * time.Second
+	// stuckTaskMinutes was 30 — way too high for the typical Snake-Arena-class
+	// run that completes in 5 minutes. Lowered to 3 so Observer can actually
+	// catch real anomalies during a single short run.
+	stuckTaskMinutes     = 3
+	staleLockMinutes     = 5
 	bottleneckTaskCount  = 3
 	validationPollPeriod = 10 * time.Second
+	// observerHealthEvery sets how often the Observer emits an "all clear"
+	// system message when no anomalies are detected. Without this it's
+	// indistinguishable from a dead goroutine. Every 4 cycles ≈ every 8 minutes.
+	observerHealthEvery = 4
 )
 
 // observerLoop runs the Observer monitoring loop. Every ~120s it polls the
@@ -477,18 +850,33 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 		return
 	}
 
+	o.mu.Lock()
+	o.observerCycles++
+	cycle := o.observerCycles
+	sid := o.sessionID
+	o.mu.Unlock()
+
 	anomalies := detectAnomalies(snapshot)
 	if len(anomalies) == 0 {
-		return // silent watchdog
+		// Silent watchdog — but every Nth cycle emit a health ping so the
+		// user knows it's still alive. Without this Observer is
+		// indistinguishable from a dead goroutine on healthy runs.
+		if cycle%observerHealthEvery == 0 && sid != "" {
+			active := 0
+			for _, t := range snapshot.Tasks {
+				if t.Status == "in_progress" || t.Status == "assigned" {
+					active++
+				}
+			}
+			o.emitSystemMessage(ctx, sid, fmt.Sprintf("👁  Observer: all clear (%d active task(s), no anomalies)", active))
+		}
+		return
 	}
 
-	prompt := buildObserverPrompt(snapshot, anomalies)
-	o.mu.RLock()
-	sid := o.sessionID
-	o.mu.RUnlock()
 	if sid == "" {
 		return
 	}
+	prompt := buildObserverPrompt(snapshot, anomalies)
 	o.runAgentTurn(ctx, sid, "observer", prompt)
 }
 
@@ -708,14 +1096,14 @@ func minutesSince(timestamp string, now time.Time) int {
 
 func buildObserverPrompt(s *StatusSnapshot, anomalies []Anomaly) string {
 	var sb strings.Builder
-	sb.WriteString("OBSERVER MONITORING REPORT\n\n")
-	sb.WriteString(fmt.Sprintf("Snapshot: %s\n", s.Timestamp))
-	sb.WriteString(fmt.Sprintf("Tasks: %d, Agents: %d, FileLocks: %d\n\n", len(s.Tasks), len(s.Agents), len(s.FileLocks)))
-	sb.WriteString("## Anomalies Detected\n")
+	sb.WriteString("Your monitoring loop just ran. Here is the system snapshot and the anomalies you detected:\n\n")
+	sb.WriteString(fmt.Sprintf("Snapshot: %s | Tasks: %d, Agents: %d, FileLocks: %d\n\n",
+		s.Timestamp, len(s.Tasks), len(s.Agents), len(s.FileLocks)))
+	sb.WriteString("Anomalies:\n")
 	for _, a := range anomalies {
 		sb.WriteString(fmt.Sprintf("- [%s] %s: %s\n", strings.ToUpper(string(a.Severity)), a.Category, a.Message))
 	}
-	sb.WriteString("\nReport these to the Planner with suggested actions. Do not make decisions yourself.")
+	sb.WriteString("\nWrite a SHORT message to the Planner (addressed @planner) describing what you observed and a concrete suggested action for each anomaly. Do NOT make decisions yourself. Do NOT echo this prompt back. Do NOT call any tools — just write your message directly. Keep it under 6 lines.")
 	return sb.String()
 }
 
@@ -1000,6 +1388,31 @@ func parseCreateTaskDirectives(content string) []TaskDef {
 	return tasks
 }
 
+// parseProjectBrief extracts a PROJECT_BRIEF directive from a Planner intake
+// response. Looks for a JSON object containing "description" near a
+// PROJECT_BRIEF: marker, falls back to any JSON containing "successCriteria".
+// Returns nil if no valid brief is found.
+func parseProjectBrief(content string) *ProjectBrief {
+	// Prefer JSON immediately following the explicit marker.
+	if idx := strings.Index(content, "PROJECT_BRIEF:"); idx != -1 {
+		tail := content[idx:]
+		if jsonStr := extractJSONContaining(tail, `"description"`); jsonStr != "" {
+			var b ProjectBrief
+			if err := json.Unmarshal([]byte(jsonStr), &b); err == nil && b.Description != "" {
+				return &b
+			}
+		}
+	}
+	// Fallback: any JSON in the response that has both description and successCriteria.
+	if jsonStr := extractJSONContaining(content, `"successCriteria"`); jsonStr != "" {
+		var b ProjectBrief
+		if err := json.Unmarshal([]byte(jsonStr), &b); err == nil && b.Description != "" {
+			return &b
+		}
+	}
+	return nil
+}
+
 // parseValidationVerdict extracts an Assurance verdict (JSON) from a free-form response.
 // Returns nil if no JSON with criteriaResults is found.
 func parseValidationVerdict(taskID, raw string) *ValidationVerdict {
@@ -1051,14 +1464,14 @@ func parseSynthesisResponse(raw string) (kind string, summary string, targetAgen
 
 func buildValidationPrompt(t TaskSummary) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("VALIDATION REQUEST — Task: %s\n\n", taskLabel(t)))
-	sb.WriteString("## Task Description\n")
+	sb.WriteString(fmt.Sprintf("A swarm agent has submitted task %q for your validation. Score it against the success criteria below and return your verdict.\n\n", taskLabel(t)))
+	sb.WriteString("Task description:\n")
 	sb.WriteString(t.Description)
-	sb.WriteString("\n\n## Success Criteria\n")
+	sb.WriteString("\n\nSuccess criteria you must score:\n")
 	for i, c := range t.SuccessCriteria {
 		sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, c))
 	}
-	sb.WriteString("\n## Agent's Output (Result)\n")
+	sb.WriteString("\nAgent's submitted result:\n")
 	if t.Metadata != nil {
 		if r, ok := t.Metadata["result"].(string); ok {
 			if len(r) > 4000 {
@@ -1067,21 +1480,23 @@ func buildValidationPrompt(t TaskSummary) string {
 			sb.WriteString(r)
 		}
 	}
-	sb.WriteString("\n\nValidate this task now. Respond with the JSON verdict format.")
+	sb.WriteString("\n\nNow respond with your verdict as a JSON object with this exact shape (no surrounding prose, no code fences):\n")
+	sb.WriteString(`{"passed": true|false, "score": 0-100, "criteriaResults": [{"criterion":"...","passed":true|false,"reasoning":"..."}], "gaps":"...","feedback":"..."}` + "\n")
+	sb.WriteString("Pass = score >= 95. Do NOT call any tools — write the JSON directly. Do NOT echo this prompt.")
 	return sb.String()
 }
 
 func buildSynthesisPrompt(o ValidatedOutput) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("SYNTHESIS REQUEST — Task: %s\n\n", o.TaskTitle))
-	sb.WriteString(fmt.Sprintf("Agent: %s\nValidation score: %d/100\n\n", o.AgentID, o.ValidationScore))
-	sb.WriteString("## Validated Output\n")
+	sb.WriteString(fmt.Sprintf("A task has just passed Assurance validation and is ready to be integrated into the project deliverable. Your job is to assemble it.\n\n"))
+	sb.WriteString(fmt.Sprintf("Task: %s\nAgent: %s\nValidation score: %d/100\n\n", o.TaskTitle, o.AgentID, o.ValidationScore))
+	sb.WriteString("Validated output:\n")
 	if len(o.Result) > 4000 {
 		sb.WriteString(o.Result[:4000] + "...")
 	} else {
 		sb.WriteString(o.Result)
 	}
-	sb.WriteString("\n\nIntegrate this output into the project deliverable. Use SYNTHESIS_COMPLETE: or NEED_CLARIFICATION: as appropriate.")
+	sb.WriteString("\n\nReview this output. If it integrates cleanly with the rest of the deliverable, write a SHORT message ending with the line `SYNTHESIS_COMPLETE: <one-sentence summary>`. If you need clarification from the producing agent, end with `NEED_CLARIFICATION: @<agent_id> <question>`. Do NOT echo this prompt. Do NOT call any tools. Keep it under 6 lines.")
 	return sb.String()
 }
 

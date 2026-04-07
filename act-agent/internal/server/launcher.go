@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
@@ -85,22 +86,84 @@ func isHealthy(serverURL string) bool {
 }
 
 func findServerScript() string {
-	// Try common locations relative to cwd
-	candidates := []string{
-		"server/src/index.ts",
-		"../server/src/index.ts",
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-
-	for _, c := range candidates {
-		full := filepath.Join(cwd, c)
-		if _, err := os.Stat(full); err == nil {
-			return full
+	// Strategy 1: ~/.act/config.json stores `actRoot` — the canonical location
+	// of the ACT repo on this machine. Set during install/first-run. This is
+	// the authoritative source and works no matter what cwd `act` was launched
+	// from (which is the common case — users run `act` in their own projects,
+	// not inside the ACT repo).
+	if home, err := os.UserHomeDir(); err == nil {
+		cfgPath := filepath.Join(home, ".act", "config.json")
+		if data, err := os.ReadFile(cfgPath); err == nil {
+			// Lightweight parse: avoid pulling in encoding/json for one field.
+			// Look for `"actRoot": "..."`.
+			if root := extractJSONString(string(data), "actRoot"); root != "" {
+				candidate := filepath.Join(root, "server", "src", "index.ts")
+				if _, err := os.Stat(candidate); err == nil {
+					return candidate
+				}
+			}
 		}
 	}
+
+	// Strategy 2: walk up from the running binary's directory looking for
+	// a sibling `server/src/index.ts`. This handles dev installs where the
+	// binary lives in `<repo>/act-agent/act-agent`.
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		// Resolve symlinks (the global `act` is symlinked into homebrew bin)
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			dir = filepath.Dir(resolved)
+		}
+		for i := 0; i < 5; i++ {
+			candidate := filepath.Join(dir, "server", "src", "index.ts")
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+
+	// Strategy 3: cwd-relative fallback (only useful when running from inside
+	// the ACT repo itself, e.g. `cd /path/to/act && act`).
+	if cwd, err := os.Getwd(); err == nil {
+		for _, c := range []string{"server/src/index.ts", "../server/src/index.ts"} {
+			full := filepath.Join(cwd, c)
+			if _, err := os.Stat(full); err == nil {
+				return full
+			}
+		}
+	}
+
 	return ""
+}
+
+// extractJSONString pulls a top-level string field from a JSON document
+// without requiring encoding/json. Returns empty string if not found.
+// Tolerates simple whitespace; does NOT handle escapes inside the value.
+func extractJSONString(doc, key string) string {
+	needle := `"` + key + `"`
+	idx := strings.Index(doc, needle)
+	if idx == -1 {
+		return ""
+	}
+	rest := doc[idx+len(needle):]
+	colon := strings.Index(rest, ":")
+	if colon == -1 {
+		return ""
+	}
+	rest = rest[colon+1:]
+	open := strings.Index(rest, `"`)
+	if open == -1 {
+		return ""
+	}
+	rest = rest[open+1:]
+	close := strings.Index(rest, `"`)
+	if close == -1 {
+		return ""
+	}
+	return rest[:close]
 }

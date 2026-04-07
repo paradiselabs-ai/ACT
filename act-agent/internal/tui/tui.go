@@ -169,19 +169,16 @@ func (a appModel) Init() tea.Cmd {
 	cmd = a.themeDialog.Init()
 	cmds = append(cmds, cmd)
 
-	// Show onboarding wizard on first run; otherwise check project init dialog.
+	// Show onboarding wizard on first run. The legacy InitDialog (Yes/No
+	// "scan codebase for ACT.md") is gone — new-project intake is now driven
+	// by the orchestrator's INTAKE mode (see orchestrator.detectProjectState).
+	// The Planner runs a structured 5-question conversation and emits
+	// PROJECT_BRIEF when ready, which the orchestrator POSTs to the server.
 	cmds = append(cmds, func() tea.Msg {
 		if config.IsFirstRun() && !config.HasConfigFile() {
 			return dialog.ShowOnboardingDialogMsg{Show: true}
 		}
-		shouldShow, err := config.ShouldShowInitDialog()
-		if err != nil {
-			return util.InfoMsg{
-				Type: util.InfoTypeError,
-				Msg:  "Failed to check init status: " + err.Error(),
-			}
-		}
-		return dialog.ShowInitDialogMsg{Show: shouldShow}
+		return nil
 	})
 
 	return tea.Batch(cmds...)

@@ -146,6 +146,31 @@ func renderUserMessage(msg message.Message, isFocused bool, width int, position 
 	return userMsg
 }
 
+// renderSystemMessage renders an orchestrator-injected coordination event
+// (task created, agent completed, validation passed/failed, agent message,
+// etc) as a single muted line with no avatar / no header. The TUI's chat
+// list switch routes Role==System messages here so the user sees real-time
+// swarm activity without having to tail a log file.
+func renderSystemMessage(msg message.Message, width int, position int) uiMessage {
+	t := theme.CurrentTheme()
+	text := msg.Content().String()
+	if text == "" {
+		text = "(empty system message)"
+	}
+	rendered := styles.BaseStyle().
+		Foreground(t.TextMuted()).
+		Width(width).
+		PaddingLeft(2).
+		Render(text)
+	return uiMessage{
+		ID:          msg.ID,
+		messageType: userMessageType, // reuse user type slot — list only checks for height/content
+		position:    position,
+		height:      lipgloss.Height(rendered),
+		content:     rendered,
+	}
+}
+
 // Returns multiple uiMessages because of the tool calls
 func renderAssistantMessage(
 	msg message.Message,

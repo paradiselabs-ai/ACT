@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -195,6 +196,14 @@ func (m *messagesCmp) renderView() {
 	for inx, msg := range m.messages {
 		switch msg.Role {
 		case message.User:
+			// Hide orchestrator-internal user messages — these are the prompts
+			// the orchestrator generates for Observer/Assurance/QA/Synthesizer
+			// (anomaly reports, validation requests, synthesis instructions).
+			// They're tagged with app.InternalPromptMarker; the LLM still
+			// sees the full content but the human shouldn't.
+			if strings.HasPrefix(msg.Content().String(), app.InternalPromptMarker) {
+				continue
+			}
 			if cache, ok := m.cachedContent[msg.ID]; ok && cache.width == m.width {
 				m.uiMessages = append(m.uiMessages, cache.content...)
 				continue
@@ -217,10 +226,7 @@ func (m *messagesCmp) renderView() {
 				continue
 			}
 			isSummary := m.session.SummaryMessageID == msg.ID
-			role := ""
-			if msg.Role == message.Assistant {
-				role = m.app.Orchestrator.GetOwner(msg.ID)
-			}
+			role := m.app.Orchestrator.GetOwner(msg.ID)
 
 			assistantMessages := renderAssistantMessage(
 				msg,
@@ -237,10 +243,32 @@ func (m *messagesCmp) renderView() {
 				m.uiMessages = append(m.uiMessages, msg)
 				pos += msg.height + 1 // + 1 for spacing
 			}
+			// Only cache if we have a role banner. Without one, the orchestrator
+			// hasn't finished tagging this message yet (race between message
+			// creation and the messageOwnershipLoop) — re-render on next tick
+			// so the role banner appears once tagging completes.
+			if role != "" {
+				m.cachedContent[msg.ID] = cacheItem{
+					width:   m.width,
+					content: assistantMessages,
+				}
+			}
+		case message.System:
+			// Coordination events injected by the orchestrator (task created,
+			// agent completed work, validation passed/failed, etc). Rendered
+			// as a single muted line, no header, no avatar — they're status
+			// updates, not conversation turns.
+			if cache, ok := m.cachedContent[msg.ID]; ok && cache.width == m.width {
+				m.uiMessages = append(m.uiMessages, cache.content...)
+				continue
+			}
+			sysMsg := renderSystemMessage(msg, m.width, pos)
+			m.uiMessages = append(m.uiMessages, sysMsg)
 			m.cachedContent[msg.ID] = cacheItem{
 				width:   m.width,
-				content: assistantMessages,
+				content: []uiMessage{sysMsg},
 			}
+			pos += sysMsg.height + 1
 		}
 	}
 

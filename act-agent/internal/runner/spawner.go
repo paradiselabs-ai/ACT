@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 )
@@ -57,6 +59,11 @@ func (s *Spawner) StartSwarm(specs []SwarmRoleSpec) error {
 	if len(specs) == 0 {
 		return fmt.Errorf("StartSwarm: no specs provided")
 	}
+
+	// Defensive: kill any orphaned runners from a previous abnormal exit
+	// before spawning fresh ones. This is what prevents the "two runners
+	// for the same role registering at the same time" 409 conflict storm.
+	s.SweepOrphans()
 
 	scriptPath, err := findRunnerScript()
 	if err != nil {
@@ -115,11 +122,36 @@ func (s *Spawner) startOneLocked(nodeBin, scriptPath string, spec SwarmRoleSpec)
 
 	cmd := exec.Command(nodeBin, args...)
 	cmd.Env = os.Environ()
-	// Inherit stdout/stderr so Runner logs are visible in the same terminal
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	// Put each runner in its own process group so the parent (act TUI) can
+	// kill the entire subtree by signaling the negative pgid. Without this,
+	// if the TUI dies abnormally (terminal close, force quit), the runner
+	// subprocesses orphan and keep polling the server forever.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// Redirect stdout/stderr to a per-runner log file at ~/.act/runners/<role>.log
+	// instead of inheriting the parent's stdio. The parent here is the Bubble
+	// Tea TUI — letting child processes write to its terminal corrupts the
+	// rendered chat with raw `[role] ...` lines from the runner.
+	//
+	// Failures opening the log file are non-fatal: we fall back to discarding
+	// the runner's output (the runner still works, you just can't see its logs).
+	var logFile *os.File
+	if f, err := openRunnerLog(spec.Role); err == nil {
+		_, _ = f.WriteString(fmt.Sprintf("\n=== runner session start: %s role=%s ===\n", time.Now().Format(time.RFC3339), spec.Role))
+		cmd.Stdout = f
+		cmd.Stderr = f
+		logFile = f
+	} else {
+		logging.Warn("Could not open runner log file, discarding output", "role", spec.Role, "error", err)
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+	}
 
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		return fmt.Errorf("failed to start runner: %w", err)
 	}
 
@@ -138,16 +170,21 @@ func (s *Spawner) startOneLocked(nodeBin, scriptPath string, spec SwarmRoleSpec)
 		"pid", rp.pid)
 
 	// Reap the process when it exits so we don't leak zombies and the
-	// Spawner state reflects reality.
-	go func(role string, c *exec.Cmd) {
+	// Spawner state reflects reality. Also close the log file fd we passed
+	// to the child so it isn't held open indefinitely.
+	go func(role string, c *exec.Cmd, lf *os.File) {
 		_ = c.Wait()
+		if lf != nil {
+			_, _ = lf.WriteString(fmt.Sprintf("=== runner session end: %s role=%s ===\n", time.Now().Format(time.RFC3339), role))
+			_ = lf.Close()
+		}
 		s.mu.Lock()
 		if existing, ok := s.runners[role]; ok && existing.cmd == c {
 			delete(s.runners, role)
 		}
 		s.mu.Unlock()
 		logging.Info("Swarm runner exited", "role", role)
-	}(spec.Role, cmd)
+	}(spec.Role, cmd, logFile)
 
 	return nil
 }
@@ -178,16 +215,33 @@ func (s *Spawner) RestartRole(spec SwarmRoleSpec) error {
 }
 
 // Stop kills all runner subprocesses. Safe to call when no runners are alive.
+// Each runner was started with Setpgid:true so we can kill its entire process
+// group (the runner + any swarm-agent subprocesses it spawned) with one signal.
 func (s *Spawner) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for role, rp := range s.runners {
 		if rp.cmd != nil && rp.cmd.Process != nil {
-			_ = rp.cmd.Process.Kill()
+			pid := rp.cmd.Process.Pid
+			// Negative pid = kill the whole process group.
+			if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+				// Fall back to single-process kill if pgkill fails.
+				_ = rp.cmd.Process.Kill()
+			}
 		}
 		delete(s.runners, role)
 	}
+}
+
+// SweepOrphans kills any leftover act-runner.mjs processes from previous
+// sessions before spawning new ones. Defensive cleanup against the case where
+// a previous act TUI exited abnormally and left runners running. Safe to call
+// even when no orphans exist — pkill returns non-zero with no matches, which
+// we ignore.
+func (s *Spawner) SweepOrphans() {
+	cmd := exec.Command("pkill", "-f", "act-runner.mjs")
+	_ = cmd.Run()
 }
 
 // IsRunning returns true if any runner is currently alive.
@@ -225,6 +279,22 @@ func (s *Spawner) Status() []RunnerStatus {
 		})
 	}
 	return out
+}
+
+// openRunnerLog opens (creating if needed) the per-role runner log file at
+// ~/.act/runners/<role>.log in append mode. Caller is responsible for closing
+// the returned file when the subprocess exits.
+func openRunnerLog(role string) (*os.File, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".act", "runners")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir runners: %w", err)
+	}
+	path := filepath.Join(dir, role+".log")
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 }
 
 func findRunnerScript() (string, error) {

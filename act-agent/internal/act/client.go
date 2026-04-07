@@ -384,6 +384,49 @@ func (c *Client) GetLog(limit int) (string, error) {
 	return c.getString(fmt.Sprintf("/api/log?limit=%d", limit))
 }
 
+// GetProject fetches a single project by name. Returns (data, true) on 200,
+// (nil, false) on 404, error on other failures. Used by the orchestrator at
+// startup to detect whether intake mode should fire.
+func (c *Client) GetProject(name string) (map[string]any, bool, error) {
+	path := fmt.Sprintf("/api/projects/%s", url.PathEscape(name))
+	resp, err := c.httpClient.Get(c.ServerURL + path)
+	if err != nil {
+		return nil, false, fmt.Errorf("act GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return nil, false, nil
+	}
+	if resp.StatusCode >= 400 {
+		return nil, false, fmt.Errorf("act GET %s: HTTP %d", path, resp.StatusCode)
+	}
+	var data map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, false, fmt.Errorf("decode project: %w", err)
+	}
+	return data, true, nil
+}
+
+// CreateProject POSTs a new project to the ACT server. Called by the
+// orchestrator after the Planner emits PROJECT_BRIEF during intake mode.
+func (c *Client) CreateProject(name, workspace, description, techStack, constraints, successCriteria string, agents []string) error {
+	body := map[string]any{
+		"name":            name,
+		"workspace":       workspace,
+		"description":     description,
+		"techStack":       techStack,
+		"constraints":     constraints,
+		"successCriteria": successCriteria,
+		"agents":          agents,
+	}
+	resp, err := c.post("/api/projects", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+
 // SubmitVerdict submits an Assurance validation verdict for a task.
 // Used by the orchestrator after the Assurance agent produces a verdict.
 func (c *Client) SubmitVerdict(taskID, agentID string, passed bool, score int, criteriaResults []map[string]any, gaps, feedback string) error {

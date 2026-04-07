@@ -1,7 +1,6 @@
 package prompt
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 )
 
 func CoderPrompt(provider models.ModelProvider) string {
@@ -172,21 +170,16 @@ func getEnvironmentInfo() string {
 	isGit := isGitRepo(cwd)
 	platform := runtime.GOOS
 	date := time.Now().Format("1/2/2006")
-	ls := tools.NewLsTool()
-	r, _ := ls.Run(context.Background(), tools.ToolCall{
-		Input: `{"path":"."}`,
-	})
-	return fmt.Sprintf(`Here is useful information about the environment you are running in:
-<env>
-Working directory: %s
-Is directory a git repo: %s
-Platform: %s
-Today's date: %s
-</env>
-<project>
-%s
-</project>
-		`, cwd, boolToYesNo(isGit), platform, date, r.Content)
+	// NOTE: We deliberately do NOT embed an `ls .` of the cwd here. In any
+	// populated repo that's thousands of tokens injected into every agent's
+	// system prompt — death on free-tier rate limits, and agents can list
+	// files on demand with the LS tool when they actually need to.
+	return fmt.Sprintf(`<env>
+cwd: %s
+git: %s
+platform: %s
+date: %s
+</env>`, cwd, boolToYesNo(isGit), platform, date)
 }
 
 func isGitRepo(dir string) bool {

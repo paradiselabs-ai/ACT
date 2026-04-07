@@ -22,7 +22,10 @@ const (
 	OpenRouterClaude37Sonnet ModelID = "openrouter.claude-3.7-sonnet"
 	OpenRouterClaude35Haiku  ModelID = "openrouter.claude-3.5-haiku"
 	OpenRouterClaude3Opus    ModelID = "openrouter.claude-3-opus"
-	OpenRouterDeepSeekR1Free ModelID = "openrouter.deepseek-r1-free"
+	OpenRouterDeepSeekR1Free       ModelID = "openrouter.deepseek-r1-free"
+	OpenRouterDeepSeekV3Free       ModelID = "openrouter.deepseek-v3-free"
+	OpenRouterLlama33_70BFree      ModelID = "openrouter.llama-3.3-70b-free"
+	OpenRouterGemma3_27BFree       ModelID = "openrouter.gemma-3-27b-free"
 )
 
 var OpenRouterModels = map[ModelID]Model{
@@ -272,5 +275,54 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MOutCached: 0,
 		ContextWindow:      163_840,
 		DefaultMaxTokens:   10000,
+	},
+
+	// NVIDIA Nemotron 3 Super 120B — biggest free model on OpenRouter, hybrid
+	// Mamba-Transformer, 262K context. Best free choice for the Planner role:
+	// strongest reasoning + instruction following at zero cost. Replaces the
+	// older deepseek-v3-free entry which OpenRouter removed in 2026-04.
+	OpenRouterDeepSeekV3Free: {
+		ID:                 OpenRouterDeepSeekV3Free,
+		Name:               "OpenRouter – Nemotron 3 Super 120B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "nvidia/nemotron-3-super-120b-a12b:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      262_144,
+		DefaultMaxTokens:   8000,
+	},
+
+	// Llama 3.3 70B Instruct — proven, well-tested instruction follower.
+	// Used for Assurance + QA where structured output (validation JSON,
+	// SYNTHESIS_COMPLETE markers) is the main requirement.
+	OpenRouterLlama33_70BFree: {
+		ID:                 OpenRouterLlama33_70BFree,
+		Name:               "OpenRouter – Llama 3.3 70B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "meta-llama/llama-3.3-70b-instruct:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      131_072,
+		DefaultMaxTokens:   5000,
+	},
+
+	// Gemma 3 27B — smaller / faster than 70B class, plenty for the Observer
+	// role which only summarizes status snapshots into short messages.
+	// Burns less of the 20-RPM free-tier budget per call.
+	OpenRouterGemma3_27BFree: {
+		ID:                 OpenRouterGemma3_27BFree,
+		Name:               "OpenRouter – Gemma 3 27B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "google/gemma-3-27b-it:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      131_072,
+		DefaultMaxTokens:   3000,
 	},
 }

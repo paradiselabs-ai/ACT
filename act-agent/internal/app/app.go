@@ -68,21 +68,26 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	// Initialize LSP clients in the background
 	go app.initLSPClients(ctx)
 
-	// Create Tier 1 agents (each with role-specific model from .act.json)
+	// Create Tier 1 agents (each with role-specific model from .act.json AND
+	// a role-specific tool subset). Per-role subsets are critical for free-tier
+	// providers — the full CoderAgentTools roster ships ~16K tokens of tool
+	// schemas per request, blowing Groq's 12K TPM cap. Planner and Observer
+	// only need bash; Assurance and QA need bash + view + grep. See
+	// agent.Tier1ToolsForRole for the rationale.
 	tier1Roles := []string{"planner", "observer", "assurance", "qa"}
 	app.Agents = make(map[string]agent.Service, len(tier1Roles))
 
-	tools := agent.CoderAgentTools(
-		app.Permissions,
-		app.Sessions,
-		app.Messages,
-		app.History,
-		app.LSPClients,
-	)
-
 	for _, role := range tier1Roles {
 		agentName := config.AgentConfigForRole(role)
-		agentSvc, err := agent.NewAgent(agentName, app.Sessions, app.Messages, tools)
+		roleTools := agent.Tier1ToolsForRole(
+			role,
+			app.Permissions,
+			app.Sessions,
+			app.Messages,
+			app.History,
+			app.LSPClients,
+		)
+		agentSvc, err := agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools)
 		if err != nil {
 			logging.Warn("Failed to create agent for role, will use fallback", "role", role, "error", err)
 			continue
@@ -94,9 +99,18 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	if planner, ok := app.Agents["planner"]; ok {
 		app.CoderAgent = planner
 	} else {
-		// Fallback: create a generic coder agent if Planner failed
+		// Fallback: create a generic coder agent if Planner failed.
+		// This path uses the full toolbox because it's the OpenCode-inherited
+		// coder agent, which expects to read/write code.
+		fallbackTools := agent.CoderAgentTools(
+			app.Permissions,
+			app.Sessions,
+			app.Messages,
+			app.History,
+			app.LSPClients,
+		)
 		var err error
-		app.CoderAgent, err = agent.NewAgent(config.AgentCoder, app.Sessions, app.Messages, tools)
+		app.CoderAgent, err = agent.NewAgent(config.AgentCoder, app.Sessions, app.Messages, fallbackTools)
 		if err != nil {
 			logging.Error("Failed to create any agent", err)
 			return nil, err
@@ -214,7 +228,16 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 	// Automatically approve all permission requests for this non-interactive session
 	a.Permissions.AutoApproveSession(sess.ID)
 
-	done, err := a.CoderAgent.Run(ctx, sess.ID, prompt)
+	// Route non-interactive single-shot prompts to the Planner — ACT's canonical
+	// human entry point. Falls back to the legacy CoderAgent only if the Planner
+	// isn't configured for some reason. CoderAgent uses the OpenCode-inherited
+	// interactive-coder system prompt (~4K tokens) which blows free-tier TPM
+	// budgets; the Planner's prompt is purpose-built for ACT and ~1.5K tokens.
+	runAgent := a.CoderAgent
+	if planner, ok := a.Agents["planner"]; ok && planner != nil {
+		runAgent = planner
+	}
+	done, err := runAgent.Run(ctx, sess.ID, prompt)
 	if err != nil {
 		return fmt.Errorf("failed to start agent processing stream: %w", err)
 	}
