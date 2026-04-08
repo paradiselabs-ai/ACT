@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -70,6 +72,13 @@ type Orchestrator struct {
 	// Observer cycle counter — used to emit periodic "all clear" health
 	// messages every observerHealthEvery cycles when no anomalies are found.
 	observerCycles int
+
+	// lastObserverPromptHash is the sha256 of the most recent Observer prompt
+	// we actually sent to the LLM. If a subsequent cycle would produce the same
+	// prompt (same anomalies, same snapshot signature), we skip the LLM call —
+	// the Observer would just say the same thing twice. Cleared on human input
+	// so the next anomaly cycle after a human turn always fires fresh.
+	lastObserverPromptHash string
 
 	// consecutiveAutoTurns counts auto-routed Planner turns chained without a
 	// human input in between. Capped at autoTurnCap to prevent agent loops.
@@ -220,6 +229,7 @@ func (o *Orchestrator) HandleHumanInput(ctx context.Context, sessionID string, t
 	// chained auto-routed Planner turns from the other Tier 1 agents.
 	o.mu.Lock()
 	o.consecutiveAutoTurns = 0
+	o.lastObserverPromptHash = "" // re-arm Observer no-op gate
 	o.mu.Unlock()
 
 	o.runAgentTurn(ctx, sessionID, "planner", text, attachments...)
@@ -877,6 +887,37 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 		return
 	}
 	prompt := buildObserverPrompt(snapshot, anomalies)
+
+	// No-op gate: if this prompt is byte-identical to the last one we sent,
+	// the Observer would just repeat itself. Skip the LLM call entirely.
+	// The hash is cleared by HandleHumanInput so a fresh human turn always
+	// re-arms the Observer.
+	sum := sha256.Sum256([]byte(prompt))
+	hash := hex.EncodeToString(sum[:8])
+	o.mu.Lock()
+	skip := hash == o.lastObserverPromptHash
+	prevHash := o.lastObserverPromptHash
+	o.lastObserverPromptHash = hash
+	o.mu.Unlock()
+	if skip {
+		logging.Info("observer.noop_gate.skip",
+			"reason", "prompt_unchanged",
+			"hash", hash,
+			"cycle", cycle,
+			"anomalies", len(anomalies),
+			"prompt_bytes", len(prompt),
+		)
+		return
+	}
+	logging.Info("observer.noop_gate.fire",
+		"reason", "prompt_changed",
+		"hash", hash,
+		"prev_hash", prevHash,
+		"cycle", cycle,
+		"anomalies", len(anomalies),
+		"prompt_bytes", len(prompt),
+	)
+
 	o.runAgentTurn(ctx, sid, "observer", prompt)
 }
 

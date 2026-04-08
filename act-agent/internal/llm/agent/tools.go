@@ -69,10 +69,12 @@ func TaskAgentTools(lspClients map[string]*lsp.Client) []tools.BaseTool {
 // CoderAgentTools roster — they're the ones actually building things.
 
 // PlannerTools returns the minimum tool set for the Planner agent.
-// Planner only needs bash to run `act` CLI commands.
+// Planner needs bash (for `act` CLI commands) plus expand_prompt_section
+// (to pull deeper guidance on demand without bloating the base prompt).
 func PlannerTools(permissions permission.Service) []tools.BaseTool {
 	return []tools.BaseTool{
 		tools.NewBashTool(permissions),
+		tools.NewExpandPromptSectionTool(),
 	}
 }
 

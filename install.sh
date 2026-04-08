@@ -103,17 +103,9 @@ ok "Server built"
 
 echo ""
 echo -e "${BOLD}Installing CLI dependencies...${RESET}"
-cd "${ACT_ROOT}/cli"
+cd "${ACT_ROOT}/act-agent/cli"
 npm install --silent
 ok "CLI ready"
-
-# ─── Install NesTTY dependencies ──────────────────────────────────────────────
-
-echo ""
-echo -e "${BOLD}Installing NesTTY dependencies...${RESET}"
-cd "${ACT_ROOT}/nestty"
-npm install --silent
-ok "NesTTY ready"
 
 # ─── Register hooks (SessionStart + Stop) ────────────────────────────────────
 
@@ -210,16 +202,23 @@ print(f"  ACT root saved → {config_file}")
 PYEOF
 ok "ACT root path saved to ~/.act/config.json"
 
-# ─── Build + install 'act' CLI command globally ───────────────────────────────
+# ─── Build the act-agent Go binary + symlink as 'act' ────────────────────────
 
 echo ""
-echo -e "${BOLD}Installing 'act' command...${RESET}"
-cd "${ACT_ROOT}/cli"
-info "Building CLI..."
-npm run build --silent
-info "Installing globally via npm..."
-npm install -g --force . --silent
-ACT_BIN="$(which act 2>/dev/null || echo 'not found — ensure npm global bin is in PATH')"
+echo -e "${BOLD}Building act-agent Go binary...${RESET}"
+cd "${ACT_ROOT}/act-agent"
+GO_BIN="$(command -v go || echo /opt/homebrew/bin/go)"
+"${GO_BIN}" build -o act-agent .
+ok "act-agent built"
+
+info "Symlinking 'act' → ${ACT_ROOT}/act-agent/act-agent"
+SYMLINK_TARGET="/opt/homebrew/bin/act"
+if [ -L "${SYMLINK_TARGET}" ] || [ ! -e "${SYMLINK_TARGET}" ]; then
+  ln -sf "${ACT_ROOT}/act-agent/act-agent" "${SYMLINK_TARGET}"
+  ACT_BIN="${SYMLINK_TARGET}"
+else
+  ACT_BIN="${ACT_ROOT}/act-agent/act-agent (symlink not created — ${SYMLINK_TARGET} already exists)"
+fi
 ok "'act' command installed → ${ACT_BIN}"
 
 # ─── Done ────────────────────────────────────────────────────────────────────

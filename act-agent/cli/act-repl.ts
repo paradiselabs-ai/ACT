@@ -1864,63 +1864,11 @@ export class ACTRepl {
     this.currentProjectName = projectName;
   }
 
-  private async handleNestTTY(args?: string): Promise<void> {
-    const projectName = this.currentProjectName;
-    if (!projectName) {
-      console.log("No project selected. Use 'create project' or 'import project' first.");
-      return;
-    }
-
-    const argText = (args || '').trim();
-    let roles: string | undefined;
-    let mock = false;
-
-    const rolesMatch = argText.match(/--roles\s+([^\s]+)/);
-    if (rolesMatch) {
-      roles = rolesMatch[1];
-    }
-    if (/\b--mock\b/.test(argText)) {
-      mock = true;
-    }
-
-    const spawnArgs = [
-      'tsx',
-      'nestty/index.ts',
-      '--project',
-      projectName,
-      '--server',
-      this.client.getServerUrl(),
-    ];
-    if (roles) {
-      spawnArgs.push('--roles', roles);
-    }
-
-    console.log(`\nLaunching NesTTY for project "${projectName}"...`);
-    if (roles) console.log(`Roles: ${roles}`);
-    if (mock) console.log('Mock agents enabled (MOCK_AGENT=1).');
-    console.log('');
-
-    await new Promise<void>((resolve, reject) => {
-      this.rl.pause();
-      const child = spawn('npx', spawnArgs, {
-        stdio: 'inherit',
-        env: {
-          ...process.env,
-          ...(mock ? { MOCK_AGENT: '1' } : {}),
-        },
-      });
-
-      child.on('error', (error) => {
-        this.rl.resume();
-        reject(error);
-      });
-
-      child.on('close', () => {
-        this.rl.resume();
-        console.log('\nNesTTY session ended');
-        resolve();
-      });
-    });
+  private async handleNestTTY(_args?: string): Promise<void> {
+    console.log("");
+    console.log("  The 'nestty' REPL command is deprecated.");
+    console.log("  The TUI IS NesTTY — run 'act' (or 'act --project <name>') from a terminal.");
+    console.log("");
   }
 
   private async handleListProjects(): Promise<void> {

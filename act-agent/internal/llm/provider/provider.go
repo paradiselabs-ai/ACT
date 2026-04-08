@@ -7,6 +7,7 @@ import (
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 )
 
@@ -180,7 +181,48 @@ func (p *baseProvider[C]) cleanMessages(messages []message.Message) (cleaned []m
 
 func (p *baseProvider[C]) SendMessages(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
 	messages = p.cleanMessages(messages)
-	return p.client.send(ctx, messages, tools)
+
+	// Receiver-side response cache. Catches deterministic-input repeats
+	// (Assurance re-scoring identical submissions, Observer re-firing on
+	// unchanged snapshots, etc.) and elides the network call entirely.
+	// Streaming bypasses this — see StreamResponse.
+	model := string(p.options.model.ID)
+	key := globalResponseCache.Key(model, p.options.systemMessage, messages, tools)
+	if cached, ok := globalResponseCache.Get(key); ok {
+		logging.Info("provider.send.cache_hit",
+			"model", model,
+			"messages", len(messages),
+			"tools", len(tools),
+			"system_bytes", len(p.options.systemMessage),
+		)
+		return cached, nil
+	}
+
+	logging.Info("provider.send.network",
+		"model", model,
+		"messages", len(messages),
+		"tools", len(tools),
+		"system_bytes", len(p.options.systemMessage),
+		"key", shortKey(key),
+	)
+	resp, err := p.client.send(ctx, messages, tools)
+	if err != nil {
+		logging.Error("provider.send.error", "model", model, "error", err.Error())
+		return resp, err
+	}
+	if resp != nil {
+		globalResponseCache.Put(key, resp)
+		logging.Info("provider.send.complete",
+			"model", model,
+			"input_tokens", resp.Usage.InputTokens,
+			"output_tokens", resp.Usage.OutputTokens,
+			"cache_read_tokens", resp.Usage.CacheReadTokens,
+			"finish", string(resp.FinishReason),
+			"content_bytes", len(resp.Content),
+			"tool_calls", len(resp.ToolCalls),
+		)
+	}
+	return resp, err
 }
 
 func (p *baseProvider[C]) Model() models.Model {

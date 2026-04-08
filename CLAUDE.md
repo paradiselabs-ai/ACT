@@ -27,7 +27,8 @@ NesTTY = multiple agent REPLs sharing one terminal window. The TUI IS NesTTY.
   - **Observer** — silent background watchdog on a ~120s loop. Only injects a message when anomalies detected (stuck tasks, file conflicts, idle agents with pending work, unresponsive agents, bottlenecks, duplicate assignments).
   - **Assurance** — event-driven. Activates when a swarm agent submits work for validation. Scores `@success_criteria` items (95% gate).
   - **QA/Synthesizer** — event-driven. Activates when Assurance passes validated work. Assembles into final deliverable.
-- **Coordination flow**: Human → Planner creates tasks → ACT server → Runner spawns swarm agents → swarm executes and submits → Assurance validates → QA assembles → Planner reports to human.
+- **Coordination flow**: Human → Planner (INTAKE: 5-question conversation → `PROJECT_BRIEF:` → BUILD: `CREATE_TASK:` directives) → ACT server → Runner spawns swarm agents → swarm executes → Runner calls `act task complete` then `act task submit-for-validation` → Assurance validates → QA assembles → Planner reports to human.
+- **INTAKE mode**: When the Planner detects a new project (server returns 404 for the project name), it runs a 5-question intake conversation (description, techStack, constraints, successCriteria, agentsInvolved), summarizes, asks "Ready to start?", then emits `PROJECT_BRIEF: {json}` on confirmation. The orchestrator parses it and POSTs to `/api/projects`. Only after that does it switch to BUILD mode and start creating tasks.
 
 ***
 
@@ -117,12 +118,11 @@ ACT/
 │   │   ├── coder.go              # Default interactive agent
 │   │   └── prompt.go             # Dispatcher (routes role → prompt)
 │   ├── internal/act/client.go    # Native HTTP client for ACT server
-│   ├── cli/                      # Agent CLI (21 commands) + REPL
+│   ├── cli/                      # Agent CLI (21 commands, TS)
 │   └── runner/act-runner.mjs     # Headless swarm agent spawner
-└── nestty/                        # DEPRECATED — TypeScript prototype, ported to act-agent/internal/app/orchestrator.go
 ```
 
-> **`nestty/` is reference material only.** The TypeScript orchestrator (orchestrator.ts, planner.ts, observer.ts, assurance.ts, synthesizer.ts) was the prototype that proved the turn management, CREATE_TASK parsing, and validation routing patterns. All of that logic now lives in **`act-agent/internal/app/orchestrator.go`** as Go goroutines inside the TUI process. Do not run `npx tsx nestty/index.ts` — that path is dead. Run `act` instead.
+> The TypeScript NesTTY prototype (the old `nestty/` directory) was deleted in the cleanup pass. All of its logic — turn management, CREATE_TASK parsing, validation routing — lives in **`act-agent/internal/app/orchestrator.go`** as Go goroutines inside the TUI process. There is no NesTTY directory to run; the TUI _is_ NesTTY.
 
 ***
 
@@ -145,6 +145,22 @@ ACT/
 - Complexity-triggered PVM context injection (heuristic score > 4)
 - Parallel agent awareness + proactive coordination messages
 - Session lifecycle logging on process exit
+- **`submit-for-validation` after every successful `task complete`** — this is what feeds Assurance + QA. Skipping it leaves the validation pipeline as dead code.
+- 409 self-heal on registration (deletes stale agent + retries)
+- Process groups (`Setpgid`) so the parent kills the entire subtree on shutdown
+- `SweepOrphans()` at startup runs `pkill -f act-runner.mjs` defensively
+- Subprocess stdout/stderr → `~/.act/runners/<role>.log` (no chat pollution)
+
+### TUI / Orchestrator (Phase 3 deltas)
+- **Token diet**: `coder.go::getEnvironmentInfo` no longer runs `ls .`; `bash.go` description trimmed 2300→200 tokens; per-role tool subsets (`Tier1ToolsForRole`) — Planner/Observer get just `bash`, Assurance/QA get `bash + view + grep`. Tier 1 LLM requests dropped ~22K → ~5-7K tokens.
+- **Context paths**: defaultContextPaths reduced to `["ACT.md", "ACT.local.md"]`. CLAUDE.md is no longer auto-injected (was injecting ~20K tokens when running `act` inside the ACT repo).
+- **Lazy swarm spawn**: Runners spawn on the first `CREATE_TASK`, not on every `act` launch.
+- **Coordination event surface**: `coordinationEventLoop` polls `/api/log` every 3s and surfaces task lifecycle events as system messages in the chat (`📝 task created`, `✓ dev-1 completed`, `📤 submitted for validation`, `✅ validation passed`, etc.).
+- **Per-turn 5-min timeout**: `runAgentTurn` wraps `agentSvc.Run` with `context.WithTimeout`. On expiry: cancels the agent and emits a system message.
+- **Internal prompt marker**: `app.InternalPromptMarker` (`\x00ACT_INTERNAL\x00`) prepended to non-Planner inputs so the TUI hides Observer/Assurance/QA prompts but still shows their outputs with role banners.
+- **Auto-route Tier 1 → Planner**: Observer/Assurance/QA messages trigger a Planner turn via `autoRoutePlanner`. Recursion guard `consecutiveAutoTurns < 5`. Reset on every human input. Asymmetric — Planner replies don't auto-route.
+- **Tier 1 visibility**: startup pings (`👁 Observer online` etc.), Observer health pings every ~8 min when no anomalies, role banners cached only after role tagging.
+- **Server auto-start**: `EnsureServerRunning` wired into `cmd/root.go::RunE`. `findServerScript` and `findCLIScript` use `~/.act/config.json::actRoot` first, then walk from binary path, then cwd fallback.
 
 ### CLI
 - REPL: `create project`, `list agents/projects`, `show project`, `default agent`, `status`, `help`
@@ -241,7 +257,7 @@ Any role not configured in `.opencode.json` falls back to the `coder` default.
 
 1. **act-coordination.json is append-only.** Never edit existing entries.
 2. **Tasks are created by the Planner agent inside the TUI.** It parses `CREATE_TASK:` directives from the Planner's responses and POSTs them to the server. Swarm agents consume tasks via the `act` CLI, never create them.
-3. **There is no separate NesTTY orchestrator process.** The TUI _is_ NesTTY. Don't go looking in `nestty/` for runtime code — that's the deprecated TypeScript prototype.
+3. **There is no separate NesTTY orchestrator process.** The TUI _is_ NesTTY. The old `nestty/` directory was deleted — all coordination logic lives in `act-agent/internal/app/orchestrator.go`.
 4. **QdrantVectorStore.ts has a pre-existing TypeScript error.** Don't fix unless wiring Qdrant.
 5. **tsx must be installed locally** in `server/` (`npm install -D tsx`).
 6. **MCP bridge removed.** ACT CLI (`act`) replaces all MCP tools with ~50-100 tokens vs 47K schema overhead.

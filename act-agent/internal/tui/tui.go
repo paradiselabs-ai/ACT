@@ -124,9 +124,6 @@ type appModel struct {
 	showModelDialog bool
 	modelDialog     dialog.ModelDialog
 
-	showInitDialog bool
-	initDialog     dialog.InitDialogCmp
-
 	showOnboardingDialog bool
 	onboardingDialog     dialog.OnboardingCmp
 
@@ -159,8 +156,6 @@ func (a appModel) Init() tea.Cmd {
 	cmd = a.commandDialog.Init()
 	cmds = append(cmds, cmd)
 	cmd = a.modelDialog.Init()
-	cmds = append(cmds, cmd)
-	cmd = a.initDialog.Init()
 	cmds = append(cmds, cmd)
 	cmd = a.onboardingDialog.Init()
 	cmds = append(cmds, cmd)
@@ -216,8 +211,6 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		filepicker, filepickerCmd := a.filepicker.Update(msg)
 		a.filepicker = filepicker.(dialog.FilepickerCmp)
 		cmds = append(cmds, filepickerCmd)
-
-		a.initDialog.SetSize(msg.Width, msg.Height)
 
 		if a.showMultiArgumentsDialog {
 			a.multiArgumentsDialog.SetSize(msg.Width, msg.Height)
@@ -375,32 +368,16 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return a, util.ReportInfo(fmt.Sprintf("Model changed to %s", model.Name))
 
-	case dialog.ShowInitDialogMsg:
-		a.showInitDialog = msg.Show
-		return a, nil
-
 	case dialog.ShowOnboardingDialogMsg:
 		a.showOnboardingDialog = msg.Show
 		return a, nil
 
-	case dialog.CloseInitDialogMsg:
-		a.showInitDialog = false
-		if msg.Initialize {
-			// Run the initialization command
-			for _, cmd := range a.commands {
-				if cmd.ID == "init" {
-					// Mark the project as initialized
-					if err := config.MarkProjectInitialized(); err != nil {
-						return a, util.ReportError(err)
-					}
-					return a, cmd.Handler(cmd)
-				}
-			}
-		} else {
-			// Mark the project as initialized without running the command
-			if err := config.MarkProjectInitialized(); err != nil {
-				return a, util.ReportError(err)
-			}
+	case dialog.CloseOnboardingMsg:
+		a.showOnboardingDialog = false
+		// Onboarding finished (confirmed or cancelled). Mark the project as
+		// initialized either way — the wizard wrote the config it needed.
+		if err := config.MarkProjectInitialized(); err != nil {
+			return a, util.ReportError(err)
 		}
 		return a, nil
 
@@ -545,14 +522,6 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.showHelp = !a.showHelp
 					return a, nil
 				}
-				if a.showInitDialog {
-					a.showInitDialog = false
-					// Mark the project as initialized without running the command
-					if err := config.MarkProjectInitialized(); err != nil {
-						return a, util.ReportError(err)
-					}
-					return a, nil
-				}
 				if a.showOnboardingDialog {
 					a.showOnboardingDialog = false
 					if err := config.MarkProjectInitialized(); err != nil {
@@ -650,16 +619,6 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d, modelCmd := a.modelDialog.Update(msg)
 		a.modelDialog = d.(dialog.ModelDialog)
 		cmds = append(cmds, modelCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showInitDialog {
-		d, initCmd := a.initDialog.Update(msg)
-		a.initDialog = d.(dialog.InitDialogCmp)
-		cmds = append(cmds, initCmd)
 		// Only block key messages send all other messages down
 		if _, ok := msg.(tea.KeyMsg); ok {
 			return a, tea.Batch(cmds...)
@@ -894,17 +853,6 @@ func (a appModel) View() string {
 		)
 	}
 
-	if a.showInitDialog {
-		overlay := a.initDialog.View()
-		appView = layout.PlaceOverlay(
-			a.width/2-lipgloss.Width(overlay)/2,
-			a.height/2-lipgloss.Height(overlay)/2,
-			overlay,
-			appView,
-			true,
-		)
-	}
-
 	if a.showThemeDialog {
 		overlay := a.themeDialog.View()
 		row := lipgloss.Height(appView) / 2
@@ -950,7 +898,6 @@ func New(app *app.App) tea.Model {
 		commandDialog:    dialog.NewCommandDialogCmp(),
 		modelDialog:      dialog.NewModelDialogCmp(),
 		permissions:      dialog.NewPermissionDialogCmp(),
-		initDialog:       dialog.NewInitDialogCmp(),
 		onboardingDialog: dialog.NewOnboardingCmp(),
 		themeDialog:      dialog.NewThemeDialogCmp(),
 		app:              app,

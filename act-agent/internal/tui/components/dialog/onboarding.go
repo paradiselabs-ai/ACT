@@ -22,6 +22,14 @@ type ShowOnboardingDialogMsg struct {
 	Show bool
 }
 
+// CloseOnboardingMsg is sent when the onboarding wizard finishes (confirmed
+// or cancelled). The TUI uses it to hide the overlay and mark the project
+// as initialized. Initialize=true means the user completed the wizard;
+// Initialize=false means they cancelled out of it.
+type CloseOnboardingMsg struct {
+	Initialize bool
+}
+
 type onboardingRole struct {
 	Label    string
 	AgentKey string
@@ -173,7 +181,7 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			return o, util.CmdHandler(CloseInitDialogMsg{Initialize: false})
+			return o, util.CmdHandler(CloseOnboardingMsg{Initialize: false})
 		}
 
 		switch o.step {
@@ -211,7 +219,7 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if o.saveErr != nil {
 					return o, util.ReportError(o.saveErr)
 				}
-				return o, util.CmdHandler(CloseInitDialogMsg{Initialize: true})
+				return o, util.CmdHandler(CloseOnboardingMsg{Initialize: true})
 			}
 		}
 	}
