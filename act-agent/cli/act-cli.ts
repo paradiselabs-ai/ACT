@@ -61,7 +61,7 @@ async function cmdContext(client: ACTClient, args: Record<string, any>): Promise
     console.log(`Priority: ${task.priority || 'medium'}`);
     console.log(`Description: ${task.description}`);
 
-    // Extract SNLP success criteria from description
+    // Extract SPIL success criteria from description
     const criteria = extractSuccessCriteriaSimple(task.description || '');
     if (criteria.length > 0) {
       console.log();
@@ -143,7 +143,7 @@ async function cmdContext(client: ACTClient, args: Record<string, any>): Promise
   }
 }
 
-/** Simple SNLP success criteria extraction (no server dependency) */
+/** Simple SPIL success criteria extraction (no server dependency) */
 function extractSuccessCriteriaSimple(text: string): string[] {
   const lines = text.split('\n');
   let inCriteria = false;

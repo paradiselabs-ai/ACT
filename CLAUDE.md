@@ -37,7 +37,7 @@ NesTTY = multiple agent REPLs sharing one terminal window. The TUI IS NesTTY.
 ### Tier 1 — Interactive (NesTTY Window)
 | Role | Responsibility |
 |------|---------------|
-| **Planner** | ONLY decision-maker. Decomposes projects into SNLP task specs. Evidence-based routing via PVM. Assigns tasks to role IDs. |
+| **Planner** | ONLY decision-maker. Decomposes projects into SPIL task specs. Evidence-based routing via PVM. Assigns tasks to role IDs. |
 | **Observer** | Monitors ChronLog/PVM. Surfaces bottlenecks, file conflicts, stuck tasks. No decisions. |
 | **Assurance** | Two-layer validation: verifies agent's Ralph Wiggum Loop worked + independently scores @success_criteria (95% gate). |
 | **QA/Synthesizer** | Assembles Assurance-validated outputs into final deliverable. Consults agents via targeted --print. |
@@ -177,7 +177,7 @@ ACT/
 
 ## Key Concepts
 
-### SNLP (Syntactic Natural Language Programming)
+### SPIL (Structured Progressive Instruction Language)
 Task/project specification language. `@` for structure, `>` for NL directives. CTD progression (each section depends on what's above). `@success_criteria` = Assurance's validation checklist.
 
 ### PVM (PAIRed Vector Minutes)
@@ -275,7 +275,7 @@ See `docs/Vault/Agent Coordination Toolkit/nestty/BUILD_ORDER.md` for full detai
 **Block 3**: act-agent opencode fork (--agent + --nestty modes) ✅
 **Block 4**: NesTTY orchestrator ✅ (ported to Go, lives in `act-agent/internal/app/orchestrator.go`)
 **Block 5**: Assurance validation + QA/Synthesizer assembly ✅ (server-side complete, in-TUI routing in Phase 2)
-**Block 6**: SNLP parser
+**Block 6**: SPIL parser
 **Future**: FLUX State, architecture patterns from `docs/ARCHITECTURE_PATTERNS.md`
 
 ***
@@ -301,7 +301,7 @@ If the user says **"this is a handoff"** or **"handoff session"**, read `.claude
 
 ## Documentation
 
-- `docs/Vault/Agent Coordination Toolkit/nestty/` — **Primary architecture docs** (9 files covering all roles, protocols, harness, SNLP, infrastructure, build order)
+- `docs/Vault/Agent Coordination Toolkit/nestty/` — **Primary architecture docs** (9 files covering all roles, protocols, harness, SPIL, infrastructure, build order)
 - `docs/Harness/` — Harness engineering principles, knowledge graphs, Deep Agents research, MCO concept
 - `docs/ARCHITECTURE_PATTERNS.md` — **5 patterns from Claude Code analysis** to implement independently (context compaction, deferred tool discovery, pre/post hooks, prompt caching split, autoDream memory consolidation). Includes references, priorities, and where each fits in ACT.
 - Full concept alignment: see plan file `serialized-weaving-spring.md`

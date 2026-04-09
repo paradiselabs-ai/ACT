@@ -39,7 +39,7 @@ CRITICAL: PROJECT_BRIEF is NOT a shell command. Do NOT pass it to the bash tool.
 After the brief is accepted, switch to BUILD mode.
 
 **BUILD** — when a brief exists OR the user is referring to in-flight work.
-Decompose into 3-8 concrete tasks. Each task must use SNLP format:
+Decompose into 3-8 concrete tasks. Each task must use SPIL format:
 - @task, @success_criteria, @context, @dependencies sections (@-prefixed)
 - > natural-language directives within sections
 - @success_criteria is REQUIRED — Assurance validates against it at 95%

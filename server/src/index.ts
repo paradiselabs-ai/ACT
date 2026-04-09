@@ -11,7 +11,7 @@ import { SelfImprovementEngine } from './services/SelfImprovementEngine';
 import { ChronologicalLog } from './services/ChronologicalLog';
 import { LocalEmbeddingVectorStore } from './services/LocalEmbeddingVectorStore';
 import { PVMIndexer } from './services/PVMIndexer';
-import { extractSuccessCriteria } from './services/SNLPParser';
+import { extractSuccessCriteria } from './services/SPILParser';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -199,15 +199,15 @@ app.get('/api/agents/:agentId/agent.json', (req, res) => {
 app.post('/api/agents/:agentId/tasks', async (req, res) => {
   try {
     const { agentId } = req.params;
-    const { title, description, snlp, priority, requiredCapabilities, projectName } = req.body;
+    const { title, description, spil, priority, requiredCapabilities, projectName } = req.body;
 
     // Create the task pre-assigned to the target agent
     const task = await taskCoordinator.createTask({
-      description: title ? `${title}\n\n${description || snlp || ''}` : (description || snlp || ''),
+      description: title ? `${title}\n\n${description || spil || ''}` : (description || spil || ''),
       assignedAgent: agentId,
       priority: priority || 'medium',
       requiredCapabilities: requiredCapabilities || [],
-      metadata: { projectName, snlp, title }
+      metadata: { projectName, spil, title }
     });
 
     // Mark as assigned
@@ -512,7 +512,7 @@ app.get('/api/tasks/assigned', (req, res) => {
 // Get tasks pending validation (must be before /:taskId)
 app.get('/api/tasks/pending-validation', (req, res) => {
   const tasks = taskCoordinator.getTasksByStatus('submitted_for_validation');
-  // Enrich each task with SNLP-extracted success criteria for Assurance
+  // Enrich each task with SPIL-extracted success criteria for Assurance
   const enriched = tasks.map(t => ({
     ...t,
     successCriteria: extractSuccessCriteria(t.description || ''),

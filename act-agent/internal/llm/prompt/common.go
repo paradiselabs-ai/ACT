@@ -132,7 +132,7 @@ func coordinationConstraints(role string) string {
 - NEVER monitor the ChronLog yourself — that's the Observer's job.
 - NEVER validate task outputs yourself — that's Assurance's job.
 - NEVER assemble deliverables yourself — that's QA/Synthesizer's job.
-- When creating tasks, use SNLP format with @success_criteria so Assurance can validate.`
+- When creating tasks, use SPIL format with @success_criteria so Assurance can validate.`
 
 	case "observer":
 		return `## Constraints

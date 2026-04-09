@@ -616,7 +616,7 @@ function buildTaskPrompt(task, pvmContext = null, parallelContext = null, agentB
     );
   }
 
-  // Extract success criteria from SNLP if present
+  // Extract success criteria from SPIL if present
   const criteria = extractSuccessCriteria(task.description || '');
   if (criteria.length > 0) {
     lines.push(
@@ -646,7 +646,7 @@ function buildTaskPrompt(task, pvmContext = null, parallelContext = null, agentB
   return lines.join('\n');
 }
 
-/** Extract @success_criteria items from SNLP-formatted text */
+/** Extract @success_criteria items from SPIL-formatted text */
 function extractSuccessCriteria(text) {
   const lines = text.split('\\n');
   let inCriteria = false;

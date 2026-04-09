@@ -134,19 +134,19 @@ R=$(curl -s -X POST "$BASE/api/files/release" \
   -d "{\"agent_id\":\"test-agent-1\",\"task_id\":\"$TASK_ID\",\"file_paths\":[\"src/test.ts\"]}")
 check "release file" "success" "$R"
 
-# 16. SNLP success criteria extraction
+# 16. SPIL success criteria extraction
 echo ""
-echo "16. SNLP Extraction"
-SNLP_TASK=$(curl -s -X POST "$BASE/api/tasks" \
+echo "16. SPIL Extraction"
+SPIL_TASK=$(curl -s -X POST "$BASE/api/tasks" \
   -H "Content-Type: application/json" \
-  -d '{"title":"SNLP Test","description":"@success_criteria\n- Code compiles\n- Tests pass\n- No regressions","requiredCapabilities":["testing"],"priority":"low"}')
-SNLP_ID=$(echo "$SNLP_TASK" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-curl -s -X POST "$BASE/api/tasks/$SNLP_ID/complete" -H "Content-Type: application/json" \
+  -d '{"title":"SPIL Test","description":"@success_criteria\n- Code compiles\n- Tests pass\n- No regressions","requiredCapabilities":["testing"],"priority":"low"}')
+SPIL_ID=$(echo "$SPIL_TASK" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+curl -s -X POST "$BASE/api/tasks/$SPIL_ID/complete" -H "Content-Type: application/json" \
   -d '{"agentId":"test-agent-1","success":true,"result":"done"}' > /dev/null
-curl -s -X POST "$BASE/api/tasks/$SNLP_ID/submit-for-validation" -H "Content-Type: application/json" \
+curl -s -X POST "$BASE/api/tasks/$SPIL_ID/submit-for-validation" -H "Content-Type: application/json" \
   -d '{"agentId":"test-agent-1"}' > /dev/null
 R=$(curl -s "$BASE/api/tasks/pending-validation")
-check "snlp criteria extracted" "successCriteria" "$R"
+check "spil criteria extracted" "successCriteria" "$R"
 
 # 17. A2A Agent Card
 echo ""

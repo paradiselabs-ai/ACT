@@ -19,7 +19,7 @@ const baseDeveloperPrompt = `# How You Receive Work
 Your task description, success criteria, and any context will be provided in your prompt.
 This may include:
 - Project brief (AGENT.md) — your project context and role
-- Task description with @success_criteria (from SNLP)
+- Task description with @success_criteria (from SPIL)
 - Parallel agent awareness — who else is working and on what
 - PVM context — related past coordination patterns
 - Pending messages — from peers or Assurance gap analysis

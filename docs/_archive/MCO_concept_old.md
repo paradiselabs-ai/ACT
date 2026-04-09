@@ -106,7 +106,7 @@ The core loop:
 │        ▲                                    │       │
 │        │         ┌───────────────┐          │       │
 │        │         │ INJECT        │          │       │
-│        └─────────│ relevant SNLP │◄─────────┘       │
+│        └─────────│ relevant SPIL │◄─────────┘       │
 │                  │ (.features/   │                   │
 │                  │  .styles/     │   What's missing? │
 │                  │  partial)     │                   │
@@ -119,7 +119,7 @@ The core loop:
 
 A naive retry loop says: *"Agent failed. Give it the same prompt again."*
 
-A context feedback loop says: *"Agent produced an incomplete result. Evaluate what's missing against the success criteria. Determine which specific SNLP context addresses the gap. Inject that context on top of the persistent foundation. Agent continues with enriched understanding."*
+A context feedback loop says: *"Agent produced an incomplete result. Evaluate what's missing against the success criteria. Determine which specific SPIL context addresses the gap. Inject that context on top of the persistent foundation. Agent continues with enriched understanding."*
 
 The critical distinction: **each loop iteration changes the agent's context in a targeted way.** The agent isn't just retrying — it's receiving new, relevant information that it didn't have before. This turns what would be a frustrating infinite loop into a **convergent refinement process**.
 
@@ -143,7 +143,7 @@ What makes this "intelligent" rather than "mechanical":
 
 1. **Gap Analysis** — After each evaluation, MCO identifies *which* success criteria are unsatisfied. This determines injection content.
 
-2. **Partial Injection** — MCO doesn't re-inject the entire `.features` file. If the agent nailed 8 of 10 features but missed responsive layout and error handling, only those specific SNLP blocks get injected.
+2. **Partial Injection** — MCO doesn't re-inject the entire `.features` file. If the agent nailed 8 of 10 features but missed responsive layout and error handling, only those specific SPIL blocks get injected.
 
 3. **Temporal Relevance** — Style information isn't injected during a backend logic phase, even if styles are technically "missing." The loop respects the natural progression of development work.
 
@@ -151,14 +151,14 @@ What makes this "intelligent" rather than "mechanical":
 
 ### Relationship to FLUX+PAIR Origins
 
-Context Feedback Looping evolved directly from your earlier **PAIR (Past Archived Information Re-injection)** concept. PAIR used vector databases (Qdrant) to store and retrieve context fragments. MCO stripped out the vector DB dependency and replaced it with **file-based SNLP parsing** — making the same conceptual operation (evaluate → identify gap → retrieve relevant context → re-inject) work through standard file I/O and MCP tooling instead of requiring embedding infrastructure.
+Context Feedback Looping evolved directly from your earlier **PAIR (Past Archived Information Re-injection)** concept. PAIR used vector databases (Qdrant) to store and retrieve context fragments. MCO stripped out the vector DB dependency and replaced it with **file-based SPIL parsing** — making the same conceptual operation (evaluate → identify gap → retrieve relevant context → re-inject) work through standard file I/O and MCP tooling instead of requiring embedding infrastructure.
 
 The intellectual lineage:
 
 ```
 PAIR (2025, early)              →    MCO Context Feedback Loop (2025, mid)
 ━━━━━━━━━━━━━━━━━━━                  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Vector DB storage                    SNLP file storage
+Vector DB storage                    SPIL file storage
 Embedding-based retrieval            Parser-based injection
 Qdrant dependency                    Framework-agnostic (MCP native)
 Max 3 iterations                     Loop until ≥95% (convergent)
@@ -204,7 +204,7 @@ Step 4: Agent produces a percentage-based score
             │
             └── Score < 95% → FAIL → Context Feedback Loop activates
                                       Identify gaps
-                                      Inject relevant SNLP
+                                      Inject relevant SPIL
                                       Return to agent work phase
 ```
 
@@ -255,7 +255,7 @@ This is where the three systems **interlock**:
 │         │ (feeds back into Progressive Revelation's dosing logic)        │
 │         ▼                                                                │
 │  PROGRESSIVE REVELATION                                                  │
-│  selects targeted SNLP content based on identified gaps                 │
+│  selects targeted SPIL content based on identified gaps                 │
 │         │                                                                │
 │         └──────► CONTEXT FEEDBACK LOOP (next iteration)                 │
 │                                                                          │
@@ -317,7 +317,7 @@ After MCO:
 2. Agent works on current step with focused context
 3. Agent claims "done"
 4. MCO forces evaluation against persistent success criteria
-5. Score < 95% → MCO identifies gaps, injects targeted SNLP
+5. Score < 95% → MCO identifies gaps, injects targeted SPIL
 6. Agent continues with enriched context
 7. Score ≥ 95% → Orchestration completes
 ```
@@ -333,9 +333,9 @@ Given the [GSD article you were reading](https://freedium.cfd) earlier today (~2
 | Dimension | Raw Agent Chat | GSD | MCO Protocol |
 |:---|:---|:---|:---|
 | **Context management** | Single thread, everything in one window | Fresh context per task, externalized to files | Progressive Revelation with persistent/semi-persistent tiers |
-| **Memory** | Chat history (degrades) | File artifacts (`STATE.md`, `PROJECT.md`) | SNLP files with explicit memory tier assignments |
+| **Memory** | Chat history (degrades) | File artifacts (`STATE.md`, `PROJECT.md`) | SPIL files with explicit memory tier assignments |
 | **Quality gate** | None (trust agent) | Manual UAT + verify commands per task | Automated 95% validation loop against persistent `mco.sc` |
-| **Failure recovery** | Manual re-prompting | Debug agents + fix plans | Automated context feedback loop with targeted SNLP injection |
+| **Failure recovery** | Manual re-prompting | Debug agents + fix plans | Automated context feedback loop with targeted SPIL injection |
 | **Drift prevention** | None | Discuss phase locks decisions into files | `mco.core` + `mco.sc` in permanent persistent memory |
 | **Granularity** | One long session | Phase → Plan → Task | Workflow → Step → Validation iteration |
 

@@ -1,5 +1,5 @@
 /**
- * SNLP Parser — extracts structured data from SNLP-formatted text.
+ * SPIL Parser — extracts structured data from SPIL-formatted text.
  *
  * MVP scope: extract @-sections and their contents. The format is:
  *   @keyword:         → starts a section (content follows on subsequent lines)
@@ -11,7 +11,7 @@
  * Full lexer/parser (tokenization, semantic analysis) is deferred.
  */
 
-export interface SNLPSection {
+export interface SPILSection {
   keyword: string;
   value?: string;           // inline value for @keyword "value"
   items: string[];          // list items (- item)
@@ -19,18 +19,18 @@ export interface SNLPSection {
   raw: string;              // raw text content
 }
 
-export interface SNLPDocument {
-  sections: SNLPSection[];
+export interface SPILDocument {
+  sections: SPILSection[];
   directives: string[];     // top-level > directives not in a section
 }
 
 /**
- * Parse an SNLP-formatted string into structured sections.
+ * Parse an SPIL-formatted string into structured sections.
  */
-export function parseSNLP(text: string): SNLPDocument {
+export function parseSPIL(text: string): SPILDocument {
   const lines = text.split('\n');
-  const document: SNLPDocument = { sections: [], directives: [] };
-  let currentSection: SNLPSection | null = null;
+  const document: SPILDocument = { sections: [], directives: [] };
+  let currentSection: SPILSection | null = null;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -117,29 +117,29 @@ export function parseSNLP(text: string): SNLPDocument {
 }
 
 /**
- * Extract @success_criteria items from an SNLP document.
+ * Extract @success_criteria items from an SPIL document.
  * This is the primary use case for Assurance validation.
  */
 export function extractSuccessCriteria(text: string): string[] {
-  const doc = parseSNLP(text);
+  const doc = parseSPIL(text);
   const section = doc.sections.find(s => s.keyword === 'success_criteria');
   return section?.items ?? [];
 }
 
 /**
- * Extract a specific @keyword's value from SNLP text.
+ * Extract a specific @keyword's value from SPIL text.
  */
 export function extractKeyword(text: string, keyword: string): string | undefined {
-  const doc = parseSNLP(text);
+  const doc = parseSPIL(text);
   const section = doc.sections.find(s => s.keyword === keyword);
   return section?.value;
 }
 
 /**
- * Extract all > directives from SNLP text.
+ * Extract all > directives from SPIL text.
  */
 export function extractDirectives(text: string): string[] {
-  const doc = parseSNLP(text);
+  const doc = parseSPIL(text);
   const allDirectives = [...doc.directives];
   for (const section of doc.sections) {
     allDirectives.push(...section.directives);
@@ -152,7 +152,7 @@ export function extractDirectives(text: string): string[] {
  * Returns key-value pairs from indented content.
  */
 export function extractSubKeys(text: string, keyword: string): Record<string, string> {
-  const doc = parseSNLP(text);
+  const doc = parseSPIL(text);
   const section = doc.sections.find(s => s.keyword === keyword);
   if (!section) return {};
 
