@@ -29,18 +29,21 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "act",
 	Short: "ACT — Agent Coordination Toolkit",
-	Long:  `ACT launches the multi-agent coordination harness with NesTTY.`,
+	Long: `ACT — the multi-agent coordination TUI.
+Launches a single window hosting four Tier 1 agents (Planner, Observer,
+Assurance, QA/Synthesizer) over a parallel swarm of headless workers.
+The TUI is the harness; there is no separate orchestrator process.`,
 	Example: `
-  # Launch NesTTY (default — interactive project selection)
+  # Launch the ACT TUI in the current directory
   act
 
-  # Launch with a specific project
+  # Launch the TUI for a specific project (cd into the project dir first)
   act --project my-app
 
-  # Headless agent mode (used by runner)
+  # Headless worker mode (spawned by the swarm runner — not for users)
   act --agent dev-1 --role developer -p "implement auth"
 
-  # Single non-interactive prompt
+  # Single non-interactive prompt (returns the response on stdout and exits)
   act -p "Explain this codebase"
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -143,30 +146,22 @@ var rootCmd = &cobra.Command{
 			return app.RunAgent(ctx, prompt, agentID, agentRole)
 		}
 
-		// NesTTY mode (persistent session, stdin/stdout conversation relay)
-		nesttyRole, _ := cmd.Flags().GetString("nestty")
-		if nesttyRole != "" {
-			return app.RunNesTTY(ctx, nesttyRole, prompt)
-		}
-
 		// Non-interactive mode
 		if prompt != "" {
 			// Run non-interactive flow using the App method
 			return app.RunNonInteractive(ctx, prompt, outputFormat, quiet)
 		}
 
-		// Interactive mode — launch the ACT TUI
-		// The TUI provides onboarding, help, project management, sessions, and stats.
-		// NesTTY orchestration is triggered from within the TUI or via `act orchestrate`.
+		// Interactive mode — launch the ACT TUI.
+		// The TUI hosts the 4 Tier 1 agents as in-process goroutines and the
+		// orchestrator spawns the Tier 2 swarm via runner.Spawner. The TUI
+		// is the harness; there is no separate orchestrator process.
 		return runTUI(app, ctx)
 	},
 }
 
-// runTUI launches the ACT TUI (the OpenCode-fork Bubble Tea interface).
-// This IS NesTTY — the TUI hosts the 4 Tier 1 agents as in-process goroutines
-// and the orchestrator spawns the Tier 2 swarm via runner.Spawner.
-// There is no separate "NesTTY launcher" — the deprecated TypeScript orchestrator
-// at nestty/ is reference material only.
+// runTUI launches the ACT TUI (the Bubble Tea interface that hosts the
+// Tier 1 agents and the orchestrator).
 func runTUI(a *app.App, ctx context.Context) error {
 	zone.NewGlobal()
 	program := tea.NewProgram(
@@ -438,6 +433,22 @@ func Execute() {
 	// Allow positional args (for CLI subcommand routing)
 	rootCmd.Args = cobra.ArbitraryArgs
 
+	// Pre-cobra CLI subcommand routing. Cobra parses flags BEFORE RunE runs,
+	// so a call like `act log --tail 20` would die on "unknown flag: --tail"
+	// before reaching routeToCLI inside RunE. Detect the subcommand straight
+	// from os.Args and exec into the TS CLI here, skipping cobra entirely
+	// for those calls. This also keeps the bash tool's act-CLI invocations
+	// flag-permissive (the TS CLI parses its own flags).
+	if len(os.Args) > 1 {
+		first := os.Args[1]
+		if isCLISubcommand(first) {
+			if err := routeToCLI(os.Args[1:]); err != nil {
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -459,10 +470,9 @@ func init() {
 	rootCmd.Flags().BoolP("quiet", "q", false, "Hide spinner in non-interactive mode")
 
 	// ACT coordination modes
-	rootCmd.Flags().String("agent", "", "ACT agent ID — headless mode with JSON stdout, wired to act CLI")
-	rootCmd.Flags().String("role", "", "ACT role — selects model config (developer|planner|observer|assurance|qa)")
-	rootCmd.Flags().String("nestty", "", "NesTTY role (planner|observer|assurance|qa) — PTY split mode")
-	rootCmd.Flags().String("project", "", "Project name for NesTTY session")
+	rootCmd.Flags().String("agent", "", "ACT agent ID — headless worker mode (used by the swarm runner)")
+	rootCmd.Flags().String("role", "", "ACT role — selects model config (developer|frontend_dev|backend_dev|qa_engineer|researcher)")
+	rootCmd.Flags().String("project", "", "Project name for the ACT session (defaults to the current directory's basename)")
 
 	// Register custom validation for the format flag
 	rootCmd.RegisterFlagCompletionFunc("output-format", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

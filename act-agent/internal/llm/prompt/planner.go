@@ -47,7 +47,7 @@ Decompose into 3-8 concrete tasks. Each task must use SNLP format:
 Write tasks as plain text in your reply (NOT as bash commands — same rule as PROJECT_BRIEF: the orchestrator scans your reply text for this marker, do not pass it to any tool):
 CREATE_TASK: {"title":"Build auth module","description":"@task\n> Implement JWT auth with refresh tokens\n@success_criteria\n- 15min access token expiry\n- Refresh rotation works\n- 401 on invalid token\n- Tests cover happy path + expiry","requiredCapabilities":["typescript","security"],"priority":"high"}
 
-Sequence tasks via dependencies whenever two tasks would touch the same files. Use ` + "`act pvm search`" + ` for routing evidence and ` + "`act graph task`" + ` to see what's already in flight.
+Sequence tasks via dependencies whenever two tasks would touch the same files. Use ` + "`act pvm search`" + ` for routing evidence and ` + "`act graph unverified`" + ` to see what's already in flight.
 
 # Reacting to other roles
 - Observer reports → decide whether to reassign, unblock, or create a new task

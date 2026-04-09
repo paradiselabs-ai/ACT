@@ -178,13 +178,12 @@ func (h *helpCmp) View() string {
 
 	actModes := lipgloss.JoinVertical(lipgloss.Left,
 		sectionTitleStyle.Render("ACT Agent Modes"),
-		sectionBodyStyle.Render("  --agent <id>     Headless mode: execute task, return JSON"),
-		sectionBodyStyle.Render("  --nestty <role>  NesTTY mode: persistent conversation relay"),
+		sectionBodyStyle.Render("  --agent <id>     Headless worker mode (used by the swarm runner)"),
 		sectionBodyStyle.Render("  --role <role>    Select role-specific model config"),
+		sectionBodyStyle.Render("  --project <name> Project name (defaults to cwd basename)"),
 		"",
-		sectionBodyStyle.Render("  Roles: planner, observer, assurance, qa,"),
-		sectionBodyStyle.Render("         developer, frontend_dev, backend_dev,"),
-		sectionBodyStyle.Render("         qa_engineer, researcher"),
+		sectionBodyStyle.Render("  Swarm roles: developer, frontend_dev, backend_dev,"),
+		sectionBodyStyle.Render("               qa_engineer, researcher"),
 	)
 
 	actCLI := lipgloss.JoinVertical(lipgloss.Left,

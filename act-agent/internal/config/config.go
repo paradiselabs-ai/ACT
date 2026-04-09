@@ -109,6 +109,17 @@ func Tier1AgentNames() []AgentName {
 	return []AgentName{RolePlanner, RoleObserver, RoleAssurance, RoleQASynthesizer}
 }
 
+// isTier1Agent reports whether the given role is one of the four Tier 1
+// NesTTY roles. Used by the validator to apply Tier-1-specific constraints
+// (e.g. tool-call support requirement) without depending on a slice scan.
+func isTier1Agent(name AgentName) bool {
+	switch name {
+	case RolePlanner, RoleObserver, RoleAssurance, RoleQASynthesizer:
+		return true
+	}
+	return false
+}
+
 // Tier1Configs returns the configured Agent struct for each Tier 1 role.
 // Roles that aren't in the user's config are returned as zero-value Agents.
 // Used by the status bar (to show all 4 models) and the model selection
@@ -623,6 +634,25 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
 		} else {
 			return fmt.Errorf("no valid provider available for agent %s", name)
+		}
+		return nil
+	}
+
+	// Refuse to assign a known-tool-broken model to a Tier 1 role. Every
+	// Tier 1 agent (Planner/Observer/Assurance/QA) needs the bash tool to
+	// invoke `act` CLI commands; if the model's available providers don't
+	// support tool calls, every request will 404 and the run will hang on
+	// the per-turn timeout. We catch this at config-load time and revert
+	// to a default rather than letting the user discover the failure mid-run.
+	if model.ToolsUnsupported && isTier1Agent(name) {
+		logging.Warn("tier-1 role assigned a model with unsupported tool calling — reverting to default",
+			"agent", name,
+			"configured_model", agent.Model,
+			"reason", "model.ToolsUnsupported=true; Tier 1 needs bash tool")
+		if setDefaultModelForAgent(name) {
+			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
+		} else {
+			return fmt.Errorf("agent %s is configured with %s, which does not support tool calls, and no default replacement is available — change the model in ~/.act.json", name, agent.Model)
 		}
 		return nil
 	}

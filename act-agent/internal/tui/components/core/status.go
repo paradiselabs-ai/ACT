@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
@@ -151,12 +153,33 @@ func (m statusCmp) View() string {
 		Background(t.BackgroundDarker()).
 		Render(m.projectDiagnostics())
 
-	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.tier1Models())-lipgloss.Width(diagnostics)-tokenInfoWidth)
+	tier1 := m.tier1Models()
+	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(tier1)-lipgloss.Width(diagnostics)-tokenInfoWidth)
+
+	// Status bar minimum: when the right-side widgets eat almost everything,
+	// we used to render the message into a 5-char-wide cell which forced
+	// lipgloss to wrap a 600-char OpenRouter error into an unreadable
+	// vertical waterfall. Two safety rails fix this:
+	//
+	//   1. Collapse `tier1Models` to a tiny "P/O/A/Q" glyph if there isn't
+	//      enough room left for a readable message. We never silently kill
+	//      the message — the persistent widgets yield first.
+	//   2. Truncate the message with ANSI-aware single-line truncation
+	//      BEFORE handing it to lipgloss, regardless of computed widths.
+	//      The truncation always runs; the only question is what width.
+	const minMsgRenderWidth = 24
+	if m.info.Msg != "" && availableWidht < minMsgRenderWidth {
+		// Drop the verbose tier1 widget for one render and recompute.
+		// This is a one-frame collapse — next non-error frame restores it.
+		tier1 = m.tier1ModelsCompact()
+		availableWidht = max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(tier1)-lipgloss.Width(diagnostics)-tokenInfoWidth)
+	}
 
 	if m.info.Msg != "" {
 		infoStyle := styles.Padded().
 			Foreground(t.Background()).
-			Width(availableWidht)
+			Width(availableWidht).
+			MaxWidth(availableWidht)
 
 		switch m.info.Type {
 		case util.InfoTypeInfo:
@@ -167,11 +190,18 @@ func (m statusCmp) View() string {
 			infoStyle = infoStyle.Background(t.Error())
 		}
 
-		infoWidth := availableWidht - 10
-		// Truncate message if it's longer than available width
-		msg := m.info.Msg
-		if len(msg) > infoWidth && infoWidth > 0 {
-			msg = msg[:infoWidth] + "..."
+		// Always collapse newlines first — multi-line errors in a single-line
+		// status bar are exactly the wrap-disaster we're fixing.
+		msg := strings.ReplaceAll(m.info.Msg, "\n", " ")
+		msg = strings.ReplaceAll(msg, "\r", " ")
+		// Padded() adds 2 chars of horizontal padding; budget for it plus
+		// the ellipsis itself so the truncate doesn't overflow into wrap.
+		budget := availableWidht - 4
+		if budget < 1 {
+			// If even the truncated message can't fit, just show an icon.
+			msg = "!"
+		} else {
+			msg = ansi.Truncate(msg, budget, "...")
 		}
 		status += infoStyle.Render(msg)
 	} else {
@@ -183,8 +213,19 @@ func (m statusCmp) View() string {
 	}
 
 	status += diagnostics
-	status += m.tier1Models()
+	status += tier1
 	return status
+}
+
+// tier1ModelsCompact renders the Tier 1 model strip in its tightest form
+// (P/O/A/Q glyphs only, no model names) so the status bar can yield
+// horizontal space to a long message without dropping the widget entirely.
+func (m statusCmp) tier1ModelsCompact() string {
+	t := theme.CurrentTheme()
+	return styles.Padded().
+		Background(t.Secondary()).
+		Foreground(t.Background()).
+		Render("P/O/A/Q")
 }
 
 func (m *statusCmp) projectDiagnostics() string {

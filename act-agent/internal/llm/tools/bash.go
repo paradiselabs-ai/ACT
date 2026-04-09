@@ -108,6 +108,18 @@ func (b *bashTool) Run(ctx context.Context, call ToolCall) (ToolResponse, error)
 		return NewTextErrorResponse("missing command"), nil
 	}
 
+	// ACT guard: CREATE_TASK and PROJECT_BRIEF are reply-text markers, not shell commands.
+	// The orchestrator scans Tier 1 reply text for these markers and routes them in-process.
+	// Refuse early with a clear instruction so the model corrects course on the same turn.
+	if strings.Contains(params.Command, "CREATE_TASK:") || strings.Contains(params.Command, "PROJECT_BRIEF:") {
+		return NewTextErrorResponse(
+			"REFUSED: CREATE_TASK and PROJECT_BRIEF are NOT shell commands. They are markers " +
+				"that you write as plain text in your chat reply. The orchestrator scans your " +
+				"reply text for them and parses the JSON in-process. Do not call the bash tool " +
+				"with these markers — write them directly in your message text instead.",
+		), nil
+	}
+
 	baseCmd := strings.Fields(params.Command)[0]
 	for _, banned := range bannedCommands {
 		if strings.EqualFold(baseCmd, banned) {

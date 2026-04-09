@@ -20,6 +20,15 @@ type Model struct {
 	DefaultMaxTokens    int64         `json:"default_max_tokens"`
 	CanReason           bool          `json:"can_reason"`
 	SupportsAttachments bool          `json:"supports_attachments"`
+
+	// ToolsUnsupported marks a model whose available providers do NOT
+	// reliably support tool calling. The default zero-value is false
+	// (most models support tools), so this field is set true ONLY for
+	// known-broken cases — typically free OpenRouter providers serving
+	// large models without tool-call routing. The config validator
+	// refuses to assign a ToolsUnsupported model to a Tier 1 role
+	// because every Tier 1 agent needs the bash tool to call `act`.
+	ToolsUnsupported bool `json:"tools_unsupported,omitempty"`
 }
 
 // Model IDs

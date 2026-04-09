@@ -14,40 +14,39 @@ func actCLICommands(role string) string {
 	switch role {
 	case "planner":
 		base = `## ACT CLI Commands (available to you)
+You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages. CREATE_TASK and PROJECT_BRIEF are markers in your reply text, not shell commands.
 - act context --project <name>    Load full project context (tasks, agents, brief)
-- act graph task                  Show task dependency tree
 - act graph unverified            Show tasks not yet validated
 - act pvm search "<query>"        Search coordination history for relevant patterns
 - act codebase onboard            High-level architecture overview (Nomik)
 - act codebase communities        Functional clusters / module boundaries (Nomik)
 - act status                      Show server status (agents, tasks, locks)
-- act log --tail 20               Show recent coordination log entries
-- act message "<text>"            Send a message to the coordination channel`
+- act log --tail 20               Show recent coordination log entries`
 
 	case "observer":
 		base = `## ACT CLI Commands (available to you)
+You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
 - act log --tail 20               Show recent coordination log entries
 - act graph conflicts             Check for file lock conflicts between agents
 - act codebase rules              Architecture rule violations (Nomik)
 - act codebase impact <symbol>    Blast radius of a symbol (Nomik)
 - act status                      Show server status (agents, tasks, locks)
-- act graph unverified            Show tasks awaiting validation
-- act message "<text>"            Send a message to the coordination channel`
+- act graph unverified            Show tasks awaiting validation`
 
 	case "assurance":
 		base = `## ACT CLI Commands (available to you)
+You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
 - act validation queue            Show tasks awaiting validation
 - act codebase impact <symbol>    Check blast radius of code changes (Nomik)
 - act codebase rules              Check for architecture violations (Nomik)
-- act status                      Show server status
-- act message "<text>"            Send a message to the coordination channel`
+- act status                      Show server status`
 
 	case "qa_synthesizer":
 		base = `## ACT CLI Commands (available to you)
+You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
 - act codebase communities        Functional clusters / integration points (Nomik)
 - act codebase onboard            High-level architecture overview (Nomik)
-- act status                      Show server status
-- act message "<text>"            Send a message to the coordination channel`
+- act status                      Show server status`
 
 	case "researcher":
 		base = `## ACT CLI Commands (available to you)

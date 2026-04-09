@@ -26,6 +26,7 @@ const (
 	OpenRouterDeepSeekV3Free       ModelID = "openrouter.deepseek-v3-free"
 	OpenRouterLlama33_70BFree      ModelID = "openrouter.llama-3.3-70b-free"
 	OpenRouterGemma3_27BFree       ModelID = "openrouter.gemma-3-27b-free"
+	OpenRouterQwen25_72BFree       ModelID = "openrouter.qwen-2.5-72b-free"
 )
 
 var OpenRouterModels = map[ModelID]Model{
@@ -278,9 +279,13 @@ var OpenRouterModels = map[ModelID]Model{
 	},
 
 	// NVIDIA Nemotron 3 Super 120B — biggest free model on OpenRouter, hybrid
-	// Mamba-Transformer, 262K context. Best free choice for the Planner role:
-	// strongest reasoning + instruction following at zero cost. Replaces the
-	// older deepseek-v3-free entry which OpenRouter removed in 2026-04.
+	// Mamba-Transformer, 262K context. KNOWN BROKEN for tool calls: as of
+	// 2026-04, OpenRouter's free providers serving this model do not support
+	// tool-call routing and return 404 "no endpoints found that support tool
+	// use" when a request includes the bash tool definition. Marked
+	// ToolsUnsupported so the validator refuses to assign it to a Tier 1 role
+	// (Planner/Observer/Assurance/QA all need bash). Still usable for non-tool
+	// workloads if anyone wants to wire one up later.
 	OpenRouterDeepSeekV3Free: {
 		ID:                 OpenRouterDeepSeekV3Free,
 		Name:               "OpenRouter – Nemotron 3 Super 120B Free",
@@ -292,6 +297,7 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MOutCached: 0,
 		ContextWindow:      262_144,
 		DefaultMaxTokens:   8000,
+		ToolsUnsupported:   true,
 	},
 
 	// Llama 3.3 70B Instruct — proven, well-tested instruction follower.
@@ -324,5 +330,21 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MOutCached: 0,
 		ContextWindow:      131_072,
 		DefaultMaxTokens:   3000,
+	},
+
+	// Qwen 2.5 72B Instruct — second tool-capable free model alongside Llama 3.3.
+	// Used for Assurance so Assurance and QA can run on different models and
+	// don't compete for the same OpenRouter free-tier rate-limit pool.
+	OpenRouterQwen25_72BFree: {
+		ID:                 OpenRouterQwen25_72BFree,
+		Name:               "OpenRouter – Qwen 2.5 72B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "qwen/qwen-2.5-72b-instruct:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      32_768,
+		DefaultMaxTokens:   5000,
 	},
 }
