@@ -23,6 +23,9 @@ const (
 	OpenRouterClaude35Haiku  ModelID = "openrouter.claude-3.5-haiku"
 	OpenRouterClaude3Opus    ModelID = "openrouter.claude-3-opus"
 	OpenRouterNemotron3SuperFree    ModelID = "openrouter.nemotron-3-super-free"
+	OpenRouterGPTOSS120BFree       ModelID = "openrouter.gpt-oss-120b-free"
+	OpenRouterQwen3Next80BFree     ModelID = "openrouter.qwen3-next-80b-free"
+	OpenRouterMiniMaxM25Free       ModelID = "openrouter.minimax-m2.5-free"
 	OpenRouterLlama33_70BFree      ModelID = "openrouter.llama-3.3-70b-free"
 	OpenRouterGemma3_27BFree       ModelID = "openrouter.gemma-3-27b-free"
 	OpenRouterQwen3CoderFree       ModelID = "openrouter.qwen3-coder-free"
@@ -265,13 +268,9 @@ var OpenRouterModels = map[ModelID]Model{
 	},
 
 	// NVIDIA Nemotron 3 Super 120B — biggest free model on OpenRouter, hybrid
-	// Mamba-Transformer, 262K context. KNOWN BROKEN for tool calls: as of
-	// 2026-04, OpenRouter's free providers serving this model do not support
-	// tool-call routing and return 404 "no endpoints found that support tool
-	// use" when a request includes the bash tool definition. Marked
-	// ToolsUnsupported so the validator refuses to assign it to a Tier 1 role
-	// (Planner/Observer/Assurance/QA all need bash). Still usable for non-tool
-	// workloads if anyone wants to wire one up later.
+	// Mamba-Transformer, 262K context. Hosted on Venice (free tier). Supports
+	// tool calls — confirmed working as of 2026-04. Different upstream provider
+	// from OpenInference, so good for load-balancing across 4 Tier 1 agents.
 	OpenRouterNemotron3SuperFree: {
 		ID:                 OpenRouterNemotron3SuperFree,
 		Name:               "OpenRouter – Nemotron 3 Super 120B Free",
@@ -283,7 +282,23 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MOutCached: 0,
 		ContextWindow:      262_144,
 		DefaultMaxTokens:   8000,
-		ToolsUnsupported:   true,
+	},
+
+	// OpenAI OSS 120B — OpenAI's open-source 120B model served free via
+	// OpenInference. Supports tool calls. Different upstream provider from
+	// Venice (Nemotron), so using both distributes rate-limit pressure across
+	// two independent free-tier quotas.
+	OpenRouterGPTOSS120BFree: {
+		ID:                 OpenRouterGPTOSS120BFree,
+		Name:               "OpenRouter – OpenAI OSS 120B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "openai/gpt-oss-120b:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      131_072,
+		DefaultMaxTokens:   8000,
 	},
 
 	// Llama 3.3 70B Instruct — proven, well-tested instruction follower.
@@ -330,6 +345,38 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MOut:       0,
 		CostPer1MOutCached: 0,
 		ContextWindow:      262_000,
+		DefaultMaxTokens:   5000,
+	},
+
+	// Qwen3 Next 80B A3B — MoE instruct model via Venice free tier. Good
+	// balance of size/quality for monitoring and validation roles. Same
+	// upstream provider (Venice) as Nemotron — rate-limit pressure is shared
+	// but the free quotas reset frequently.
+	OpenRouterQwen3Next80BFree: {
+		ID:                 OpenRouterQwen3Next80BFree,
+		Name:               "OpenRouter – Qwen3 Next 80B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "qwen/qwen3-next-80b-a3b-instruct:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      131_072,
+		DefaultMaxTokens:   5000,
+	},
+
+	// MiniMax M2.5 — MiniMax's large free model via OpenInference. Different
+	// upstream provider from Venice. Useful when Venice models are saturated.
+	OpenRouterMiniMaxM25Free: {
+		ID:                 OpenRouterMiniMaxM25Free,
+		Name:               "OpenRouter – MiniMax M2.5 Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "minimax/minimax-m2.5:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      1_000_000,
 		DefaultMaxTokens:   5000,
 	},
 }
