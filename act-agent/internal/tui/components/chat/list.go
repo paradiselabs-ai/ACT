@@ -276,13 +276,12 @@ func (m *messagesCmp) renderView() {
 	}
 
 	messages := make([]string, 0)
+	spacer := baseStyle.Width(m.width).Render("")
 	for _, v := range m.uiMessages {
-		messages = append(messages, lipgloss.JoinVertical(lipgloss.Left, v.content),
-			baseStyle.
-				Width(m.width).
-				Render(
-					"",
-				),
+		messages = append(messages,
+			lipgloss.JoinVertical(lipgloss.Left, v.content),
+			spacer,
+			spacer, // extra line for breathing room between messages
 		)
 	}
 

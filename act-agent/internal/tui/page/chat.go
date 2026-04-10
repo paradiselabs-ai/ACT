@@ -229,7 +229,7 @@ func NewChatPage(app *app.App) tea.Model {
 
 	messagesContainer := layout.NewContainer(
 		chat.NewMessagesCmp(app),
-		layout.WithPadding(1, 1, 0, 1),
+		layout.WithPadding(2, 1, 1, 1),
 	)
 	editorContainer := layout.NewContainer(
 		chat.NewEditorCmp(app),
