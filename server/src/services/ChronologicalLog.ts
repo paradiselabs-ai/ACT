@@ -202,14 +202,22 @@ export class ChronologicalLog {
   }
 
   /**
-   * Flush to JSONL file (human-readable format)
+   * Flush to JSONL file (human-readable format).
+   * Uses open+write+fsync+close for durability — ensures data reaches disk
+   * even if the process crashes immediately after this call returns.
    */
   private async flushToJSONL(): Promise<void> {
     if (!this.config.jsonlPath) return;
 
     const lines = this.buffer.map(event => JSON.stringify(event)).join('\n') + '\n';
 
-    await fs.appendFile(this.config.jsonlPath, lines, 'utf-8');
+    const fh = await fs.open(this.config.jsonlPath, 'a');
+    try {
+      await fh.write(lines, null, 'utf-8');
+      await fh.sync(); // fsync — ensure data is on disk, not just in OS cache
+    } finally {
+      await fh.close();
+    }
   }
 
   /**
@@ -424,15 +432,16 @@ export class ChronologicalLog {
     projects: Map<string, any>,
     tasks: Map<string, any>,
     briefs: Map<string, Map<string, string>>,
-    agents: Map<string, any>
-  ): Promise<{ projectCount: number; taskCount: number; briefCount: number; agentCount: number }> {
+    agents: Map<string, any>,
+    fileLocks?: Map<string, any>
+  ): Promise<{ projectCount: number; taskCount: number; briefCount: number; agentCount: number; fileLockCount: number }> {
     if (!this.initialized) {
       await this.initialize();
     }
 
     await this.flush();
 
-    const counts = { projectCount: 0, taskCount: 0, briefCount: 0, agentCount: 0 };
+    const counts = { projectCount: 0, taskCount: 0, briefCount: 0, agentCount: 0, fileLockCount: 0 };
 
     if (!this.config.jsonlPath) {
       return counts;
@@ -551,6 +560,44 @@ export class ChronologicalLog {
                   averageTaskTime: 0
                 });
                 counts.agentCount++;
+              }
+              break;
+            }
+            case 'dev_reset': {
+              // A reset event means everything before this point is void.
+              // Clear all maps so only post-reset events populate state.
+              projects.clear();
+              tasks.clear();
+              briefs.clear();
+              agents.clear();
+              if (fileLocks) fileLocks.clear();
+              counts.projectCount = 0;
+              counts.taskCount = 0;
+              counts.briefCount = 0;
+              counts.agentCount = 0;
+              counts.fileLockCount = 0;
+              break;
+            }
+            case 'file_claim': {
+              if (fileLocks && d && d.filePaths && d.agentId) {
+                for (const fp of d.filePaths) {
+                  fileLocks.set(fp, {
+                    filePath: fp,
+                    agentId: d.agentId,
+                    taskId: d.taskId || '',
+                    lockedAt: event.timestamp,
+                  });
+                  counts.fileLockCount++;
+                }
+              }
+              break;
+            }
+            case 'file_release': {
+              if (fileLocks && d && d.filePaths) {
+                for (const fp of d.filePaths) {
+                  fileLocks.delete(fp);
+                  if (counts.fileLockCount > 0) counts.fileLockCount--;
+                }
               }
               break;
             }

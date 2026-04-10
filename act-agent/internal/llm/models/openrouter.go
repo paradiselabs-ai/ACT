@@ -22,11 +22,10 @@ const (
 	OpenRouterClaude37Sonnet ModelID = "openrouter.claude-3.7-sonnet"
 	OpenRouterClaude35Haiku  ModelID = "openrouter.claude-3.5-haiku"
 	OpenRouterClaude3Opus    ModelID = "openrouter.claude-3-opus"
-	OpenRouterDeepSeekR1Free       ModelID = "openrouter.deepseek-r1-free"
-	OpenRouterDeepSeekV3Free       ModelID = "openrouter.deepseek-v3-free"
+	OpenRouterNemotron3SuperFree    ModelID = "openrouter.nemotron-3-super-free"
 	OpenRouterLlama33_70BFree      ModelID = "openrouter.llama-3.3-70b-free"
 	OpenRouterGemma3_27BFree       ModelID = "openrouter.gemma-3-27b-free"
-	OpenRouterQwen25_72BFree       ModelID = "openrouter.qwen-2.5-72b-free"
+	OpenRouterQwen3CoderFree       ModelID = "openrouter.qwen3-coder-free"
 )
 
 var OpenRouterModels = map[ModelID]Model{
@@ -265,19 +264,6 @@ var OpenRouterModels = map[ModelID]Model{
 		DefaultMaxTokens:   AnthropicModels[Claude3Opus].DefaultMaxTokens,
 	},
 
-	OpenRouterDeepSeekR1Free: {
-		ID:                 OpenRouterDeepSeekR1Free,
-		Name:               "OpenRouter – DeepSeek R1 Free",
-		Provider:           ProviderOpenRouter,
-		APIModel:           "deepseek/deepseek-r1-0528:free",
-		CostPer1MIn:        0,
-		CostPer1MInCached:  0,
-		CostPer1MOut:       0,
-		CostPer1MOutCached: 0,
-		ContextWindow:      163_840,
-		DefaultMaxTokens:   10000,
-	},
-
 	// NVIDIA Nemotron 3 Super 120B — biggest free model on OpenRouter, hybrid
 	// Mamba-Transformer, 262K context. KNOWN BROKEN for tool calls: as of
 	// 2026-04, OpenRouter's free providers serving this model do not support
@@ -286,8 +272,8 @@ var OpenRouterModels = map[ModelID]Model{
 	// ToolsUnsupported so the validator refuses to assign it to a Tier 1 role
 	// (Planner/Observer/Assurance/QA all need bash). Still usable for non-tool
 	// workloads if anyone wants to wire one up later.
-	OpenRouterDeepSeekV3Free: {
-		ID:                 OpenRouterDeepSeekV3Free,
+	OpenRouterNemotron3SuperFree: {
+		ID:                 OpenRouterNemotron3SuperFree,
 		Name:               "OpenRouter – Nemotron 3 Super 120B Free",
 		Provider:           ProviderOpenRouter,
 		APIModel:           "nvidia/nemotron-3-super-120b-a12b:free",
@@ -301,8 +287,7 @@ var OpenRouterModels = map[ModelID]Model{
 	},
 
 	// Llama 3.3 70B Instruct — proven, well-tested instruction follower.
-	// Used for Assurance + QA where structured output (validation JSON,
-	// SYNTHESIS_COMPLETE markers) is the main requirement.
+	// Context reduced to 65K on OpenRouter free tier (was 131K).
 	OpenRouterLlama33_70BFree: {
 		ID:                 OpenRouterLlama33_70BFree,
 		Name:               "OpenRouter – Llama 3.3 70B Free",
@@ -312,7 +297,7 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MInCached:  0,
 		CostPer1MOut:       0,
 		CostPer1MOutCached: 0,
-		ContextWindow:      131_072,
+		ContextWindow:      65_536,
 		DefaultMaxTokens:   5000,
 	},
 
@@ -332,19 +317,19 @@ var OpenRouterModels = map[ModelID]Model{
 		DefaultMaxTokens:   3000,
 	},
 
-	// Qwen 2.5 72B Instruct — second tool-capable free model alongside Llama 3.3.
-	// Used for Assurance so Assurance and QA can run on different models and
-	// don't compete for the same OpenRouter free-tier rate-limit pool.
-	OpenRouterQwen25_72BFree: {
-		ID:                 OpenRouterQwen25_72BFree,
-		Name:               "OpenRouter – Qwen 2.5 72B Free",
+	// Qwen3 Coder 480B A35B — coding-focused MoE, 262K context. Replaces
+	// Qwen 2.5 72B (removed from free tier). Strong at structured output
+	// and code validation — good fit for Assurance.
+	OpenRouterQwen3CoderFree: {
+		ID:                 OpenRouterQwen3CoderFree,
+		Name:               "OpenRouter – Qwen3 Coder 480B Free",
 		Provider:           ProviderOpenRouter,
-		APIModel:           "qwen/qwen-2.5-72b-instruct:free",
+		APIModel:           "qwen/qwen3-coder:free",
 		CostPer1MIn:        0,
 		CostPer1MInCached:  0,
 		CostPer1MOut:       0,
 		CostPer1MOutCached: 0,
-		ContextWindow:      32_768,
+		ContextWindow:      262_000,
 		DefaultMaxTokens:   5000,
 	},
 }

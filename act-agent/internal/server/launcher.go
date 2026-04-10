@@ -1,5 +1,6 @@
 // Package server provides auto-launch for the ACT coordination server.
 // The `act` command checks if the server is running and starts it if needed.
+// Uses a PID file + health check to prevent concurrent starts.
 package server
 
 import (
@@ -8,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
@@ -23,6 +26,7 @@ const (
 
 // EnsureServerRunning checks if the ACT server is accessible.
 // If not, it starts the server as a background process and waits for it to be healthy.
+// Uses a PID file to detect stale processes and prevent concurrent start races.
 func EnsureServerRunning(serverURL string) error {
 	if serverURL == "" {
 		serverURL = os.Getenv("ACT_SERVER_URL")
@@ -44,11 +48,23 @@ func EnsureServerRunning(serverURL string) error {
 		return nil // Not fatal — agent can still work without server
 	}
 
+	// Check PID file to prevent concurrent starts.
+	// The server writes its PID to data/act-server.pid on startup.
+	serverDir := filepath.Dir(filepath.Dir(serverScript)) // server/ (parent of src/)
+	pidFile := filepath.Join(serverDir, "data", "act-server.pid")
+	if isServerProcessAlive(pidFile) {
+		// Process exists but health check failed — server is starting up.
+		// Wait for it instead of spawning a second one.
+		logging.Info("ACT server process exists (PID file found), waiting for health...")
+		return waitForHealth(serverURL)
+	}
+
 	logging.Info("Starting ACT server", "script", serverScript)
 
 	// Start server as detached background process
 	cmd := exec.Command("npx", "tsx", serverScript)
-	cmd.Dir = filepath.Dir(serverScript)
+	// Set cwd to server/ (parent of src/) so process.cwd() paths resolve correctly.
+	cmd.Dir = filepath.Dir(filepath.Dir(serverScript))
 	cmd.Stdout = nil // Discard output
 	cmd.Stderr = nil
 	cmd.Env = os.Environ()
@@ -62,7 +78,11 @@ func EnsureServerRunning(serverURL string) error {
 		_ = cmd.Wait()
 	}()
 
-	// Poll for health
+	return waitForHealth(serverURL)
+}
+
+// waitForHealth polls the server health endpoint until it responds or times out.
+func waitForHealth(serverURL string) error {
 	deadline := time.Now().Add(startTimeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(pollInterval)
@@ -71,8 +91,27 @@ func EnsureServerRunning(serverURL string) error {
 			return nil
 		}
 	}
-
 	return fmt.Errorf("ACT server did not become healthy within %s", startTimeout)
+}
+
+// isServerProcessAlive reads the PID file and checks if that process is still running.
+// Returns false if the PID file doesn't exist, is unreadable, or the process is dead.
+func isServerProcessAlive(pidFile string) bool {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return false
+	}
+	// Signal 0 checks if the process exists without actually sending a signal.
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = proc.Signal(syscall.Signal(0))
+	return err == nil
 }
 
 func isHealthy(serverURL string) bool {

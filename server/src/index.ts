@@ -75,13 +75,8 @@ const getProjectStatusSummary = () => {
   };
 };
 
-// Start PVM indexing
-chronologicalLog.initialize().then(() => {
-  pvmIndexer.startIndexing(10000); // Check for new events every 10 seconds
-  logger.info('✅ ChronologicalLog initialized and PVM indexing started');
-}).catch(err => {
-  logger.error(`❌ Failed to initialize ChronologicalLog: ${err.message}`);
-});
+// NOTE: PVM indexing is started AFTER restore in the startup block at the bottom.
+// Do NOT initialize chronologicalLog here — single init path only.
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -139,7 +134,8 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Dev reset — clears all in-memory state for test isolation
+// Full reset — clears ALL state (projects, tasks, agents, locks, inboxes).
+// The reset event is persisted so replay skips everything before it.
 app.post('/api/dev/reset', (req, res) => {
   const taskCount = taskCoordinator.clearAll();
   const agentCount = agentRegistry.clearAll();
@@ -147,15 +143,18 @@ app.post('/api/dev/reset', (req, res) => {
   fileLocks.clear();
   const inboxCount = agentInboxes.size;
   agentInboxes.clear();
+  const projectCount = projects.size;
+  projects.clear();
 
   chronologicalLog.append({
     timestamp: new Date().toISOString(),
     agent: 'system',
-    message: `dev reset: cleared ${taskCount} tasks, ${agentCount} agents, ${lockCount} locks, ${inboxCount} inboxes`,
+    message: `full reset: cleared ${projectCount} projects, ${taskCount} tasks, ${agentCount} agents, ${lockCount} locks, ${inboxCount} inboxes`,
     type: 'dev_reset',
+    data: { projectCount, taskCount, agentCount, lockCount, inboxCount },
   });
 
-  res.json({ success: true, cleared: { tasks: taskCount, agents: agentCount, fileLocks: lockCount, inboxes: inboxCount } });
+  res.json({ success: true, cleared: { projects: projectCount, tasks: taskCount, agents: agentCount, fileLocks: lockCount, inboxes: inboxCount } });
 });
 
 // ─── A2A Protocol (Agent-to-Agent) ──────────────────────────────────────────
@@ -588,7 +587,8 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
         timestamp: new Date().toISOString(),
         agent: agentId || 'system',
         message: `auto-released file locks on task complete: ${releasedFiles.join(', ')} (task: ${taskId})`,
-        type: 'file_release'
+        type: 'file_release',
+        data: { filePaths: releasedFiles, agentId: agentId || 'system', taskId },
       });
     }
 
@@ -839,11 +839,13 @@ app.post('/api/files/claim', (req, res) => {
   }
 
   // Log to ChronologicalLog so PVM captures file ownership patterns
+  // and file locks survive server restarts via event replay.
   chronologicalLog.append({
     timestamp: now,
     agent: agent_id,
     message: `claimed files for editing: ${file_paths.join(', ')} (task: ${task_id})`,
-    type: 'file_claim'
+    type: 'file_claim',
+    data: { filePaths: file_paths, agentId: agent_id, taskId: task_id },
   });
 
   res.json({ success: true, claimed: file_paths });
@@ -870,7 +872,8 @@ app.post('/api/files/release', (req, res) => {
       timestamp: new Date().toISOString(),
       agent: agent_id,
       message: `released file locks: ${released.join(', ')} (task: ${task_id || 'unknown'})`,
-      type: 'file_release'
+      type: 'file_release',
+      data: { filePaths: released, agentId: agent_id, taskId: task_id || '' },
     });
   }
 
@@ -1153,36 +1156,84 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 8080;
 
+// Write PID file so the Go launcher can detect stale processes
+import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+// __dirname equivalent for ESM: path.dirname(import.meta.url) isn't needed
+// because the server's data dir is always relative to the server root (one
+// level above src/). Use the same path the ChronologicalLog uses.
+const SERVER_DATA_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
+const PID_FILE = path.join(SERVER_DATA_DIR, 'act-server.pid');
+
+function writePidFile() {
+  const dir = path.dirname(PID_FILE);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(PID_FILE, String(process.pid), 'utf-8');
+}
+
+function removePidFile() {
+  try { unlinkSync(PID_FILE); } catch { /* ignore */ }
+}
+
+// Graceful shutdown — flush buffer, clean up, exit
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`Received ${signal}, shutting down gracefully...`);
+
+  // Stop accepting new connections
+  server.close();
+
+  // Flush the event log buffer to disk
+  try {
+    await chronologicalLog.close();
+    logger.info('Event log flushed and closed');
+  } catch (err) {
+    logger.error(`Failed to flush event log on shutdown: ${err}`);
+  }
+
+  removePidFile();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
+
 // Restore state from ChronologicalLog on startup (event sourcing)
+// Single initialization — PVM indexing starts after restore completes.
 const briefsMap = new Map<string, Map<string, string>>();
 const taskMap = new Map();
 const agentMap = new Map();
 
 chronologicalLog.initialize().then(async () => {
-  const counts = await chronologicalLog.restoreFromLog(projects, taskMap, briefsMap, agentMap);
-  
+  const counts = await chronologicalLog.restoreFromLog(projects, taskMap, briefsMap, agentMap, fileLocks);
+
   // Restore agents (marked as offline - they'll re-register)
   agentRegistry.restoreAgents(agentMap);
-  
+
   // Restore tasks to TaskCoordinator
   if (taskMap.size > 0) {
     taskCoordinator.restoreTasks(taskMap);
   }
-  
-  console.log(`Restored from ChronLog: ${counts.projectCount} projects, ${counts.taskCount} tasks, ${counts.briefCount} briefs, ${counts.agentCount} agents`);
-  
+
+  console.log(`Restored from ChronLog: ${counts.projectCount} projects, ${counts.taskCount} tasks, ${counts.briefCount} briefs, ${counts.agentCount} agents, ${counts.fileLockCount} file locks`);
+
   // Start PVM indexing after restore
   pvmIndexer.startIndexing(10000);
-  logger.info('✅ ChronologicalLog initialized and PVM indexing started');
-}).catch(err => {
-  logger.error(`❌ Failed to initialize ChronologicalLog: ${err.message}`);
-});
+  logger.info('ChronologicalLog initialized and PVM indexing started');
 
-server.listen(PORT, () => {
-  logger.info(`🚀 ACT Server running on port ${PORT}`);
-  logger.info(`📊 Dashboard: http://localhost:3001`);
-  logger.info(`🔗 WebSocket: ws://localhost:${PORT}`);
-  logger.info(`💫 Ready for autonomous agent coordination!`);
+  // Write PID file and start listening only after state is restored
+  writePidFile();
+  server.listen(PORT, () => {
+    logger.info(`ACT Server running on port ${PORT}`);
+    logger.info(`WebSocket: ws://localhost:${PORT}`);
+  });
+}).catch(err => {
+  logger.error(`Failed to initialize ChronologicalLog: ${err.message}`);
+  process.exit(1);
 });
 
 export { app, io, agentRegistry, taskCoordinator, eventHub };

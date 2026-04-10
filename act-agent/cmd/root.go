@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"bufio"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -326,6 +328,61 @@ func isCLISubcommand(arg string) bool {
 	return cliSubcommands[arg]
 }
 
+// runReset asks for explicit confirmation then POSTs to /api/dev/reset.
+func runReset() error {
+	fmt.Println()
+	fmt.Println("  ⚠  This will delete all your ACT project history including tasks,")
+	fmt.Println("     agents, briefs, and file lock state. This means that if you want")
+	fmt.Println("     to use ACT for any previous projects they must be imported as if")
+	fmt.Println("     they are new, and agents will have to re-analyze the codebase.")
+	fmt.Println("     The Planner will not be familiar with the deeper nuances of those")
+	fmt.Println("     projects and may need to be re-explained.")
+	fmt.Println()
+	fmt.Println("     PVM coordination memory (learned patterns, agent skill profiles)")
+	fmt.Println("     is NOT cleared — only live project/task state.")
+	fmt.Println()
+	fmt.Print(`  If you are sure, type "remove everything" and press Enter.`)
+	fmt.Println()
+	fmt.Print("  Otherwise press Ctrl-C to cancel: ")
+
+	fmt.Println()
+	fmt.Print("  Confirmation: ")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Scan()
+	phrase := strings.TrimSpace(scanner.Text())
+
+	if phrase != "remove everything" {
+		fmt.Println()
+		fmt.Println("  Cancelled — nothing was changed.")
+		return nil
+	}
+
+	if err := actserver.EnsureServerRunning(""); err != nil {
+		return fmt.Errorf("server not reachable: %w", err)
+	}
+
+	serverURL := os.Getenv("ACT_SERVER_URL")
+	if serverURL == "" {
+		serverURL = "http://localhost:8080"
+	}
+
+	resp, err := http.Post(serverURL+"/api/dev/reset", "application/json", nil)
+	if err != nil {
+		return fmt.Errorf("failed to reach server: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("server returned %d", resp.StatusCode)
+	}
+
+	fmt.Println()
+	fmt.Println("  Done. All project and task state has been cleared.")
+	fmt.Println("  PVM coordination memory was preserved.")
+	return nil
+}
+
 // routeToCLI finds and execs into the TypeScript act CLI.
 func routeToCLI(args []string) error {
 	cliScript := findCLIScript()
@@ -441,7 +498,21 @@ func Execute() {
 	// flag-permissive (the TS CLI parses its own flags).
 	if len(os.Args) > 1 {
 		first := os.Args[1]
+
+		// `act reset` — handled natively (HTTP POST to server, no TS CLI needed)
+		if first == "reset" {
+			if err := runReset(); err != nil {
+				fmt.Fprintf(os.Stderr, "reset failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		if isCLISubcommand(first) {
+			// Ensure server is running before routing to TS CLI
+			if err := actserver.EnsureServerRunning(""); err != nil {
+				logging.Warn("ACT server auto-start failed", "error", err)
+			}
 			if err := routeToCLI(os.Args[1:]); err != nil {
 				os.Exit(1)
 			}
