@@ -27,7 +27,7 @@ const (
 	assistantMessageType
 	toolMessageType
 
-	maxResultHeight = 10
+	maxResultHeight = 30
 )
 
 type uiMessage struct {
@@ -50,11 +50,11 @@ func roleColor(role string) lipgloss.TerminalColor {
 	case "planner":
 		return t.Primary()
 	case "observer":
-		return t.Info()
+		return t.TextMuted()
 	case "assurance":
-		return t.Warning()
+		return lipgloss.AdaptiveColor{Dark: "#8a7755", Light: "#9a8a60"}
 	case "qa", "qa_synthesizer":
-		return t.Success()
+		return lipgloss.AdaptiveColor{Dark: "#5a8a60", Light: "#4a7a50"}
 	default:
 		return t.Primary()
 	}
@@ -64,15 +64,24 @@ func roleLabel(role string, width int) string {
 	if role == "" {
 		return ""
 	}
-	label := strings.ToUpper(role)
+
+	// Planner gets a bold uppercase banner; other roles get a muted dot prefix
+	if role == "planner" {
+		return styles.BaseStyle().
+			Foreground(roleColor(role)).
+			Bold(true).
+			Width(width).
+			Render("  PLANNER")
+	}
+
+	label := role
 	if role == "qa_synthesizer" {
-		label = "QA"
+		label = "qa"
 	}
 	return styles.BaseStyle().
 		Foreground(roleColor(role)).
-		Bold(true).
 		Width(width).
-		Render("  " + label)
+		Render("  \u00b7 " + label)
 }
 
 func renderMessage(msg string, isUser bool, isFocused bool, width int, role string, info ...string) string {

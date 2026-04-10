@@ -73,13 +73,15 @@ func ForceReplaceBackgroundWithLipgloss(input string, newBgColor lipgloss.Termin
 						i = m + 1
 						continue
 					} else if next == "2" {
-						// skip "48;2;R;G;B"
+						// skip "48;2;R;G;B" — 3 semicolon-delimited values
 						m := l + 1
 						for count := 0; count < 3 && m < end; count++ {
 							for m < end && raw[m] != ';' {
 								m++
 							}
-							m++
+							if m < end {
+								m++ // skip the ';'
+							}
 						}
 						i = m
 						continue

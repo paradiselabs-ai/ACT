@@ -18,16 +18,20 @@ type SplitPaneLayout interface {
 	ClearLeftPanel() tea.Cmd
 	ClearRightPanel() tea.Cmd
 	ClearBottomPanel() tea.Cmd
+
+	// N-column API
+	SetPanel(index int, panel Container) tea.Cmd
+	ClearPanel(index int) tea.Cmd
+	PanelCount() int
 }
 
 type splitPaneLayout struct {
 	width         int
 	height        int
-	ratio         float64
+	ratios        []float64
 	verticalRatio float64
 
-	rightPanel  Container
-	leftPanel   Container
+	panels      []Container
 	bottomPanel Container
 }
 
@@ -36,12 +40,10 @@ type SplitPaneOption func(*splitPaneLayout)
 func (s *splitPaneLayout) Init() tea.Cmd {
 	var cmds []tea.Cmd
 
-	if s.leftPanel != nil {
-		cmds = append(cmds, s.leftPanel.Init())
-	}
-
-	if s.rightPanel != nil {
-		cmds = append(cmds, s.rightPanel.Init())
+	for _, panel := range s.panels {
+		if panel != nil {
+			cmds = append(cmds, panel.Init())
+		}
 	}
 
 	if s.bottomPanel != nil {
@@ -58,19 +60,13 @@ func (s *splitPaneLayout) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return s, s.SetSize(msg.Width, msg.Height)
 	}
 
-	if s.rightPanel != nil {
-		u, cmd := s.rightPanel.Update(msg)
-		s.rightPanel = u.(Container)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	}
-
-	if s.leftPanel != nil {
-		u, cmd := s.leftPanel.Update(msg)
-		s.leftPanel = u.(Container)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
+	for i, panel := range s.panels {
+		if panel != nil {
+			u, cmd := panel.Update(msg)
+			s.panels[i] = u.(Container)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
@@ -88,16 +84,18 @@ func (s *splitPaneLayout) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *splitPaneLayout) View() string {
 	var topSection string
 
-	if s.leftPanel != nil && s.rightPanel != nil {
-		leftView := s.leftPanel.View()
-		rightView := s.rightPanel.View()
-		topSection = lipgloss.JoinHorizontal(lipgloss.Top, leftView, rightView)
-	} else if s.leftPanel != nil {
-		topSection = s.leftPanel.View()
-	} else if s.rightPanel != nil {
-		topSection = s.rightPanel.View()
-	} else {
-		topSection = ""
+	// Collect non-nil panel views
+	var panelViews []string
+	for _, panel := range s.panels {
+		if panel != nil {
+			panelViews = append(panelViews, panel.View())
+		}
+	}
+
+	if len(panelViews) > 1 {
+		topSection = lipgloss.JoinHorizontal(lipgloss.Top, panelViews...)
+	} else if len(panelViews) == 1 {
+		topSection = panelViews[0]
 	}
 
 	var finalView string
@@ -138,27 +136,26 @@ func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {
 		bottomHeight = 0
 	}
 
-	var leftWidth, rightWidth int
-	if s.leftPanel != nil && s.rightPanel != nil {
-		leftWidth = int(float64(width) * s.ratio)
-		rightWidth = width - leftWidth
-	} else if s.leftPanel != nil {
-		leftWidth = width
-		rightWidth = 0
-	} else if s.rightPanel != nil {
-		leftWidth = 0
-		rightWidth = width
+	// Count non-nil panels for width distribution
+	nonNilCount := 0
+	for _, panel := range s.panels {
+		if panel != nil {
+			nonNilCount++
+		}
 	}
+
+	// Calculate widths based on ratios
+	panelWidths := s.distributePanelWidths(width, nonNilCount)
 
 	var cmds []tea.Cmd
-	if s.leftPanel != nil {
-		cmd := s.leftPanel.SetSize(leftWidth, topHeight)
-		cmds = append(cmds, cmd)
-	}
-
-	if s.rightPanel != nil {
-		cmd := s.rightPanel.SetSize(rightWidth, topHeight)
-		cmds = append(cmds, cmd)
+	widthIdx := 0
+	for i, panel := range s.panels {
+		if panel != nil {
+			w := panelWidths[i]
+			cmd := panel.SetSize(w, topHeight)
+			cmds = append(cmds, cmd)
+			widthIdx++
+		}
 	}
 
 	if s.bottomPanel != nil {
@@ -168,24 +165,109 @@ func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// distributePanelWidths distributes the total width among panels according
+// to their ratios, with remainder correction on the last non-nil panel.
+func (s *splitPaneLayout) distributePanelWidths(totalWidth int, nonNilCount int) []int {
+	widths := make([]int, len(s.panels))
+
+	if nonNilCount <= 1 {
+		// Single or zero panels — give full width to whichever is non-nil
+		for i, panel := range s.panels {
+			if panel != nil {
+				widths[i] = totalWidth
+			}
+		}
+		return widths
+	}
+
+	// Sum ratios of non-nil panels for normalization
+	var ratioSum float64
+	for i, panel := range s.panels {
+		if panel != nil && i < len(s.ratios) {
+			ratioSum += s.ratios[i]
+		}
+	}
+	if ratioSum == 0 {
+		ratioSum = 1.0
+	}
+
+	// Assign widths proportionally
+	allocated := 0
+	lastNonNilIdx := -1
+	for i, panel := range s.panels {
+		if panel != nil {
+			ratio := 0.0
+			if i < len(s.ratios) {
+				ratio = s.ratios[i]
+			}
+			w := int(float64(totalWidth) * (ratio / ratioSum))
+			widths[i] = w
+			allocated += w
+			lastNonNilIdx = i
+		}
+	}
+
+	// Give remainder to the last non-nil panel
+	if lastNonNilIdx >= 0 && allocated != totalWidth {
+		widths[lastNonNilIdx] += totalWidth - allocated
+	}
+
+	return widths
+}
+
 func (s *splitPaneLayout) GetSize() (int, int) {
 	return s.width, s.height
 }
 
-func (s *splitPaneLayout) SetLeftPanel(panel Container) tea.Cmd {
-	s.leftPanel = panel
+// --- N-column API ---
+
+func (s *splitPaneLayout) SetPanel(index int, panel Container) tea.Cmd {
+	s.ensurePanelSlot(index)
+	s.panels[index] = panel
 	if s.width > 0 && s.height > 0 {
 		return s.SetSize(s.width, s.height)
 	}
 	return nil
 }
 
-func (s *splitPaneLayout) SetRightPanel(panel Container) tea.Cmd {
-	s.rightPanel = panel
+func (s *splitPaneLayout) ClearPanel(index int) tea.Cmd {
+	if index < len(s.panels) {
+		s.panels[index] = nil
+	}
 	if s.width > 0 && s.height > 0 {
 		return s.SetSize(s.width, s.height)
 	}
 	return nil
+}
+
+func (s *splitPaneLayout) PanelCount() int {
+	count := 0
+	for _, p := range s.panels {
+		if p != nil {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *splitPaneLayout) ensurePanelSlot(index int) {
+	for len(s.panels) <= index {
+		s.panels = append(s.panels, nil)
+	}
+	for len(s.ratios) <= index {
+		// Default ratio for new slots
+		s.ratios = append(s.ratios, 0.3)
+	}
+}
+
+// --- Backward-compatible left/right wrappers ---
+
+func (s *splitPaneLayout) SetLeftPanel(panel Container) tea.Cmd {
+	return s.SetPanel(0, panel)
+}
+
+func (s *splitPaneLayout) SetRightPanel(panel Container) tea.Cmd {
+	return s.SetPanel(1, panel)
 }
 
 func (s *splitPaneLayout) SetBottomPanel(panel Container) tea.Cmd {
@@ -197,19 +279,11 @@ func (s *splitPaneLayout) SetBottomPanel(panel Container) tea.Cmd {
 }
 
 func (s *splitPaneLayout) ClearLeftPanel() tea.Cmd {
-	s.leftPanel = nil
-	if s.width > 0 && s.height > 0 {
-		return s.SetSize(s.width, s.height)
-	}
-	return nil
+	return s.ClearPanel(0)
 }
 
 func (s *splitPaneLayout) ClearRightPanel() tea.Cmd {
-	s.rightPanel = nil
-	if s.width > 0 && s.height > 0 {
-		return s.SetSize(s.width, s.height)
-	}
-	return nil
+	return s.ClearPanel(1)
 }
 
 func (s *splitPaneLayout) ClearBottomPanel() tea.Cmd {
@@ -222,14 +296,11 @@ func (s *splitPaneLayout) ClearBottomPanel() tea.Cmd {
 
 func (s *splitPaneLayout) BindingKeys() []key.Binding {
 	keys := []key.Binding{}
-	if s.leftPanel != nil {
-		if b, ok := s.leftPanel.(Bindings); ok {
-			keys = append(keys, b.BindingKeys()...)
-		}
-	}
-	if s.rightPanel != nil {
-		if b, ok := s.rightPanel.(Bindings); ok {
-			keys = append(keys, b.BindingKeys()...)
+	for _, panel := range s.panels {
+		if panel != nil {
+			if b, ok := panel.(Bindings); ok {
+				keys = append(keys, b.BindingKeys()...)
+			}
 		}
 	}
 	if s.bottomPanel != nil {
@@ -243,7 +314,8 @@ func (s *splitPaneLayout) BindingKeys() []key.Binding {
 func NewSplitPane(options ...SplitPaneOption) SplitPaneLayout {
 
 	layout := &splitPaneLayout{
-		ratio:         0.7,
+		panels:        make([]Container, 2),
+		ratios:        []float64{0.7, 0.3},
 		verticalRatio: 0.9, // Default 90% for top section, 10% for bottom
 	}
 	for _, option := range options {
@@ -254,19 +326,21 @@ func NewSplitPane(options ...SplitPaneOption) SplitPaneLayout {
 
 func WithLeftPanel(panel Container) SplitPaneOption {
 	return func(s *splitPaneLayout) {
-		s.leftPanel = panel
+		s.ensurePanelSlot(0)
+		s.panels[0] = panel
 	}
 }
 
 func WithRightPanel(panel Container) SplitPaneOption {
 	return func(s *splitPaneLayout) {
-		s.rightPanel = panel
+		s.ensurePanelSlot(1)
+		s.panels[1] = panel
 	}
 }
 
 func WithRatio(ratio float64) SplitPaneOption {
 	return func(s *splitPaneLayout) {
-		s.ratio = ratio
+		s.ratios = []float64{ratio, 1.0 - ratio}
 	}
 }
 
