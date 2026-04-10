@@ -27,7 +27,7 @@ const (
 	assistantMessageType
 	toolMessageType
 
-	maxResultHeight = 10
+	maxResultHeight = 30
 )
 
 type uiMessage struct {

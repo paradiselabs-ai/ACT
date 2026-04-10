@@ -23,6 +23,7 @@ import (
 
 type cacheItem struct {
 	width   int
+	role    string
 	content []uiMessage
 }
 type messagesCmp struct {
@@ -99,6 +100,7 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case renderFinishedMsg:
 		m.rendering = false
+		m.renderView()
 		m.viewport.GotoBottom()
 	case pubsub.Event[session.Session]:
 		if msg.Type == pubsub.UpdatedEvent && msg.Payload.ID == m.session.ID {
@@ -221,12 +223,17 @@ func (m *messagesCmp) renderView() {
 			}
 			pos += userMsg.height + 1 // + 1 for spacing
 		case message.Assistant:
-			if cache, ok := m.cachedContent[msg.ID]; ok && cache.width == m.width {
+			isSummary := m.session.SummaryMessageID == msg.ID
+			role := m.app.Orchestrator.GetOwner(msg.ID)
+
+			// Use cache if width matches and role hasn't changed since caching.
+			// Role can change after initial message creation (race between message
+			// creation and the messageOwnershipLoop), so invalidate when the
+			// cached role differs from the current one.
+			if cache, ok := m.cachedContent[msg.ID]; ok && cache.width == m.width && cache.role == role {
 				m.uiMessages = append(m.uiMessages, cache.content...)
 				continue
 			}
-			isSummary := m.session.SummaryMessageID == msg.ID
-			role := m.app.Orchestrator.GetOwner(msg.ID)
 
 			assistantMessages := renderAssistantMessage(
 				msg,
@@ -243,15 +250,11 @@ func (m *messagesCmp) renderView() {
 				m.uiMessages = append(m.uiMessages, msg)
 				pos += msg.height + 1 // + 1 for spacing
 			}
-			// Only cache if we have a role banner. Without one, the orchestrator
-			// hasn't finished tagging this message yet (race between message
-			// creation and the messageOwnershipLoop) — re-render on next tick
-			// so the role banner appears once tagging completes.
-			if role != "" {
-				m.cachedContent[msg.ID] = cacheItem{
-					width:   m.width,
-					content: assistantMessages,
-				}
+			// Always cache — include role so we invalidate when tagging completes
+			m.cachedContent[msg.ID] = cacheItem{
+				width:   m.width,
+				role:    role,
+				content: assistantMessages,
 			}
 		case message.System:
 			// Coordination events injected by the orchestrator (task created,
