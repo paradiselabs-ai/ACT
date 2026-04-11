@@ -15,15 +15,6 @@ import (
 func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) string {
 	basePrompt := ""
 	switch agentName {
-	// Built-in agents
-	case config.AgentCoder:
-		basePrompt = CoderPrompt(provider)
-	case config.AgentTitle:
-		basePrompt = TitlePrompt(provider)
-	case config.AgentTask:
-		basePrompt = TaskPrompt(provider)
-	case config.AgentSummarizer:
-		basePrompt = SummarizerPrompt(provider)
 	// Tier 1 — Interactive (NesTTY window)
 	case config.RolePlanner:
 		basePrompt = PlannerPrompt(provider)

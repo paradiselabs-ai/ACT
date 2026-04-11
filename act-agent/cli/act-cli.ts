@@ -761,12 +761,17 @@ async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promi
   console.log(`PVM search: "${query}" — ${results.length} result(s)`);
   console.log();
   for (const r of results) {
-    const score = r.score !== undefined ? ` (score: ${r.score.toFixed(3)})` : '';
-    const agent = r.agent || r.metadata?.agent || '';
-    const type = r.type || r.metadata?.type || '';
-    const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
+    // Results from LocalEmbeddingVectorStore are { message: CoordinationMessage, similarity: number }.
+    const msg = r.message && typeof r.message === 'object' ? r.message : r;
+    const score = (r.similarity ?? r.score) !== undefined
+      ? ` (score: ${(r.similarity ?? r.score).toFixed(3)})`
+      : '';
+    const agent = msg.agent || msg.metadata?.agent || '';
+    const type = msg.type || msg.metadata?.type || '';
+    const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+    const text = typeof msg.message === 'string' ? msg.message : (msg.text || msg.content || '');
     console.log(`  [${time}] ${agent} ${type}${score}`);
-    console.log(`    ${r.message || r.text || r.content || ''}`);
+    console.log(`    ${text}`);
   }
 }
 

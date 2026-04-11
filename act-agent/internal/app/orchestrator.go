@@ -62,8 +62,10 @@ type Orchestrator struct {
 	// Planner turn and the message ownership loop scans Planner output for
 	// PROJECT_BRIEF directives instead of CREATE_TASK. Cleared atomically when
 	// the brief is successfully POSTed to the server.
-	intakeMode  bool
-	projectName string // ACT_PROJECT — derived from --project flag or cwd basename
+	intakeMode      bool
+	projectName     string // ACT_PROJECT — derived from --project flag or cwd basename
+	resumeContext   string // non-empty when project exists on server; injected into first Planner turn
+	firstPlannerTurn bool  // cleared after the first turn so resumeContext is only prepended once
 
 	// Coordination event polling state. Tracks the most recent event timestamp
 	// the loop has surfaced as a chat system message, so we never re-emit.
@@ -230,6 +232,16 @@ func (o *Orchestrator) HandleHumanInput(ctx context.Context, sessionID string, t
 	o.mu.Lock()
 	o.consecutiveAutoTurns = 0
 	o.lastObserverPromptHash = "" // re-arm Observer no-op gate
+
+	// On the first Planner turn of a resumed session, prepend the project
+	// context so the Planner doesn't fall back into INTAKE mode. The Planner's
+	// system prompt decides INTAKE vs BUILD based on what it sees in the
+	// conversation — without this injection it has no evidence of an existing
+	// project and asks intake questions again.
+	if o.firstPlannerTurn && o.resumeContext != "" {
+		text = o.resumeContext + "\n\nUser message: " + text
+		o.firstPlannerTurn = false
+	}
 	o.mu.Unlock()
 
 	o.runAgentTurn(ctx, sessionID, "planner", text, attachments...)
@@ -250,13 +262,25 @@ func (o *Orchestrator) detectProjectState() {
 		logging.Info("ACT server unavailable — skipping intake detection")
 		return
 	}
-	_, found, err := client.GetProject(name)
+	data, found, err := client.GetProject(name)
 	if err != nil {
 		logging.Warn("Project lookup failed — skipping intake", "project", name, "error", err)
 		return
 	}
 	o.mu.Lock()
 	o.intakeMode = !found
+	if found {
+		// Build a resume context string injected into the first Planner turn so it
+		// knows to skip INTAKE and go straight to BUILD. Without this the Planner
+		// sees a blank conversation and falls back to asking intake questions.
+		desc, _ := data["description"].(string)
+		tech, _ := data["techStack"].(string)
+		o.resumeContext = fmt.Sprintf(
+			"[SYSTEM] Resuming project '%s'. A project brief already exists on the server — do NOT run intake. Switch immediately to BUILD mode: decompose the brief into tasks and emit CREATE_TASK: directives.\nBrief summary — description: %s | techStack: %s",
+			name, desc, tech,
+		)
+		o.firstPlannerTurn = true
+	}
 	o.mu.Unlock()
 	if !found {
 		logging.Info("No server-side project record — entering INTAKE mode", "project", name)
@@ -680,7 +704,7 @@ const autoTurnCap = 5
 // handleProjectBrief parses a PROJECT_BRIEF directive from a Planner intake-mode
 // response and POSTs it to the ACT server. On success, clears intakeMode so the
 // next Planner turn falls back to normal task-decomposition behavior.
-func (o *Orchestrator) handleProjectBrief(_ context.Context, content string) {
+func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 	brief := parseProjectBrief(content)
 	if brief == nil {
 		return // still gathering — Planner hasn't summarized yet
@@ -702,8 +726,17 @@ func (o *Orchestrator) handleProjectBrief(_ context.Context, content string) {
 	}
 	o.mu.Lock()
 	o.intakeMode = false
+	sid := o.sessionID
 	o.mu.Unlock()
 	logging.Info("PROJECT_BRIEF accepted — exiting INTAKE mode", "project", name)
+
+	// Kick the Planner into BUILD mode. Without this trigger it has no
+	// human input to respond to, so it just stays silent after intake.
+	buildPrompt := fmt.Sprintf(
+		"Project '%s' has been created. Switch to BUILD mode now: decompose the project brief into tasks and emit CREATE_TASK: directives for each one. Do not ask for confirmation — start creating tasks immediately.",
+		name,
+	)
+	o.runAgentTurn(ctx, sid, "planner", buildPrompt)
 }
 
 // handlePlannerTaskDirectives parses CREATE_TASK directives from a Planner
