@@ -13,6 +13,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/chat"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/navigator"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
@@ -24,15 +25,18 @@ type chatPage struct {
 	editor               layout.Container
 	messages             layout.Container
 	layout               layout.SplitPaneLayout
+	navigator            layout.Container
 	session              session.Session
 	completionDialog     dialog.CompletionDialog
 	showCompletionDialog bool
+	showNavigator        bool
 }
 
 type ChatKeyMap struct {
 	ShowCompletionDialog key.Binding
 	NewSession           key.Binding
 	Cancel               key.Binding
+	ToggleNavigator      key.Binding
 }
 
 var keyMap = ChatKeyMap{
@@ -47,6 +51,10 @@ var keyMap = ChatKeyMap{
 	Cancel: key.NewBinding(
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "cancel"),
+	),
+	ToggleNavigator: key.NewBinding(
+		key.WithKeys("ctrl+p"),
+		key.WithHelp("ctrl+p", "toggle context"),
 	),
 }
 
@@ -118,6 +126,12 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.app.Orchestrator.CancelActive(p.session.ID)
 				return p, nil
 			}
+		case key.Matches(msg, keyMap.ToggleNavigator):
+			p.showNavigator = !p.showNavigator
+			if p.showNavigator {
+				return p, p.layout.SetRightPanel(p.navigator)
+			}
+			return p, p.layout.ClearRightPanel()
 		}
 	}
 	if p.showCompletionDialog {
@@ -235,14 +249,21 @@ func NewChatPage(app *app.App) tea.Model {
 		chat.NewEditorCmp(app),
 		layout.WithBorder(true, false, false, false),
 	)
+	navigatorContainer := layout.NewContainer(
+		navigator.NewContextNavigator(app),
+	)
 	return &chatPage{
 		app:              app,
 		editor:           editorContainer,
 		messages:         messagesContainer,
+		navigator:        navigatorContainer,
 		completionDialog: completionDialog,
+		showNavigator:    true,
 		layout: layout.NewSplitPane(
 			layout.WithLeftPanel(messagesContainer),
+			layout.WithRightPanel(navigatorContainer),
 			layout.WithBottomPanel(editorContainer),
+			layout.WithRatio(0.7),
 		),
 	}
 }
