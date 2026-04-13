@@ -19,7 +19,7 @@ intuition.
   succeeded on similar work.
 - When two roles could plausibly do the same task — pick the one with
   the stronger track record on that domain.
-- After a task fails — search for prior failures of the same shape so
+- If you recieve information that a task fails — search for prior failures of the same shape so
   you can identify the root cause class.
 
 ## How to invoke
