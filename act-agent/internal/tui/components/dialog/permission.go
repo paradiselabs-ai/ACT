@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
@@ -282,7 +282,7 @@ func (p *permissionDialogCmp) renderBashContent() string {
 		})
 
 		finalContent := baseStyle.
-			Width(p.contentViewPort.Width).
+			Width(p.contentViewPort.Width()).
 			Render(renderedContent)
 		p.contentViewPort.SetContent(finalContent)
 		return p.styleViewport()
@@ -293,7 +293,7 @@ func (p *permissionDialogCmp) renderBashContent() string {
 func (p *permissionDialogCmp) renderEditContent() string {
 	if pr, ok := p.permission.Params.(tools.EditPermissionsParams); ok {
 		diff := p.GetOrSetDiff(p.permission.ID, func() (string, error) {
-			return diff.FormatDiff(pr.Diff, diff.WithTotalWidth(p.contentViewPort.Width))
+			return diff.FormatDiff(pr.Diff, diff.WithTotalWidth(p.contentViewPort.Width()))
 		})
 
 		p.contentViewPort.SetContent(diff)
@@ -305,7 +305,7 @@ func (p *permissionDialogCmp) renderEditContent() string {
 func (p *permissionDialogCmp) renderPatchContent() string {
 	if pr, ok := p.permission.Params.(tools.EditPermissionsParams); ok {
 		diff := p.GetOrSetDiff(p.permission.ID, func() (string, error) {
-			return diff.FormatDiff(pr.Diff, diff.WithTotalWidth(p.contentViewPort.Width))
+			return diff.FormatDiff(pr.Diff, diff.WithTotalWidth(p.contentViewPort.Width()))
 		})
 
 		p.contentViewPort.SetContent(diff)
@@ -318,7 +318,7 @@ func (p *permissionDialogCmp) renderWriteContent() string {
 	if pr, ok := p.permission.Params.(tools.WritePermissionsParams); ok {
 		// Use the cache for diff rendering
 		diff := p.GetOrSetDiff(p.permission.ID, func() (string, error) {
-			return diff.FormatDiff(pr.Diff, diff.WithTotalWidth(p.contentViewPort.Width))
+			return diff.FormatDiff(pr.Diff, diff.WithTotalWidth(p.contentViewPort.Width()))
 		})
 
 		p.contentViewPort.SetContent(diff)
@@ -342,7 +342,7 @@ func (p *permissionDialogCmp) renderFetchContent() string {
 		})
 
 		finalContent := baseStyle.
-			Width(p.contentViewPort.Width).
+			Width(p.contentViewPort.Width()).
 			Render(renderedContent)
 		p.contentViewPort.SetContent(finalContent)
 		return p.styleViewport()
@@ -364,7 +364,7 @@ func (p *permissionDialogCmp) renderDefaultContent() string {
 	})
 
 	finalContent := baseStyle.
-		Width(p.contentViewPort.Width).
+		Width(p.contentViewPort.Width()).
 		Render(renderedContent)
 	p.contentViewPort.SetContent(finalContent)
 
@@ -398,8 +398,8 @@ func (p *permissionDialogCmp) render() string {
 	buttons := p.renderButtons()
 
 	// Calculate content height dynamically based on window size
-	p.contentViewPort.Height = p.height - lipgloss.Height(headerContent) - lipgloss.Height(buttons) - 2 - lipgloss.Height(title)
-	p.contentViewPort.Width = p.width - 4
+	p.contentViewPort.SetHeight(p.height - lipgloss.Height(headerContent) - lipgloss.Height(buttons) - 2 - lipgloss.Height(title))
+	p.contentViewPort.SetWidth(p.width - 4)
 
 	// Render content based on tool type
 	var contentFinal string
@@ -440,8 +440,8 @@ func (p *permissionDialogCmp) render() string {
 		)
 }
 
-func (p *permissionDialogCmp) View() string {
-	return p.render()
+func (p *permissionDialogCmp) View() tea.View {
+	return tea.NewView(p.render())
 }
 
 func (p *permissionDialogCmp) BindingKeys() []key.Binding {
@@ -511,7 +511,7 @@ func (c *permissionDialogCmp) GetOrSetMarkdown(key string, generator func() (str
 
 func NewPermissionDialogCmp() PermissionDialogCmp {
 	// Create viewport for content
-	contentViewport := viewport.New(0, 0)
+	contentViewport := viewport.New(viewport.WithWidth(0), viewport.WithHeight(0))
 
 	return &permissionDialogCmp{
 		contentViewPort: contentViewport,

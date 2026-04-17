@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
@@ -288,7 +288,7 @@ func (o *onboardingCmp) handleRoleSelection(msg tea.KeyMsg, roles *[]onboardingR
 	}
 }
 
-func (o *onboardingCmp) View() string {
+func (o *onboardingCmp) View() tea.View {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 	maxWidth := min(90, max(70, o.width-12))
@@ -375,12 +375,12 @@ func (o *onboardingCmp) View() string {
 		content = lipgloss.JoinVertical(lipgloss.Left, summaryLines...)
 	}
 
-	return baseStyle.Padding(1, 2).
+	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
 		BorderForeground(t.TextMuted()).
 		Width(maxWidth + 4).
-		Render(content)
+		Render(content))
 }
 
 func (o *onboardingCmp) renderBackendStep() string {

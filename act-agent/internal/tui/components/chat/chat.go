@@ -2,10 +2,11 @@ package chat
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
@@ -166,7 +167,7 @@ func actBanner(width int) string {
 	}
 
 	// Gradient colors: Primary → Secondary → Accent (top to bottom)
-	gradientColors := []lipgloss.TerminalColor{
+	gradientColors := []color.Color{
 		t.Primary(),
 		t.Primary(),
 		t.Secondary(),
@@ -278,4 +279,3 @@ func welcomeGuide(width int) string {
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
-

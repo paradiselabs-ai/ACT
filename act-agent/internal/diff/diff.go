@@ -3,17 +3,20 @@ package diff
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/aymanbagabas/go-udiff"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
@@ -323,7 +326,7 @@ func pairLines(lines []DiffLine) []linePair {
 // -------------------------------------------------------------------------
 
 // SyntaxHighlight applies syntax highlighting to text based on file extension
-func SyntaxHighlight(w io.Writer, source, fileName, formatter string, bg lipgloss.TerminalColor) error {
+func SyntaxHighlight(w io.Writer, source, fileName, formatter string, bg color.Color) error {
 	t := theme.CurrentTheme()
 
 	// Determine the language lexer to use
@@ -532,15 +535,22 @@ func SyntaxHighlight(w io.Writer, source, fileName, formatter string, bg lipglos
 }
 
 // getColor returns the appropriate hex color string based on terminal background
-func getColor(adaptiveColor lipgloss.AdaptiveColor) string {
-	if lipgloss.HasDarkBackground() {
-		return adaptiveColor.Dark
+func getColor(adaptiveColor compat.AdaptiveColor) string {
+	var col color.Color
+	if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
+		col = adaptiveColor.Dark
+	} else {
+		col = adaptiveColor.Light
 	}
-	return adaptiveColor.Light
+	if col == nil {
+		return "#ffffff"
+	}
+	r, g, b, _ := col.RGBA()
+	return fmt.Sprintf("#%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }
 
 // highlightLine applies syntax highlighting to a single line
-func highlightLine(fileName string, line string, bg lipgloss.TerminalColor) string {
+func highlightLine(fileName string, line string, bg color.Color) string {
 	var buf bytes.Buffer
 	err := SyntaxHighlight(&buf, line, fileName, "terminal16m", bg)
 	if err != nil {
@@ -563,8 +573,8 @@ func createStyles(t theme.Theme) (removedLineStyle, addedLineStyle, contextLineS
 // Rendering Functions
 // -------------------------------------------------------------------------
 
-func lipglossToHex(color lipgloss.Color) string {
-	r, g, b, a := color.RGBA()
+func lipglossToHex(c color.Color) string {
+	r, g, b, a := c.RGBA()
 
 	// Scale uint32 values (0-65535) to uint8 (0-255).
 	r8 := uint8(r >> 8)
@@ -576,7 +586,7 @@ func lipglossToHex(color lipgloss.Color) string {
 }
 
 // applyHighlighting applies intra-line highlighting to a piece of text
-func applyHighlighting(content string, segments []Segment, segmentType LineType, highlightBg lipgloss.AdaptiveColor) string {
+func applyHighlighting(content string, segments []Segment, segmentType LineType, highlightBg compat.AdaptiveColor) string {
 	// Find all ANSI sequences in the content
 	ansiRegex := regexp.MustCompile(`\x1b(?:[@-Z\\-_]|\[[0-9?]*(?:;[0-9?]*)*[@-~])`)
 	ansiMatches := ansiRegex.FindAllStringIndex(content, -1)

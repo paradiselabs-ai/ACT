@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
@@ -118,7 +118,7 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 	return fmt.Sprintf("Context: %s, Cost: %s", formattedTokens, formattedCost)
 }
 
-func (m statusCmp) View() string {
+func (m statusCmp) View() tea.View {
 	t := theme.CurrentTheme()
 
 	// For session token tracking, use the largest context window across all
@@ -214,7 +214,7 @@ func (m statusCmp) View() string {
 
 	status += diagnostics
 	status += tier1
-	return status
+	return tea.NewView(status)
 }
 
 // tier1ModelsCompact renders the Tier 1 model strip in its tightest form

@@ -1,9 +1,9 @@
 package layout
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
 
@@ -81,14 +81,14 @@ func (s *splitPaneLayout) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, tea.Batch(cmds...)
 }
 
-func (s *splitPaneLayout) View() string {
+func (s *splitPaneLayout) View() tea.View {
 	var topSection string
 
 	// Collect non-nil panel views
 	var panelViews []string
 	for _, panel := range s.panels {
 		if panel != nil {
-			panelViews = append(panelViews, panel.View())
+			panelViews = append(panelViews, panel.View().Content)
 		}
 	}
 
@@ -101,10 +101,10 @@ func (s *splitPaneLayout) View() string {
 	var finalView string
 
 	if s.bottomPanel != nil && topSection != "" {
-		bottomView := s.bottomPanel.View()
+		bottomView := s.bottomPanel.View().Content
 		finalView = lipgloss.JoinVertical(lipgloss.Left, topSection, bottomView)
 	} else if s.bottomPanel != nil {
-		finalView = s.bottomPanel.View()
+		finalView = s.bottomPanel.View().Content
 	} else {
 		finalView = topSection
 	}
@@ -117,10 +117,10 @@ func (s *splitPaneLayout) View() string {
 			Height(s.height).
 			Background(t.Background())
 
-		return style.Render(finalView)
+		return tea.NewView(style.Render(finalView))
 	}
 
-	return finalView
+	return tea.NewView(finalView)
 }
 
 func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {

@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"context"
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	zone "github.com/lrstanley/bubblezone"
+	tea "charm.land/bubbletea/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
@@ -168,7 +168,6 @@ func runTUI(a *app.App, ctx context.Context) error {
 	zone.NewGlobal()
 	program := tea.NewProgram(
 		tui.New(a),
-		tea.WithAltScreen(),
 	)
 
 	ch, cancelSubs := setupSubscriptions(a, ctx)

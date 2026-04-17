@@ -1,9 +1,14 @@
 package styles
 
 import (
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/lipgloss"
+	"fmt"
+	"image/color"
+	"os"
+
+	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/ansi"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
 
@@ -274,11 +279,20 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 	}
 }
 
-// adaptiveColorToString converts a lipgloss.AdaptiveColor to the appropriate
+// adaptiveColorToString converts a compat.AdaptiveColor to the appropriate
 // hex color string based on the current terminal background
-func adaptiveColorToString(color lipgloss.AdaptiveColor) string {
-	if lipgloss.HasDarkBackground() {
-		return color.Dark
+func adaptiveColorToString(c compat.AdaptiveColor) string {
+	var col color.Color
+	if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
+		col = c.Dark
+	} else {
+		col = c.Light
 	}
-	return color.Light
+	// Convert color.Color to hex string
+	if col == nil {
+		return "#ffffff"
+	}
+	r, g, b, _ := col.RGBA()
+	// RGBA returns values in range [0, 65535], convert to [0, 255]
+	return fmt.Sprintf("#%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
 }

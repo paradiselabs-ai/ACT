@@ -5,9 +5,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
@@ -185,7 +185,7 @@ func (m *modelDialogCmp) switchProvider(offset int) {
 	m.setupModelsForProvider(m.provider)
 }
 
-func (m *modelDialogCmp) View() string {
+func (m *modelDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 
@@ -220,12 +220,12 @@ func (m *modelDialogCmp) View() string {
 		scrollIndicator,
 	)
 
-	return baseStyle.Padding(1, 2).
+	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
 		BorderForeground(t.TextMuted()).
 		Width(lipgloss.Width(content) + 4).
-		Render(content)
+		Render(content))
 }
 
 func (m *modelDialogCmp) getScrollIndicators(maxWidth int) string {

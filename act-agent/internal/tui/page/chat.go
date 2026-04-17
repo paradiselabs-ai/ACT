@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/completions"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
@@ -208,8 +208,8 @@ func (p *chatPage) GetSize() (int, int) {
 	return p.layout.GetSize()
 }
 
-func (p *chatPage) View() string {
-	layoutView := p.layout.View()
+func (p *chatPage) View() tea.View {
+	layoutViewContent := p.layout.View().Content
 
 	if p.showCompletionDialog {
 		_, layoutHeight := p.layout.GetSize()
@@ -218,16 +218,16 @@ func (p *chatPage) View() string {
 		p.completionDialog.SetWidth(editorWidth)
 		overlay := p.completionDialog.View()
 
-		layoutView = layout.PlaceOverlay(
+		layoutViewContent = layout.PlaceOverlay(
 			0,
-			layoutHeight-editorHeight-lipgloss.Height(overlay),
-			overlay,
-			layoutView,
+			layoutHeight-editorHeight-lipgloss.Height(overlay.Content),
+			overlay.Content,
+			layoutViewContent,
 			false,
 		)
 	}
 
-	return layoutView
+	return tea.NewView(layoutViewContent)
 }
 
 func (p *chatPage) BindingKeys() []key.Binding {

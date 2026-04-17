@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
@@ -687,25 +687,25 @@ func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-func (a appModel) View() string {
+func (a appModel) View() tea.View {
 	components := []string{
-		a.pages[a.currentPage].View(),
+		a.pages[a.currentPage].View().Content,
 	}
 
-	components = append(components, a.status.View())
+	components = append(components, a.status.View().Content)
 
 	appView := lipgloss.JoinVertical(lipgloss.Top, components...)
 
 	if a.showPermissions {
 		overlay := a.permissions.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -714,9 +714,9 @@ func (a appModel) View() string {
 	if a.showOnboardingDialog {
 		overlay := a.onboardingDialog.View()
 		appView = layout.PlaceOverlay(
-			a.width/2-lipgloss.Width(overlay)/2,
-			a.height/2-lipgloss.Height(overlay)/2,
-			overlay,
+			a.width/2-lipgloss.Width(overlay.Content)/2,
+			a.height/2-lipgloss.Height(overlay.Content)/2,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -725,13 +725,13 @@ func (a appModel) View() string {
 	if a.showFilepicker {
 		overlay := a.filepicker.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -781,13 +781,13 @@ func (a appModel) View() string {
 
 		overlay := a.help.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -796,13 +796,13 @@ func (a appModel) View() string {
 	if a.showQuit {
 		overlay := a.quit.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -811,13 +811,13 @@ func (a appModel) View() string {
 	if a.showSessionDialog {
 		overlay := a.sessionDialog.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -826,13 +826,13 @@ func (a appModel) View() string {
 	if a.showModelDialog {
 		overlay := a.modelDialog.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -841,13 +841,13 @@ func (a appModel) View() string {
 	if a.showCommandDialog {
 		overlay := a.commandDialog.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -856,13 +856,13 @@ func (a appModel) View() string {
 	if a.showThemeDialog {
 		overlay := a.themeDialog.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
@@ -871,19 +871,19 @@ func (a appModel) View() string {
 	if a.showMultiArgumentsDialog {
 		overlay := a.multiArgumentsDialog.View()
 		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
 		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
 		appView = layout.PlaceOverlay(
 			col,
 			row,
-			overlay,
+			overlay.Content,
 			appView,
 			true,
 		)
 	}
 
-	return appView
+	return tea.NewView(appView)
 }
 
 func New(app *app.App) tea.Model {

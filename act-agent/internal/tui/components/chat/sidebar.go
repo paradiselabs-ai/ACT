@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/history"
@@ -81,10 +81,10 @@ func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *sidebarCmp) View() string {
+func (m *sidebarCmp) View() tea.View {
 	baseStyle := styles.BaseStyle()
 
-	return baseStyle.
+	return tea.NewView(baseStyle.
 		Width(m.width).
 		PaddingLeft(4).
 		PaddingRight(2).
@@ -100,7 +100,7 @@ func (m *sidebarCmp) View() string {
 				" ",
 				m.modifiedFiles(),
 			),
-		)
+		))
 }
 
 func (m *sidebarCmp) sessionSection() string {

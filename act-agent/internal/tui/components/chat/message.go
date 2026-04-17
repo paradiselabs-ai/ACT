@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
@@ -44,7 +46,7 @@ func toMarkdown(content string, focused bool, width int) string {
 	return rendered
 }
 
-func roleColor(role string) lipgloss.TerminalColor {
+func roleColor(role string) color.Color {
 	t := theme.CurrentTheme()
 	switch role {
 	case "planner":
@@ -52,9 +54,9 @@ func roleColor(role string) lipgloss.TerminalColor {
 	case "observer":
 		return t.TextMuted()
 	case "assurance":
-		return lipgloss.AdaptiveColor{Dark: "#8a7755", Light: "#9a8a60"}
+		return compat.AdaptiveColor{Dark: lipgloss.Color("#8a7755"), Light: lipgloss.Color("#9a8a60")}
 	case "qa", "qa_synthesizer":
-		return lipgloss.AdaptiveColor{Dark: "#5a8a60", Light: "#4a7a50"}
+		return compat.AdaptiveColor{Dark: lipgloss.Color("#5a8a60"), Light: lipgloss.Color("#4a7a50")}
 	default:
 		return t.Primary()
 	}

@@ -1,7 +1,8 @@
 package theme
 
 import (
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/compat"
 )
 
 // Flexoki color palette constants
@@ -54,223 +55,223 @@ func NewFlexokiTheme() *FlexokiTheme {
 	theme := &FlexokiTheme{}
 
 	// Base colors
-	theme.PrimaryColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlue400,
-		Light: flexokiBlue600,
+	theme.PrimaryColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlue400),
+		Light: lipgloss.Color(flexokiBlue600),
 	}
-	theme.SecondaryColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiPurple400,
-		Light: flexokiPurple600,
+	theme.SecondaryColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiPurple400),
+		Light: lipgloss.Color(flexokiPurple600),
 	}
-	theme.AccentColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiOrange400,
-		Light: flexokiOrange600,
+	theme.AccentColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiOrange400),
+		Light: lipgloss.Color(flexokiOrange600),
 	}
 
 	// Status colors
-	theme.ErrorColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiRed400,
-		Light: flexokiRed600,
+	theme.ErrorColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiRed400),
+		Light: lipgloss.Color(flexokiRed600),
 	}
-	theme.WarningColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiYellow400,
-		Light: flexokiYellow600,
+	theme.WarningColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiYellow400),
+		Light: lipgloss.Color(flexokiYellow600),
 	}
-	theme.SuccessColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiGreen400,
-		Light: flexokiGreen600,
+	theme.SuccessColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiGreen400),
+		Light: lipgloss.Color(flexokiGreen600),
 	}
-	theme.InfoColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiCyan400,
-		Light: flexokiCyan600,
+	theme.InfoColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiCyan400),
+		Light: lipgloss.Color(flexokiCyan600),
 	}
 
 	// Text colors
-	theme.TextColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase300,
-		Light: flexokiBase600,
+	theme.TextColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase300),
+		Light: lipgloss.Color(flexokiBase600),
 	}
-	theme.TextMutedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase700,
-		Light: flexokiBase500,
+	theme.TextMutedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase700),
+		Light: lipgloss.Color(flexokiBase500),
 	}
-	theme.TextEmphasizedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiYellow400,
-		Light: flexokiYellow600,
+	theme.TextEmphasizedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiYellow400),
+		Light: lipgloss.Color(flexokiYellow600),
 	}
 
 	// Background colors
-	theme.BackgroundColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlack,
-		Light: flexokiPaper,
+	theme.BackgroundColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlack),
+		Light: lipgloss.Color(flexokiPaper),
 	}
-	theme.BackgroundSecondaryColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase950,
-		Light: flexokiBase50,
+	theme.BackgroundSecondaryColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase950),
+		Light: lipgloss.Color(flexokiBase50),
 	}
-	theme.BackgroundDarkerColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase900,
-		Light: flexokiBase100,
+	theme.BackgroundDarkerColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase900),
+		Light: lipgloss.Color(flexokiBase100),
 	}
 
 	// Border colors
-	theme.BorderNormalColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase900,
-		Light: flexokiBase100,
+	theme.BorderNormalColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase900),
+		Light: lipgloss.Color(flexokiBase100),
 	}
-	theme.BorderFocusedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlue400,
-		Light: flexokiBlue600,
+	theme.BorderFocusedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlue400),
+		Light: lipgloss.Color(flexokiBlue600),
 	}
-	theme.BorderDimColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase850,
-		Light: flexokiBase150,
+	theme.BorderDimColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase850),
+		Light: lipgloss.Color(flexokiBase150),
 	}
 
 	// Diff view colors
-	theme.DiffAddedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiGreen400,
-		Light: flexokiGreen600,
+	theme.DiffAddedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiGreen400),
+		Light: lipgloss.Color(flexokiGreen600),
 	}
-	theme.DiffRemovedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiRed400,
-		Light: flexokiRed600,
+	theme.DiffRemovedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiRed400),
+		Light: lipgloss.Color(flexokiRed600),
 	}
-	theme.DiffContextColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase700,
-		Light: flexokiBase500,
+	theme.DiffContextColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase700),
+		Light: lipgloss.Color(flexokiBase500),
 	}
-	theme.DiffHunkHeaderColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase700,
-		Light: flexokiBase500,
+	theme.DiffHunkHeaderColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase700),
+		Light: lipgloss.Color(flexokiBase500),
 	}
-	theme.DiffHighlightAddedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiGreen400,
-		Light: flexokiGreen600,
+	theme.DiffHighlightAddedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiGreen400),
+		Light: lipgloss.Color(flexokiGreen600),
 	}
-	theme.DiffHighlightRemovedColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiRed400,
-		Light: flexokiRed600,
+	theme.DiffHighlightRemovedColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiRed400),
+		Light: lipgloss.Color(flexokiRed600),
 	}
-	theme.DiffAddedBgColor = lipgloss.AdaptiveColor{
-		Dark:  "#1D2419", // Darker green background
-		Light: "#EFF2E2", // Light green background
+	theme.DiffAddedBgColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color("#1D2419"), // Darker green background
+		Light: lipgloss.Color("#EFF2E2"), // Light green background
 	}
-	theme.DiffRemovedBgColor = lipgloss.AdaptiveColor{
-		Dark:  "#241919", // Darker red background
-		Light: "#F2E2E2", // Light red background
+	theme.DiffRemovedBgColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color("#241919"), // Darker red background
+		Light: lipgloss.Color("#F2E2E2"), // Light red background
 	}
-	theme.DiffContextBgColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlack,
-		Light: flexokiPaper,
+	theme.DiffContextBgColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlack),
+		Light: lipgloss.Color(flexokiPaper),
 	}
-	theme.DiffLineNumberColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase700,
-		Light: flexokiBase500,
+	theme.DiffLineNumberColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase700),
+		Light: lipgloss.Color(flexokiBase500),
 	}
-	theme.DiffAddedLineNumberBgColor = lipgloss.AdaptiveColor{
-		Dark:  "#1A2017", // Slightly darker green
-		Light: "#E5EBD9", // Light green
+	theme.DiffAddedLineNumberBgColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color("#1A2017"), // Slightly darker green
+		Light: lipgloss.Color("#E5EBD9"), // Light green
 	}
-	theme.DiffRemovedLineNumberBgColor = lipgloss.AdaptiveColor{
-		Dark:  "#201717", // Slightly darker red
-		Light: "#EBD9D9", // Light red
+	theme.DiffRemovedLineNumberBgColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color("#201717"), // Slightly darker red
+		Light: lipgloss.Color("#EBD9D9"), // Light red
 	}
 
 	// Markdown colors
-	theme.MarkdownTextColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase300,
-		Light: flexokiBase600,
+	theme.MarkdownTextColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase300),
+		Light: lipgloss.Color(flexokiBase600),
 	}
-	theme.MarkdownHeadingColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiYellow400,
-		Light: flexokiYellow600,
+	theme.MarkdownHeadingColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiYellow400),
+		Light: lipgloss.Color(flexokiYellow600),
 	}
-	theme.MarkdownLinkColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiCyan400,
-		Light: flexokiCyan600,
+	theme.MarkdownLinkColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiCyan400),
+		Light: lipgloss.Color(flexokiCyan600),
 	}
-	theme.MarkdownLinkTextColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiMagenta400,
-		Light: flexokiMagenta600,
+	theme.MarkdownLinkTextColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiMagenta400),
+		Light: lipgloss.Color(flexokiMagenta600),
 	}
-	theme.MarkdownCodeColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiGreen400,
-		Light: flexokiGreen600,
+	theme.MarkdownCodeColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiGreen400),
+		Light: lipgloss.Color(flexokiGreen600),
 	}
-	theme.MarkdownBlockQuoteColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiCyan400,
-		Light: flexokiCyan600,
+	theme.MarkdownBlockQuoteColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiCyan400),
+		Light: lipgloss.Color(flexokiCyan600),
 	}
-	theme.MarkdownEmphColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiYellow400,
-		Light: flexokiYellow600,
+	theme.MarkdownEmphColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiYellow400),
+		Light: lipgloss.Color(flexokiYellow600),
 	}
-	theme.MarkdownStrongColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiOrange400,
-		Light: flexokiOrange600,
+	theme.MarkdownStrongColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiOrange400),
+		Light: lipgloss.Color(flexokiOrange600),
 	}
-	theme.MarkdownHorizontalRuleColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase800,
-		Light: flexokiBase200,
+	theme.MarkdownHorizontalRuleColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase800),
+		Light: lipgloss.Color(flexokiBase200),
 	}
-	theme.MarkdownListItemColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlue400,
-		Light: flexokiBlue600,
+	theme.MarkdownListItemColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlue400),
+		Light: lipgloss.Color(flexokiBlue600),
 	}
-	theme.MarkdownListEnumerationColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlue400,
-		Light: flexokiBlue600,
+	theme.MarkdownListEnumerationColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlue400),
+		Light: lipgloss.Color(flexokiBlue600),
 	}
-	theme.MarkdownImageColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiPurple400,
-		Light: flexokiPurple600,
+	theme.MarkdownImageColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiPurple400),
+		Light: lipgloss.Color(flexokiPurple600),
 	}
-	theme.MarkdownImageTextColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiMagenta400,
-		Light: flexokiMagenta600,
+	theme.MarkdownImageTextColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiMagenta400),
+		Light: lipgloss.Color(flexokiMagenta600),
 	}
-	theme.MarkdownCodeBlockColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase300,
-		Light: flexokiBase600,
+	theme.MarkdownCodeBlockColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase300),
+		Light: lipgloss.Color(flexokiBase600),
 	}
 
 	// Syntax highlighting colors (based on Flexoki's mappings)
-	theme.SyntaxCommentColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase700, // tx-3
-		Light: flexokiBase300, // tx-3
+	theme.SyntaxCommentColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase700), // tx-3
+		Light: lipgloss.Color(flexokiBase300), // tx-3
 	}
-	theme.SyntaxKeywordColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiGreen400, // gr
-		Light: flexokiGreen600, // gr
+	theme.SyntaxKeywordColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiGreen400), // gr
+		Light: lipgloss.Color(flexokiGreen600), // gr
 	}
-	theme.SyntaxFunctionColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiOrange400, // or
-		Light: flexokiOrange600, // or
+	theme.SyntaxFunctionColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiOrange400), // or
+		Light: lipgloss.Color(flexokiOrange600), // or
 	}
-	theme.SyntaxVariableColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBlue400, // bl
-		Light: flexokiBlue600, // bl
+	theme.SyntaxVariableColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBlue400), // bl
+		Light: lipgloss.Color(flexokiBlue600), // bl
 	}
-	theme.SyntaxStringColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiCyan400, // cy
-		Light: flexokiCyan600, // cy
+	theme.SyntaxStringColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiCyan400), // cy
+		Light: lipgloss.Color(flexokiCyan600), // cy
 	}
-	theme.SyntaxNumberColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiPurple400, // pu
-		Light: flexokiPurple600, // pu
+	theme.SyntaxNumberColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiPurple400), // pu
+		Light: lipgloss.Color(flexokiPurple600), // pu
 	}
-	theme.SyntaxTypeColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiYellow400, // ye
-		Light: flexokiYellow600, // ye
+	theme.SyntaxTypeColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiYellow400), // ye
+		Light: lipgloss.Color(flexokiYellow600), // ye
 	}
-	theme.SyntaxOperatorColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase500, // tx-2
-		Light: flexokiBase500, // tx-2
+	theme.SyntaxOperatorColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase500), // tx-2
+		Light: lipgloss.Color(flexokiBase500), // tx-2
 	}
-	theme.SyntaxPunctuationColor = lipgloss.AdaptiveColor{
-		Dark:  flexokiBase500, // tx-2
-		Light: flexokiBase500, // tx-2
+	theme.SyntaxPunctuationColor = compat.AdaptiveColor{
+		Dark:  lipgloss.Color(flexokiBase500), // tx-2
+		Light: lipgloss.Color(flexokiBase500), // tx-2
 	}
 
 	return theme
