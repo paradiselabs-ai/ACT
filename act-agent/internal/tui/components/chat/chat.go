@@ -2,7 +2,6 @@ package chat
 
 import (
 	"fmt"
-	"image/color"
 	"sort"
 	"strings"
 
@@ -141,87 +140,94 @@ func cwd(width int) string {
 		Render(cwd)
 }
 
-// actBanner renders a gradient-colored ASCII art banner inside a rounded border.
+// actBanner renders the AGENT / COORDINATION / TOOLKIT stacked banner,
+// colored with the current theme.
 func actBanner(width int) string {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 
-	// Narrow terminal fallback
-	if width < 50 {
-		vStr := ""
-		if version.Version != "" {
-			vStr = "  " + baseStyle.Foreground(t.TextMuted()).Render(version.Version)
-		}
-		return baseStyle.Bold(true).Foreground(t.Primary()).Width(width).
-			Render(styles.ACTIcon+" ACT — Agent Coordination Toolkit"+vStr) + "\n" + cwd(width)
-	}
-
-	// Block letter ASCII art
-	artLines := []string{
-		`     █████╗  ██████╗████████╗`,
-		`    ██╔══██╗██╔════╝╚══██╔══╝`,
-		`    ███████║██║        ██║`,
-		`    ██╔══██║██║        ██║`,
-		`    ██║  ██║╚██████╗   ██║`,
-		`    ╚═╝  ╚═╝ ╚═════╝   ╚═╝`,
-	}
-
-	// Gradient colors: Primary → Secondary → Accent (top to bottom)
-	gradientColors := []color.Color{
-		t.Primary(),
-		t.Primary(),
-		t.Secondary(),
-		t.Secondary(),
-		t.Accent(),
-		t.Accent(),
-	}
-
-	// Render each line with its gradient color
-	var renderedLines []string
-	for i, line := range artLines {
-		color := gradientColors[i]
-		renderedLines = append(renderedLines,
-			baseStyle.Foreground(color).Bold(true).Render(line),
-		)
-	}
-
-	artBlock := strings.Join(renderedLines, "\n")
-
-	// Subtitle line
-	vStr := ""
-	if version.Version != "" {
-		vStr = "  " + baseStyle.Foreground(t.TextMuted()).Render(version.Version)
-	}
-	subtitle := "    " + baseStyle.Foreground(t.Text()).Bold(true).
-		Render(styles.ACTIcon+" Agent Coordination Toolkit") + vStr
-
-	// Combine art + subtitle inside a rounded border
-	innerContent := lipgloss.JoinVertical(lipgloss.Left,
-		"",
-		artBlock,
-		"",
-		subtitle,
-		"",
-	)
-
-	boxWidth := 48
-	if boxWidth > width-4 {
-		boxWidth = width - 4
-	}
-
-	bordered := baseStyle.
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Primary()).
-		Width(boxWidth).
-		Padding(0, 1).
-		Render(innerContent)
-
-	// cwd outside the box
 	cwdLine := baseStyle.Foreground(t.TextMuted()).Render(
 		fmt.Sprintf("  cwd: %s", config.WorkingDirectory()),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left, bordered, "", cwdLine)
+	// Narrow terminal fallback — full art is exactly 94 cols wide.
+	if width < bannerWidth {
+		vStr := ""
+		if version.Version != "" {
+			vStr = "  " + baseStyle.Foreground(t.TextMuted()).Render(version.Version)
+		}
+		line := baseStyle.Bold(true).Foreground(t.Primary()).
+			Render(styles.ACTIcon + " ACT — Agent Coordination Toolkit")
+		return lipgloss.JoinVertical(lipgloss.Left, line+vStr, "", cwdLine)
+	}
+
+	primary := baseStyle.Foreground(t.Primary()).Bold(true)
+	secondary := baseStyle.Foreground(t.Secondary()).Bold(true)
+	accent := baseStyle.Foreground(t.Accent()).Bold(true)
+	muted := baseStyle.Foreground(t.TextMuted())
+
+	var b strings.Builder
+	for _, l := range agentLines {
+		b.WriteString(primary.Render(l) + "\n")
+	}
+	for _, l := range coordinationLines {
+		b.WriteString(secondary.Render(l) + "\n")
+	}
+	for _, l := range toolkitLines {
+		b.WriteString(accent.Render(l) + "\n")
+	}
+	b.WriteString("\n")
+
+	tag1 := "nested TTY for multi-agent coordination"
+	tag2 := "Planner · Observer · Assurance · QA"
+	if version.Version != "" {
+		tag2 += "  ·  v" + version.Version
+	}
+
+	b.WriteString(muted.Render(strings.Repeat("─", bannerWidth)) + "\n")
+	b.WriteString(muted.Render(centerLine(tag1, bannerWidth)) + "\n")
+	b.WriteString(muted.Render(centerLine(tag2, bannerWidth)) + "\n")
+
+	return lipgloss.JoinVertical(lipgloss.Left, b.String(), cwdLine)
+}
+
+func centerLine(s string, w int) string {
+	pad := (w - len([]rune(s))) / 2
+	if pad < 0 {
+		pad = 0
+	}
+	return strings.Repeat(" ", pad) + s
+}
+
+// ── pre-rendered ansi_shadow art ─────────────────────────────────────────────
+
+const bannerWidth = 94
+
+var agentLines = []string{
+	`                          █████╗  ██████╗ ███████╗███╗   ██╗████████╗`,
+	`                         ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝`,
+	`                         ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║`,
+	`                         ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║`,
+	`                         ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║`,
+	`                         ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝`,
+}
+
+var coordinationLines = []string{
+	` ██████╗ ██████╗  ██████╗ ██████╗ ██████╗ ██╗███╗   ██╗ █████╗ ████████╗██╗ ██████╗ ███╗   ██╗`,
+	`██╔════╝██╔═══██╗██╔═══██╗██╔══██╗██╔══██╗██║████╗  ██║██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║`,
+	`██║     ██║   ██║██║   ██║██████╔╝██║  ██║██║██╔██╗ ██║███████║   ██║   ██║██║   ██║██╔██╗ ██║`,
+	`██║     ██║   ██║██║   ██║██╔══██╗██║  ██║██║██║╚██╗██║██╔══██║   ██║   ██║██║   ██║██║╚██╗██║`,
+	`╚██████╗╚██████╔╝╚██████╔╝██║  ██║██████╔╝██║██║ ╚████║██║  ██║   ██║   ██║╚██████╔╝██║ ╚████║`,
+	` ╚═════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝`,
+}
+
+var toolkitLines = []string{
+	`                   ████████╗ ██████╗  ██████╗ ██╗     ██╗  ██╗██╗████████╗`,
+	`                   ╚══██╔══╝██╔═══██╗██╔═══██╗██║     ██║ ██╔╝██║╚══██╔══╝`,
+	`                      ██║   ██║   ██║██║   ██║██║     █████╔╝ ██║   ██║`,
+	`                      ██║   ██║   ██║██║   ██║██║     ██╔═██╗ ██║   ██║`,
+	`                      ██║   ╚██████╔╝╚██████╔╝███████╗██║  ██╗██║   ██║`,
+	`                      ╚═╝    ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝`,
 }
 
 // welcomeGuide renders a quick-start reference for the initial screen.

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	tea "charm.land/bubbletea/v2"
 	zone "github.com/lrstanley/bubblezone/v2"
@@ -93,10 +94,15 @@ The TUI is the harness; there is no separate orchestrator process.`,
 			}
 			cwd = c
 		}
+		startupT := time.Now()
+		stepT := startupT
+
 		_, err := config.Load(cwd, debug)
 		if err != nil {
 			return err
 		}
+		logging.InfoPersist("startup:config.Load", "elapsed", time.Since(stepT))
+		stepT = time.Now()
 
 		// Resolve project name: explicit --project flag wins, else basename of cwd.
 		// All orchestrator/client code reads this via os.Getenv("ACT_PROJECT").
@@ -116,12 +122,16 @@ The TUI is the harness; there is no separate orchestrator process.`,
 		if err := actserver.EnsureServerRunning(""); err != nil {
 			logging.Warn("ACT server auto-start failed", "error", err)
 		}
+		logging.InfoPersist("startup:EnsureServerRunning", "elapsed", time.Since(stepT))
+		stepT = time.Now()
 
 		// Connect DB, this will also run migrations
 		conn, err := db.Connect()
 		if err != nil {
 			return err
 		}
+		logging.InfoPersist("startup:db.Connect", "elapsed", time.Since(stepT))
+		stepT = time.Now()
 
 		// Create main context for the application
 		ctx, cancel := context.WithCancel(context.Background())
@@ -132,11 +142,16 @@ The TUI is the harness; there is no separate orchestrator process.`,
 			logging.Error("Failed to create app: %v", err)
 			return err
 		}
+		logging.InfoPersist("startup:app.New", "elapsed", time.Since(stepT))
+		stepT = time.Now()
+
 		// Defer shutdown here so it runs for both interactive and non-interactive modes
 		defer app.Shutdown()
 
 		// Initialize MCP tools early for both modes
 		initMCPTools(ctx, app)
+		logging.InfoPersist("startup:initMCPTools", "elapsed", time.Since(stepT))
+		logging.InfoPersist("startup:total-pre-mode", "elapsed", time.Since(startupT))
 
 		// ACT agent mode (headless, JSON stdout, wired to act CLI)
 		agentID, _ := cmd.Flags().GetString("agent")
@@ -165,12 +180,20 @@ The TUI is the harness; there is no separate orchestrator process.`,
 // runTUI launches the ACT TUI (the Bubble Tea interface that hosts the
 // Tier 1 agents and the orchestrator).
 func runTUI(a *app.App, ctx context.Context) error {
+	stepT := time.Now()
+	autoFitTerminal(config.Get())
+	logging.InfoPersist("startup:autoFitTerminal", "elapsed", time.Since(stepT))
+	stepT = time.Now()
+
 	zone.NewGlobal()
 	program := tea.NewProgram(
 		tui.New(a),
 	)
+	logging.InfoPersist("startup:tui.New+NewProgram", "elapsed", time.Since(stepT))
+	stepT = time.Now()
 
 	ch, cancelSubs := setupSubscriptions(a, ctx)
+	logging.InfoPersist("startup:setupSubscriptions", "elapsed", time.Since(stepT))
 
 	tuiCtx, tuiCancel := context.WithCancel(ctx)
 	var tuiWg sync.WaitGroup
@@ -205,6 +228,93 @@ func runTUI(a *app.App, ctx context.Context) error {
 	_, err := program.Run()
 	cleanup()
 	return err
+}
+
+// autoFitTerminal grows the user's terminal window to at least the minimum
+// size the ACT TUI needs to render the banner, side panel, and chat without
+// clipping. Default on; users can opt out via tui.autoFit.disabled in
+// ~/.act.json.
+//
+// Mechanism: emit CSI 8 ; rows ; cols t (XTWINOPS DECSLPP) to stdout. Honored
+// by iTerm2, Kitty, Ghostty, WezTerm, and macOS Terminal.app. Silently
+// ignored elsewhere. We skip the resize entirely in environments where
+// intercepting it breaks more than it helps (multiplexers, remote VS Code
+// terminals — those trap/rewrite escapes).
+//
+// We only ever grow the window. If the user already has a larger terminal,
+// we leave it alone.
+func autoFitTerminal(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	fit := cfg.TUI.AutoFit
+	if fit != nil && fit.Disabled {
+		return
+	}
+	if !isTerminal(os.Stdout) {
+		return
+	}
+	if os.Getenv("TMUX") != "" {
+		return
+	}
+	if term := os.Getenv("TERM"); strings.HasPrefix(term, "screen") {
+		return
+	}
+	if os.Getenv("TERM_PROGRAM") == "vscode" {
+		return
+	}
+
+	minCols, minRows := 160, 58
+	if fit != nil {
+		if fit.MinCols > 0 {
+			minCols = fit.MinCols
+		}
+		if fit.MinRows > 0 {
+			minRows = fit.MinRows
+		}
+	}
+
+	curCols, curRows := terminalSize(os.Stdout)
+	if curCols == 0 || curRows == 0 {
+		return
+	}
+
+	targetCols, targetRows := curCols, curRows
+	if curCols < minCols {
+		targetCols = minCols
+	}
+	if curRows < minRows {
+		targetRows = minRows
+	}
+	if targetCols == curCols && targetRows == curRows {
+		return
+	}
+	fmt.Fprintf(os.Stdout, "\x1b[8;%d;%dt", targetRows, targetCols)
+}
+
+// terminalSize returns (cols, rows) via TIOCGWINSZ. Returns 0,0 on failure.
+func terminalSize(f *os.File) (int, int) {
+	ws := struct {
+		Row, Col, Xpixel, Ypixel uint16
+	}{}
+	_, _, errno := syscall.Syscall(
+		syscall.SYS_IOCTL,
+		f.Fd(),
+		uintptr(syscall.TIOCGWINSZ),
+		uintptr(unsafe.Pointer(&ws)),
+	)
+	if errno != 0 {
+		return 0, 0
+	}
+	return int(ws.Col), int(ws.Row)
+}
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // attemptTUIRecovery tries to recover the TUI after a panic
