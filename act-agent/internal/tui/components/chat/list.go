@@ -36,10 +36,8 @@ type messagesCmp struct {
 	currentMsgID  string
 	cachedContent map[string]cacheItem
 	spinner       spinner.Model
-	rendering     bool
 	attachments   viewport.Model
 }
-type renderFinishedMsg struct{}
 
 type MessageKeys struct {
 	PageDown     key.Binding
@@ -87,7 +85,6 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session = session.Session{}
 		m.messages = make([]message.Message, 0)
 		m.currentMsgID = ""
-		m.rendering = false
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -97,11 +94,6 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = u
 			cmds = append(cmds, cmd)
 		}
-
-	case renderFinishedMsg:
-		m.rendering = false
-		m.renderView()
-		m.viewport.GotoBottom()
 	case pubsub.Event[session.Session]:
 		if msg.Type == pubsub.UpdatedEvent && msg.Payload.ID == m.session.ID {
 			m.session = msg.Payload
@@ -300,18 +292,6 @@ func (m *messagesCmp) renderView() {
 func (m *messagesCmp) View() tea.View {
 	baseStyle := styles.BaseStyle()
 
-	if m.rendering {
-		return tea.NewView(baseStyle.
-			Width(m.width).
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Top,
-					"Loading...",
-					m.working(),
-					m.help(),
-				),
-			))
-	}
 	if len(m.messages) == 0 {
 		content := baseStyle.
 			Width(m.width).
@@ -487,12 +467,9 @@ func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
 		m.currentMsgID = m.messages[len(m.messages)-1].ID
 	}
 	delete(m.cachedContent, m.currentMsgID)
-	m.rendering = true
-	// Signal a render on the event loop — renderView mutates m.messages /
-	// m.cachedContent / m.uiMessages, so it must NOT run in a tea.Cmd
-	// goroutine concurrently with Update handlers. renderFinishedMsg's
-	// handler calls renderView synchronously.
-	return func() tea.Msg { return renderFinishedMsg{} }
+	m.renderView()
+	m.viewport.GotoBottom()
+	return nil
 }
 
 func (m *messagesCmp) BindingKeys() []key.Binding {

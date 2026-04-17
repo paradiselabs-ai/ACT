@@ -101,12 +101,6 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, cmd
 		}
 	case chat.SessionSelectedMsg:
-		if p.session.ID == "" {
-			cmd := p.setSidebar()
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
 		p.session = msg
 	case tea.KeyPressMsg:
 		switch {
@@ -115,10 +109,7 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Continue sending keys to layout->chat
 		case key.Matches(msg, keyMap.NewSession):
 			p.session = session.Session{}
-			return p, tea.Batch(
-				p.clearSidebar(),
-				util.CmdHandler(chat.SessionClearedMsg{}),
-			)
+			return p, util.CmdHandler(chat.SessionClearedMsg{})
 		case key.Matches(msg, keyMap.Cancel):
 			if p.session.ID != "" {
 				// Cancel the current session's generation process
@@ -154,18 +145,6 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p, tea.Batch(cmds...)
 }
 
-func (p *chatPage) setSidebar() tea.Cmd {
-	sidebarContainer := layout.NewContainer(
-		chat.NewSidebarCmp(p.session, p.app.History),
-		layout.WithPadding(1, 1, 1, 1),
-	)
-	return tea.Batch(p.layout.SetRightPanel(sidebarContainer), sidebarContainer.Init())
-}
-
-func (p *chatPage) clearSidebar() tea.Cmd {
-	return p.layout.ClearRightPanel()
-}
-
 func (p *chatPage) sendMessage(text string, attachments []message.Attachment) tea.Cmd {
 	var cmds []tea.Cmd
 
@@ -184,10 +163,6 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 		}
 
 		p.session = session
-		cmd := p.setSidebar()
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 		cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(session)))
 	}
 
