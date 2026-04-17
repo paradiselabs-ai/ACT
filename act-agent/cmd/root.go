@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -224,6 +225,24 @@ func runTUI(a *app.App, ctx context.Context) error {
 		tuiCancel()
 		tuiWg.Wait()
 	}
+
+	// macOS window-close (red X) and most terminal-close paths send SIGHUP;
+	// container/service shutdowns send SIGTERM. Without trapping these the
+	// process dies before deferred app.Shutdown runs, leaving dirty DB WAL
+	// and stale PID locks that starve the next launch. Translate them into
+	// a normal Bubbletea quit so program.Run() returns and cleanup executes.
+	// SIGINT stays with Bubbletea's built-in handler (ctrl+c → quit).
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		sig, ok := <-sigCh
+		if !ok {
+			return
+		}
+		logging.Info("signal received, quitting TUI cleanly", "signal", sig.String())
+		program.Quit()
+	}()
 
 	_, err := program.Run()
 	cleanup()
