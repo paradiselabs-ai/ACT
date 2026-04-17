@@ -1,6 +1,65 @@
 package prompt
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"time"
+
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+)
+
+// getEnvironmentInfo returns the `<env>` block injected into every ACT role
+// prompt. Deliberately excludes an `ls .` dump of cwd — that balloons the
+// prompt in populated repos and is death on free-tier TPM caps. Agents can
+// list files on demand with the LS tool when they need to.
+func getEnvironmentInfo() string {
+	cwd := config.WorkingDirectory()
+	isGit := isGitRepo(cwd)
+	platform := runtime.GOOS
+	date := time.Now().Format("1/2/2006")
+	return fmt.Sprintf(`<env>
+cwd: %s
+git: %s
+platform: %s
+date: %s
+</env>`, cwd, boolToYesNo(isGit), platform, date)
+}
+
+func isGitRepo(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// lspInformation returns the LSP diagnostics blurb appended to prompts when
+// at least one non-disabled LSP client is configured. Empty string otherwise.
+func lspInformation() string {
+	cfg := config.Get()
+	hasLSP := false
+	for _, v := range cfg.LSP {
+		if !v.Disabled {
+			hasLSP = true
+			break
+		}
+	}
+	if !hasLSP {
+		return ""
+	}
+	return `# LSP Information
+Tools that support it will also include useful diagnostics such as linting and typechecking.
+- These diagnostics will be automatically enabled when you run the tool, and will be displayed in the output at the bottom within the <file_diagnostics></file_diagnostics> and <project_diagnostics></project_diagnostics> tags.
+- Take necessary actions to fix the issues.
+- You should ignore diagnostics of files that you did not change or are not related or caused by your changes unless the user explicitly asks you to fix them.
+`
+}
+
+func boolToYesNo(b bool) string {
+	if b {
+		return "Yes"
+	}
+	return "No"
+}
 
 // Shared prompt building blocks for all ACT role prompts.
 // Each role prompt imports these sections to avoid duplication.

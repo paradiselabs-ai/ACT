@@ -124,16 +124,9 @@ func listLocalModels(modelsEndpoint string) []localModel {
 }
 
 func loadLocalModels(models []localModel) {
-	for i, m := range models {
+	for _, m := range models {
 		model := convertLocalModel(m)
 		SupportedModels[model.ID] = model
-
-		if i == 0 || m.State == "loaded" {
-			viper.SetDefault("agents.coder.model", model.ID)
-			viper.SetDefault("agents.summarizer.model", model.ID)
-			viper.SetDefault("agents.task.model", model.ID)
-			viper.SetDefault("agents.title.model", model.ID)
-		}
 	}
 }
 

@@ -11,7 +11,11 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
 )
 
-func CoderAgentTools(
+// DeveloperTools returns the full toolbox used by Tier 2 swarm agents
+// (developer, frontend_dev, backend_dev, qa_engineer, researcher). These
+// roles do the actual building so they get bash, edit/patch/write, view,
+// grep, glob, ls, fetch, sourcegraph, and the sub-agent dispatcher.
+func DeveloperTools(
 	permissions permission.Service,
 	sessions session.Service,
 	messages message.Service,
@@ -53,7 +57,7 @@ func TaskAgentTools(lspClients map[string]*lsp.Client) []tools.BaseTool {
 // ─── ACT Tier 1 per-role tool subsets ─────────────────────────────────────────
 //
 // Why these exist: every tool ships its full Description + JSONSchema in every
-// LLM request. With the full CoderAgentTools roster (11 tools), each request
+// LLM request. With the full DeveloperTools roster (11 tools), each request
 // is ~16-18K tokens of tool definitions BEFORE any system prompt or user
 // message — which blows free-tier rate limits (Groq's 12K TPM cap) on the
 // first turn.
@@ -66,7 +70,7 @@ func TaskAgentTools(lspClients map[string]*lsp.Client) []tools.BaseTool {
 //     synthesis — so they get view + grep on top of bash.
 //
 // Tier 2 swarm agents (developer, frontend_dev, etc.) still get the full
-// CoderAgentTools roster — they're the ones actually building things.
+// DeveloperTools roster — they're the ones actually building things.
 
 // PlannerTools returns the minimum tool set for the Planner agent.
 // Planner needs bash (for `act` CLI commands) plus expand_prompt_section
@@ -109,7 +113,7 @@ func QASynthesizerTools(permissions permission.Service, lspClients map[string]*l
 }
 
 // Tier1ToolsForRole returns the per-role tool subset for a Tier 1 agent.
-// Falls back to CoderAgentTools (the full roster) for any role that isn't
+// Falls back to DeveloperTools (the full roster) for any role that isn't
 // one of the four canonical Tier 1 roles — that's the right behavior for
 // Tier 2 swarm agents (developer, frontend_dev, etc.) which DO need the
 // full toolbox to build things.
@@ -128,9 +132,9 @@ func Tier1ToolsForRole(
 		return ObserverTools(permissions)
 	case "assurance":
 		return AssuranceTools(permissions, lspClients)
-	case "qa", "qa_synthesizer":
+	case "qa_synthesizer":
 		return QASynthesizerTools(permissions, lspClients)
 	default:
-		return CoderAgentTools(permissions, sessions, messages, history, lspClients)
+		return DeveloperTools(permissions, sessions, messages, history, lspClients)
 	}
 }

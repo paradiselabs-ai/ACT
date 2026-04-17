@@ -315,10 +315,11 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, util.ReportWarn("No active session to summarize")
 		}
 
-		// Start the summarization process
+		// Start the summarization process — Planner is the canonical
+		// human-facing agent so it owns summarization of the shared session.
 		return a, func() tea.Msg {
 			ctx := context.Background()
-			a.app.CoderAgent.Summarize(ctx, a.selectedSession.ID)
+			a.app.Agents["planner"].Summarize(ctx, a.selectedSession.ID)
 			return nil
 		}
 
@@ -335,7 +336,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.isCompacting = false
 			return a, util.ReportInfo("Session summarization complete")
 		} else if payload.Done && payload.Type == agent.AgentEventTypeResponse && a.selectedSession.ID != "" {
-			model := a.app.CoderAgent.Model()
+			model := a.app.Agents["planner"].Model()
 			contextWindow := model.ContextWindow
 			tokens := a.selectedSession.CompletionTokens + a.selectedSession.PromptTokens
 			if (tokens >= int64(float64(contextWindow)*0.95)) && config.Get().AutoCompact {
@@ -361,7 +362,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
 
-		model, err := a.app.CoderAgent.Update(config.AgentCoder, msg.Model.ID)
+		model, err := a.app.Agents["planner"].Update(config.RolePlanner, msg.Model.ID)
 		if err != nil {
 			return a, util.ReportError(err)
 		}

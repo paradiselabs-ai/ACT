@@ -567,11 +567,10 @@ func (o *onboardingCmp) writeConfig() error {
 		planner.MaxTokens = 8000
 		agents["planner"] = planner
 	}
-	// Note: we no longer write a "coder" entry. The OpenCode internal "coder"
-	// agent name is hidden from users. The 4 Tier 1 agents (planner, observer,
-	// assurance, qa_synthesizer) and 5 Tier 2 swarm roles each have their own
-	// model — there is no "default" agent in ACT. UI surfaces that need to
-	// display "current model" use config.Tier1Configs() to show all 4.
+	// The 4 Tier 1 agents (planner, observer, assurance, qa_synthesizer) and
+	// 5 Tier 2 swarm roles each have their own model — there is no "default"
+	// agent in ACT. UI surfaces that need to display "current model" use
+	// config.Tier1Configs() to show all 4.
 
 	payload := fileCfg{
 		Schema:    "./act-schema.json",

@@ -80,16 +80,19 @@ func NewAgent(
 	if err != nil {
 		return nil, err
 	}
+	// Title/summarize providers are only attached when the user has explicitly
+	// configured agents.title / agents.summarizer in ~/.act.json. ACT roles
+	// don't wire these by default — the Planner is the canonical conversation
+	// owner and will be given per-role summarize support later if needed.
 	var titleProvider provider.Provider
-	// Only generate titles for the coder agent
-	if agentName == config.AgentCoder {
+	if _, ok := config.Get().Agents[config.AgentTitle]; ok {
 		titleProvider, err = createAgentProvider(config.AgentTitle)
 		if err != nil {
 			return nil, err
 		}
 	}
 	var summarizeProvider provider.Provider
-	if agentName == config.AgentCoder {
+	if _, ok := config.Get().Agents[config.AgentSummarizer]; ok {
 		summarizeProvider, err = createAgentProvider(config.AgentSummarizer)
 		if err != nil {
 			return nil, err
@@ -738,7 +741,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
 			),
 		)
-	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == config.AgentCoder {
+	} else if model.Provider == models.ProviderAnthropic && model.CanReason {
 		opts = append(
 			opts,
 			provider.WithAnthropicOptions(

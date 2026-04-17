@@ -109,8 +109,7 @@ ACT/
 │   │   ├── backend_dev.go        # Tier 2: API/DB specialist
 │   │   ├── qa_engineer.go        # Tier 2: Testing only
 │   │   ├── researcher.go         # Tier 2: Analysis, not code
-│   │   ├── common.go             # Shared prompt building blocks
-│   │   ├── coder.go              # Default interactive agent
+│   │   ├── common.go             # Shared prompt building blocks + env/LSP helpers
 │   │   └── prompt.go             # Dispatcher (routes role → prompt)
 │   ├── internal/act/client.go    # Native HTTP client for ACT server
 │   ├── cli/                      # Agent CLI (21 commands, TS)
@@ -147,7 +146,7 @@ ACT/
 - Subprocess stdout/stderr → `~/.act/runners/<role>.log` (no chat pollution)
 
 ### TUI / Orchestrator (Phase 3 deltas)
-- **Token diet**: `coder.go::getEnvironmentInfo` no longer runs `ls .`; `bash.go` description trimmed 2300→200 tokens; per-role tool subsets (`Tier1ToolsForRole`) — Planner/Observer get just `bash`, Assurance/QA get `bash + view + grep`. Tier 1 LLM requests dropped ~22K → ~5-7K tokens.
+- **Token diet**: `prompt/common.go::getEnvironmentInfo` no longer runs `ls .`; `bash.go` description trimmed 2300→200 tokens; per-role tool subsets (`Tier1ToolsForRole`) — Planner/Observer get just `bash`, Assurance/QA get `bash + view + grep`. Tier 1 LLM requests dropped ~22K → ~5-7K tokens.
 - **Context paths**: defaultContextPaths reduced to `["ACT.md", "ACT.local.md"]`. CLAUDE.md is no longer auto-injected (was injecting ~20K tokens when running `act` inside the ACT repo).
 - **Lazy swarm spawn**: Runners spawn on the first `CREATE_TASK`, not on every `act` launch.
 - **Coordination event surface**: `coordinationEventLoop` polls `/api/log` every 3s and surfaces task lifecycle events as system messages in the chat (`📝 task created`, `✓ dev-1 completed`, `📤 submitted for validation`, `✅ validation passed`, etc.).
@@ -244,7 +243,7 @@ Each role can use a different LLM model. Configure in `.opencode.json` (see `.op
 
 **Cost strategy:** Don't skimp on Planner (use strongest model). Swarm agents can use cheaper/local models. Groq free tier (Llama 3.3 70B) works for routine coding tasks.
 
-Any role not configured in `.opencode.json` falls back to the `coder` default.
+Any role not configured in `~/.act.json` falls back to `agents.developer`. There is no further fallback — ACT dispatches by explicit role only.
 
 ***
 

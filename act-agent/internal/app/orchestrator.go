@@ -41,6 +41,7 @@ type Orchestrator struct {
 	currentSpeaker string            // role currently running (for ownership tagging)
 	sessionID      string            // shared session for the NesTTY conversation
 	seenTasks      map[string]bool   // task IDs we've already routed (validation/qa)
+	attemptCount   map[string]int    // validation/qa attempt counter keyed "validation:TASK" / "qa:TASK"
 
 	// Background loop control
 	loopsStarted bool
@@ -94,6 +95,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 		app:           app,
 		messageOwners: make(map[string]string),
 		seenTasks:     make(map[string]bool),
+		attemptCount:  make(map[string]int),
 		runnerSpawner: runner.NewSpawner(),
 	}
 }
@@ -224,7 +226,7 @@ func (o *Orchestrator) Stop() {
 }
 
 // HandleHumanInput routes user input to the Planner agent.
-// This is the main entry point from the TUI — replaces direct CoderAgent.Run() calls.
+// This is the main entry point from the TUI.
 // Runs in a goroutine from the caller; blocks until the Planner finishes its turn.
 func (o *Orchestrator) HandleHumanInput(ctx context.Context, sessionID string, text string, attachments ...message.Attachment) {
 	// Reset the auto-turn counter — every human input gets a fresh budget of
@@ -295,8 +297,9 @@ func (o *Orchestrator) detectProjectState() {
 func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role string, content string, attachments ...message.Attachment) {
 	agentSvc := o.getAgent(role)
 	if agentSvc == nil {
-		logging.Warn("No agent found for role, falling back to CoderAgent", "role", role)
-		agentSvc = o.app.CoderAgent
+		logging.Error("No Tier 1 agent registered for role — turn dropped", "role", role)
+		o.emitSystemMessage(context.Background(), sessionID, fmt.Sprintf("⚠  %s is not configured in ~/.act.json — turn dropped", role))
+		return
 	}
 
 	// Note: intake instructions live in the Planner's static system prompt
@@ -477,10 +480,27 @@ func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
 			continue
 		}
 		text := formatCoordEvent(ev)
-		if text == "" {
-			continue
+		if text != "" {
+			o.emitSystemMessage(ctx, sid, text)
 		}
-		o.emitSystemMessage(ctx, sid, text)
+
+		// Task failures need more than a chat line — the Planner must see
+		// them so it can decide whether to retry, reassign, or abandon. The
+		// autoRoutePlanner recursion cap protects against loops if the
+		// Planner keeps triggering more failures.
+		if ev.Type == "task_failed" {
+			taskID, _ := ev.Data["taskId"].(string)
+			result, _ := ev.Data["result"].(string)
+			if len(result) > 400 {
+				result = result[:400] + "..."
+			}
+			summary := fmt.Sprintf(
+				"Task %s just failed (agent %s). Error: %s\n\nDecide: POST /api/tasks/%s/retry to retry with the same agent, or emit CREATE_TASK: to reassign to a different role, or ask the human if this looks unrecoverable.",
+				truncate(taskID, 36), ev.Agent, result, taskID,
+			)
+			go o.autoRoutePlanner(ctx, "system", summary)
+		}
+
 		if ev.Timestamp > newest {
 			newest = ev.Timestamp
 		}
@@ -593,12 +613,6 @@ func (o *Orchestrator) CurrentSpeaker() string {
 // IsAnyBusy returns true if any agent is busy.
 // If sessionID is non-empty, checks that specific session; otherwise checks globally.
 func (o *Orchestrator) IsAnyBusy(sessionID string) bool {
-	if o.app.Agents == nil {
-		if sessionID != "" {
-			return o.app.CoderAgent.IsSessionBusy(sessionID)
-		}
-		return o.app.CoderAgent.IsBusy()
-	}
 	for _, agentSvc := range o.app.Agents {
 		if sessionID != "" {
 			if agentSvc.IsSessionBusy(sessionID) {
@@ -613,19 +627,25 @@ func (o *Orchestrator) IsAnyBusy(sessionID string) bool {
 	return false
 }
 
+// IsRoleBusy returns true if the named role's agent is currently running.
+// Used by polling loops that only need to avoid self-overlap (Assurance
+// shouldn't block because Planner is busy, and vice versa).
+func (o *Orchestrator) IsRoleBusy(role string) bool {
+	svc := o.getAgent(role)
+	if svc == nil {
+		return false
+	}
+	return svc.IsBusy()
+}
+
 // CancelActive cancels whichever agent is currently running on the given session.
 func (o *Orchestrator) CancelActive(sessionID string) {
-	if o.app.Agents == nil {
-		o.app.CoderAgent.Cancel(sessionID)
-		return
-	}
 	for _, agentSvc := range o.app.Agents {
 		if agentSvc.IsSessionBusy(sessionID) {
 			agentSvc.Cancel(sessionID)
 			return
 		}
 	}
-	o.app.CoderAgent.Cancel(sessionID)
 }
 
 // TagMessagesFromCurrentSpeaker tags a single message with the active speaker.
@@ -709,15 +729,17 @@ func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromConte
 	o.mu.Lock()
 	if o.consecutiveAutoTurns >= autoTurnCap {
 		o.mu.Unlock()
-		logging.Warn("Auto-turn cap reached — dropping forwarded message", "from", fromRole, "cap", autoTurnCap)
+		logging.Warn("autoroute_planner_dropped", "from", fromRole, "cap", autoTurnCap, "reason", "auto_turn_cap")
 		return
 	}
 	o.consecutiveAutoTurns++
+	turns := o.consecutiveAutoTurns
 	sid := o.sessionID
 	o.mu.Unlock()
 	if sid == "" {
 		return
 	}
+	logging.Info("autoroute_planner", "from", fromRole, "consecutive_turns", turns, "content_bytes", len(fromContent))
 	// Brief delay so the source message has fully rendered before Planner runs.
 	time.Sleep(200 * time.Millisecond)
 	prompt := fmt.Sprintf(
@@ -910,8 +932,10 @@ func (o *Orchestrator) observerLoop(ctx context.Context) {
 
 func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 	if o.IsAnyBusy("") {
+		logging.Info("observer_check_skip", "reason", "any_agent_busy")
 		return // don't interrupt active turns
 	}
+	logging.Info("observer_check_start")
 
 	client := act.NewClient("observer", os.Getenv("ACT_PROJECT"))
 	if !client.IsAvailable() {
@@ -1168,6 +1192,30 @@ func detectAnomalies(s *StatusSnapshot) []Anomaly {
 		}
 	}
 
+	// 6. Failed tasks — invisible to rules 1-5 because those only cover
+	// assigned/in_progress/pending/completed states. Without this rule the
+	// Observer silently ignores the most actionable state.
+	for _, t := range s.Tasks {
+		if t.Status != "failed" {
+			continue
+		}
+		sev := SeverityCritical
+		if t.RetryCount >= maxTaskRetries {
+			sev = SeverityWarning // permanently failed — human/Planner decision needed, not a retry
+		}
+		label := t.Title
+		if label == "" {
+			label = t.ID
+		}
+		anomalies = append(anomalies, Anomaly{
+			Severity: sev,
+			Category: CategoryFailedTask,
+			Message:  fmt.Sprintf("Task %q failed (retry %d/%d, agent %s)", label, t.RetryCount, maxTaskRetries, orNobody(t.AssignedAgent)),
+			TaskID:   t.ID,
+			AgentID:  t.AssignedAgent,
+		})
+	}
+
 	// Sort by severity
 	severityRank := map[AnomalySeverity]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	for i := 0; i < len(anomalies); i++ {
@@ -1235,7 +1283,8 @@ func (o *Orchestrator) validationPollLoop(ctx context.Context) {
 }
 
 func (o *Orchestrator) checkPendingValidation(ctx context.Context) {
-	if o.IsAnyBusy("") {
+	if o.IsRoleBusy("assurance") {
+		logging.Info("assurance_poll_skip", "reason", "role_busy")
 		return
 	}
 	client := act.NewClient("assurance", os.Getenv("ACT_PROJECT"))
@@ -1251,10 +1300,23 @@ func (o *Orchestrator) checkPendingValidation(ctx context.Context) {
 		return
 	}
 	for _, t := range tasks {
-		if o.alreadySeen("validation:" + t.ID) {
+		seenKey := "validation:" + t.ID
+		if o.alreadySeen(seenKey) {
 			continue
 		}
-		o.markSeen("validation:" + t.ID)
+		attempts := o.incAttempt(seenKey)
+		if attempts > maxValidationAttempts {
+			o.markSeen(seenKey)
+			o.mu.RLock()
+			sid := o.sessionID
+			o.mu.RUnlock()
+			if sid != "" {
+				o.emitSystemMessage(ctx, sid, fmt.Sprintf("⚠  validation stuck on %q after %d attempts — escalating to Planner", taskLabel(t), maxValidationAttempts))
+				go o.autoRoutePlanner(ctx, "system", fmt.Sprintf("validation stuck on task %q (id=%s) after %d attempts; decide: force-retry, reassign, or abandon", taskLabel(t), t.ID, maxValidationAttempts))
+			}
+			continue
+		}
+		logging.Info("assurance_poll_start", "task_id", t.ID, "attempt", attempts)
 		o.routeToAssurance(ctx, client, t)
 		break // one at a time
 	}
@@ -1270,10 +1332,11 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 		return
 	}
 
-	// Capture Assurance's response by snapshotting message count, then run turn
+	// Run the Assurance turn. The task stays unseen at this point so if anything
+	// below fails (unparseable verdict, SubmitVerdict HTTP error), the next
+	// polling tick will retry, up to maxValidationAttempts.
 	o.runAgentTurn(ctx, sid, "assurance", prompt)
 
-	// Parse the most recent assurance message
 	msgs, err := o.app.Messages.List(ctx, sid)
 	if err != nil {
 		return
@@ -1291,11 +1354,14 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 
 	verdict := parseValidationVerdict(t.ID, lastAssurance)
 	if verdict == nil {
-		logging.Warn("Could not parse validation verdict from Assurance response", "task_id", t.ID)
+		preview := lastAssurance
+		if len(preview) > 300 {
+			preview = preview[:300] + "..."
+		}
+		logging.Warn("verdict_parse_fail", "task_id", t.ID, "preview", preview)
 		return
 	}
 
-	// Submit verdict to server
 	criteriaResults := make([]map[string]any, 0, len(verdict.CriteriaResults))
 	for _, cr := range verdict.CriteriaResults {
 		criteriaResults = append(criteriaResults, map[string]any{
@@ -1306,8 +1372,14 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 		})
 	}
 	if err := client.SubmitVerdict(t.ID, "assurance", verdict.Passed, verdict.OverallScore, criteriaResults, verdict.Gaps, verdict.Feedback); err != nil {
-		logging.Warn("Failed to submit validation verdict", "task_id", t.ID, "error", err)
+		logging.Warn("submit_verdict_failed", "task_id", t.ID, "error", err)
+		return
 	}
+	// Only mark seen once the verdict has been accepted by the server. A failed
+	// verdict that routed the task back to 'assigned' will surface again in a
+	// future poll under a new key lifecycle — the seen-key is per submission.
+	o.markSeen("validation:" + t.ID)
+	logging.Info("verdict_submitted", "task_id", t.ID, "passed", verdict.Passed, "score", verdict.OverallScore)
 }
 
 // ─── Background loop: QA polling ───────────────────────────────────────────────
@@ -1333,7 +1405,8 @@ func (o *Orchestrator) qaPollLoop(ctx context.Context) {
 }
 
 func (o *Orchestrator) checkValidatedTasks(ctx context.Context) {
-	if o.IsAnyBusy("") {
+	if o.IsRoleBusy("qa_synthesizer") {
+		logging.Info("qa_poll_skip", "reason", "role_busy")
 		return
 	}
 	client := act.NewClient("qa", os.Getenv("ACT_PROJECT"))
@@ -1349,10 +1422,23 @@ func (o *Orchestrator) checkValidatedTasks(ctx context.Context) {
 		return
 	}
 	for _, t := range tasks {
-		if o.alreadySeen("qa:" + t.ID) {
+		seenKey := "qa:" + t.ID
+		if o.alreadySeen(seenKey) {
 			continue
 		}
-		o.markSeen("qa:" + t.ID)
+		attempts := o.incAttempt(seenKey)
+		if attempts > maxSynthesisAttempts {
+			o.markSeen(seenKey)
+			o.mu.RLock()
+			sid := o.sessionID
+			o.mu.RUnlock()
+			if sid != "" {
+				o.emitSystemMessage(ctx, sid, fmt.Sprintf("⚠  synthesis stuck on %q after %d attempts — escalating to Planner", taskLabel(t), maxSynthesisAttempts))
+				go o.autoRoutePlanner(ctx, "system", fmt.Sprintf("synthesis stuck on task %q (id=%s) after %d attempts; decide how to proceed", taskLabel(t), t.ID, maxSynthesisAttempts))
+			}
+			continue
+		}
+		logging.Info("qa_poll_start", "task_id", t.ID, "attempt", attempts)
 		o.routeToQA(ctx, t)
 		break
 	}
@@ -1381,6 +1467,26 @@ func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 	}
 	prompt := buildSynthesisPrompt(output)
 	o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt)
+
+	// Verify the QA agent actually produced a synthesis reply before marking
+	// seen. If the LLM bailed (no reply, tool-only output, etc.) leave the task
+	// eligible for retry on the next poll.
+	msgs, err := o.app.Messages.List(ctx, sid)
+	if err != nil {
+		return
+	}
+	var lastQA string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == message.Assistant && o.GetOwner(msgs[i].ID) == "qa_synthesizer" {
+			lastQA = msgs[i].Content().String()
+			break
+		}
+	}
+	if lastQA == "" {
+		return
+	}
+	o.markSeen("qa:" + t.ID)
+	logging.Info("synthesis_emitted", "task_id", t.ID, "reply_bytes", len(lastQA))
 }
 
 // ─── Parsers ───────────────────────────────────────────────────────────────────
@@ -1625,3 +1731,22 @@ func (o *Orchestrator) markSeen(key string) {
 	defer o.mu.Unlock()
 	o.seenTasks[key] = true
 }
+
+// incAttempt increments and returns the attempt counter for a validation/qa
+// seen-key. Used by the pollers to cap how many times we retry a task whose
+// verdict/synthesis keeps failing to parse — prevents infinite polling on
+// broken LLM output.
+func (o *Orchestrator) incAttempt(key string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.attemptCount[key]++
+	return o.attemptCount[key]
+}
+
+const (
+	maxValidationAttempts = 3
+	maxSynthesisAttempts  = 3
+	// maxTaskRetries mirrors the server's MAX_TASK_RETRIES. Kept in sync
+	// manually — if the server value changes, update both sides.
+	maxTaskRetries = 3
+)

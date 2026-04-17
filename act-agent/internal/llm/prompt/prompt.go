@@ -36,7 +36,9 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 	case config.RoleResearcher:
 		basePrompt = ResearcherPrompt(provider)
 	default:
-		// Fallback to developer prompt — "coder" is an OpenCode internal, not an ACT role
+		// Unknown role — use the developer prompt. Every ACT role is handled
+		// explicitly above; anything else is a swarm-adjacent agent that should
+		// behave like a developer.
 		basePrompt = DeveloperPrompt(provider)
 	}
 

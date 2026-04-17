@@ -410,14 +410,10 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 	setupSubscriber(ctx, &wg, "messages", app.Messages.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "permissions", app.Permissions.Subscribe, ch)
 
-	if len(app.Agents) > 0 {
-		for role, agentSvc := range app.Agents {
-			if agentSvc != nil {
-				setupSubscriber(ctx, &wg, "agent-"+role, agentSvc.Subscribe, ch)
-			}
+	for role, agentSvc := range app.Agents {
+		if agentSvc != nil {
+			setupSubscriber(ctx, &wg, "agent-"+role, agentSvc.Subscribe, ch)
 		}
-	} else {
-		setupSubscriber(ctx, &wg, "coderAgent", app.CoderAgent.Subscribe, ch)
 	}
 
 	cleanupFunc := func() {

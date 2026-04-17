@@ -36,16 +36,24 @@ type MCPServer struct {
 
 type AgentName string
 
+// Auxiliary helper agents (session title generation, conversation
+// summarization, sub-agent dispatch). These are not user-facing ACT roles
+// and only wire up when the user explicitly configures
+// agents.title / agents.summarizer / agents.task in ~/.act.json. ACT
+// dispatches strictly by explicit role (Planner / Observer / Assurance /
+// QA / developer / frontend_dev / backend_dev / qa_engineer / researcher),
+// never by a generic fallback.
 const (
-	AgentCoder      AgentName = "coder"
 	AgentSummarizer AgentName = "summarizer"
 	AgentTask       AgentName = "task"
 	AgentTitle      AgentName = "title"
 )
 
 // ACT role names — map to agent configs for role-based model selection.
-// When --nestty <role> or --role <role> is used, the system looks up
-// agents.<role> first, then falls back to agents.coder.
+// When --role <role> is used, the system looks up agents.<role> first,
+// and falls back to agents.developer. There is no other fallback —
+// unconfigured roles must be routed to a real ACT role, not a generic
+// catch-all.
 //
 // Tier 1 (Interactive — NesTTY window):
 const (
@@ -86,20 +94,18 @@ type Provider struct {
 	Disabled bool   `json:"disabled"`
 }
 
-// AgentConfigForRole returns the agent config for an ACT role.
-// Looks up agents.<role> first, falls back to agents.developer, then agents.coder.
-// This enables different models for Planner vs coding agents.
+// AgentConfigForRole returns the agent config for an ACT role. Looks up
+// agents.<role> first, falls back to agents.developer. There is no deeper
+// fallback — the developer role is the project-wide default and must be
+// configured. If it isn't, agent construction will fail with a clear error
+// rather than silently landing on some generic catch-all.
 func AgentConfigForRole(role string) AgentName {
 	roleName := AgentName(role)
 	cfg := Get()
 	if _, ok := cfg.Agents[roleName]; ok {
 		return roleName
 	}
-	// Prefer developer as fallback (ACT role), then coder (OpenCode internal)
-	if _, ok := cfg.Agents[RoleDeveloper]; ok {
-		return RoleDeveloper
-	}
-	return AgentCoder
+	return RoleDeveloper
 }
 
 // Tier1AgentNames returns the canonical ordered list of Tier 1 NesTTY roles
@@ -396,13 +402,11 @@ func setProviderDefaults() {
 	}
 
 	// NesTTY uses its own four Tier 1 agents (planner/observer/assurance/
-	// qa_synthesizer) plus a configurable Tier 2 swarm. The OpenCode-inherited
-	// coder/summarizer/task/title agents are dead here — coder only runs as a
-	// fallback if planner creation fails, and summarizer/title only run inside
-	// the coder agent's own title/summary hooks. We used to default-inject
-	// models for those four per provider, which caused spurious "invalid max
-	// tokens" warnings at every launch. They're configured on demand via the
-	// onboarding dialog and in ~/.act.json now.
+	// qa_synthesizer) plus a configurable Tier 2 swarm. OpenCode-inherited
+	// helper agents (summarizer/task/title) are only wired up when the user
+	// explicitly configures them in ~/.act.json. Default-injecting a model
+	// per provider caused spurious "invalid max tokens" warnings at every
+	// launch, so we don't set any agent defaults here anymore.
 }
 
 // hasAWSCredentials checks if AWS credentials are available in the environment.

@@ -1,14 +1,13 @@
-# OpenCode Configuration Schema Generator
+# ACT Configuration Schema Generator
 
-This tool generates a JSON Schema for the OpenCode configuration file. The schema can be used to validate configuration files and provide autocompletion in editors that support JSON Schema.
+Generates a JSON Schema for the ACT configuration file (`~/.act.json`). Editors
+with JSON-Schema support use this for validation and autocomplete.
 
 ## Usage
 
 ```bash
-go run cmd/schema/main.go > opencode-schema.json
+go run cmd/schema/main.go > act-schema.json
 ```
-
-This will generate a JSON Schema file that can be used to validate configuration files.
 
 ## Schema Features
 
@@ -22,22 +21,16 @@ The generated schema includes:
 
 ## Using the Schema
 
-You can use the generated schema in several ways:
-
-1. **Editor Integration**: Many editors (VS Code, JetBrains IDEs, etc.) support JSON Schema for validation and autocompletion. You can configure your editor to use the generated schema for `.opencode.json` files.
-
-2. **Validation Tools**: You can use tools like [jsonschema](https://github.com/Julian/jsonschema) to validate your configuration files against the schema.
-
-3. **Documentation**: The schema serves as documentation for the configuration options.
+1. **Editor integration** — point your editor at `act-schema.json` for `~/.act.json`.
+2. **Validation tools** — feed both files to any JSON-Schema validator.
+3. **Documentation** — the schema enumerates every legal role and field.
 
 ## Example Configuration
-
-Here's an example configuration that conforms to the schema:
 
 ```json
 {
   "data": {
-    "directory": ".opencode"
+    "directory": ".act"
   },
   "debug": false,
   "providers": {
@@ -46,18 +39,26 @@ Here's an example configuration that conforms to the schema:
     }
   },
   "agents": {
-    "coder": {
-      "model": "claude-3.7-sonnet",
-      "maxTokens": 5000,
-      "reasoningEffort": "medium"
+    "planner": {
+      "model": "claude-opus-4-20250514",
+      "maxTokens": 8000
     },
-    "task": {
-      "model": "claude-3.7-sonnet",
+    "observer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 2000
+    },
+    "assurance": {
+      "model": "claude-sonnet-4-20250514",
       "maxTokens": 5000
     },
-    "title": {
-      "model": "claude-3.7-sonnet",
-      "maxTokens": 80
+    "qa_synthesizer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000
+    },
+    "developer": {
+      "model": "claude-sonnet-4-20250514",
+      "maxTokens": 5000,
+      "backend": "act-agent"
     }
   }
 }

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -9,7 +8,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +32,6 @@ type App struct {
 	History     history.Service
 	Permissions permission.Service
 
-	CoderAgent   agent.Service
 	Agents       map[string]agent.Service // Tier 1: "planner", "observer", "assurance", "qa_synthesizer"
 	SwarmSpecs   []runner.SwarmRoleSpec   // Tier 2: one spec per swarm role to spawn
 	Orchestrator *Orchestrator
@@ -70,10 +67,10 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 
 	// Create Tier 1 agents (each with role-specific model from .act.json AND
 	// a role-specific tool subset). Per-role subsets are critical for free-tier
-	// providers — the full CoderAgentTools roster ships ~16K tokens of tool
-	// schemas per request, blowing Groq's 12K TPM cap. Planner and Observer
-	// only need bash; Assurance and QA need bash + view + grep. See
-	// agent.Tier1ToolsForRole for the rationale.
+	// providers — the full developer toolbox ships ~16K tokens of tool schemas
+	// per request, blowing Groq's 12K TPM cap. Planner and Observer only need
+	// bash; Assurance and QA need bash + view + grep. See agent.Tier1ToolsForRole
+	// for the rationale.
 	tier1Roles := []string{"planner", "observer", "assurance", "qa_synthesizer"}
 	app.Agents = make(map[string]agent.Service, len(tier1Roles))
 
@@ -89,32 +86,17 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 		)
 		agentSvc, err := agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools)
 		if err != nil {
-			logging.Warn("Failed to create agent for role, will use fallback", "role", role, "error", err)
+			logging.Warn("Failed to create agent for role", "role", role, "error", err)
 			continue
 		}
 		app.Agents[role] = agentSvc
 	}
 
-	// CoderAgent = Planner for backward compat (TUI, non-interactive, etc.)
-	if planner, ok := app.Agents["planner"]; ok {
-		app.CoderAgent = planner
-	} else {
-		// Fallback: create a generic coder agent if Planner failed.
-		// This path uses the full toolbox because it's the OpenCode-inherited
-		// coder agent, which expects to read/write code.
-		fallbackTools := agent.CoderAgentTools(
-			app.Permissions,
-			app.Sessions,
-			app.Messages,
-			app.History,
-			app.LSPClients,
-		)
-		var err error
-		app.CoderAgent, err = agent.NewAgent(config.AgentCoder, app.Sessions, app.Messages, fallbackTools)
-		if err != nil {
-			logging.Error("Failed to create any agent", err)
-			return nil, err
-		}
+	// The Planner is the canonical human-facing agent — non-interactive mode
+	// and the TUI both route through it. If it failed to construct above,
+	// there's no usable app.
+	if _, ok := app.Agents["planner"]; !ok {
+		return nil, fmt.Errorf("planner agent construction failed; cannot start ACT")
 	}
 
 	// Build the Tier 2 swarm specs from .act.json. One spec per known swarm
@@ -162,15 +144,16 @@ func buildSwarmSpecs(cfg *config.Config) []runner.SwarmRoleSpec {
 }
 
 // CreateAgentForRole creates a new agent using role-specific model config.
-// Falls back to the coder agent config if no role-specific config exists.
-// Used by --nestty and --agent modes to select appropriate models per role.
+// Falls back to the developer role's config if no role-specific config exists
+// (see config.AgentConfigForRole). Used by --agent mode to select the model
+// per swarm role with the full Tier 2 toolbox.
 func (a *App) CreateAgentForRole(role string) (agent.Service, error) {
 	agentName := config.AgentConfigForRole(role)
 	return agent.NewAgent(
 		agentName,
 		a.Sessions,
 		a.Messages,
-		agent.CoderAgentTools(
+		agent.DeveloperTools(
 			a.Permissions,
 			a.Sessions,
 			a.Messages,
@@ -229,15 +212,9 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 	a.Permissions.AutoApproveSession(sess.ID)
 
 	// Route non-interactive single-shot prompts to the Planner — ACT's canonical
-	// human entry point. Falls back to the legacy CoderAgent only if the Planner
-	// isn't configured for some reason. CoderAgent uses the OpenCode-inherited
-	// interactive-coder system prompt (~4K tokens) which blows free-tier TPM
-	// budgets; the Planner's prompt is purpose-built for ACT and ~1.5K tokens.
-	runAgent := a.CoderAgent
-	if planner, ok := a.Agents["planner"]; ok && planner != nil {
-		runAgent = planner
-	}
-	done, err := runAgent.Run(ctx, sess.ID, prompt)
+	// human entry point. New() guarantees Agents["planner"] is non-nil or it
+	// would have errored out of construction.
+	done, err := a.Agents["planner"].Run(ctx, sess.ID, prompt)
 	if err != nil {
 		return fmt.Errorf("failed to start agent processing stream: %w", err)
 	}
@@ -275,16 +252,18 @@ func (a *App) RunNonInteractive(ctx context.Context, prompt string, outputFormat
 func (a *App) RunAgent(ctx context.Context, prompt string, agentID string, role string) error {
 	logging.Info("Running in ACT agent mode", "agent_id", agentID, "role", role)
 
-	// Use role-specific model if configured
+	// Build the agent for this role. Swarm roles (developer, frontend_dev, etc.)
+	// get their configured model + full DeveloperTools. If role is empty, fall
+	// back to the Planner — the human-facing canonical agent.
+	var runAgent agent.Service
 	if role != "" {
 		roleAgent, err := a.CreateAgentForRole(role)
 		if err != nil {
-			logging.Warn("Failed to create role-specific agent, using default", "role", role, "error", err)
-		} else {
-			originalAgent := a.CoderAgent
-			a.CoderAgent = roleAgent
-			defer func() { a.CoderAgent = originalAgent }()
+			return a.agentError(agentID, fmt.Errorf("failed to create agent for role %q: %w", role, err))
 		}
+		runAgent = roleAgent
+	} else {
+		runAgent = a.Agents["planner"]
 	}
 
 	// ACT coordination: register with server and fetch context
@@ -312,7 +291,7 @@ func (a *App) RunAgent(ctx context.Context, prompt string, agentID string, role 
 	// Auto-approve all permissions — headless agents can't prompt
 	a.Permissions.AutoApproveSession(sess.ID)
 
-	done, err := a.CoderAgent.Run(ctx, sess.ID, prompt)
+	done, err := runAgent.Run(ctx, sess.ID, prompt)
 	if err != nil {
 		return a.agentError(agentID, fmt.Errorf("failed to start agent: %w", err))
 	}
@@ -371,127 +350,6 @@ func (a *App) agentOutput(agentID string, status string, result string) error {
 func (a *App) agentError(agentID string, err error) error {
 	_ = a.agentOutput(agentID, "error", err.Error())
 	return err
-}
-
-// RunNesTTY handles persistent NesTTY mode — reads turns from stdin, writes conversation to stdout.
-// Tool execution output is suppressed. The session stays alive between turns.
-// If an initial prompt is provided, it is processed as the first turn before reading stdin.
-func (a *App) RunNesTTY(ctx context.Context, role string, initialPrompt string) error {
-	logging.Info("Running in NesTTY mode", "role", role)
-
-	// ACT coordination: register NesTTY role agent
-	agentID := fmt.Sprintf("nestty-%s", role)
-	actClient := act.NewClient(agentID, os.Getenv("ACT_PROJECT"))
-	if actClient.IsAvailable() {
-		if err := actClient.Register(); err != nil {
-			logging.Warn("ACT registration failed for NesTTY role", "role", role, "error", err)
-		}
-	}
-
-	// Use role-specific model if configured (e.g., planner uses Claude Opus, observer uses Gemini)
-	roleAgent, err := a.CreateAgentForRole(role)
-	if err != nil {
-		logging.Warn("Failed to create role-specific agent, using default coder agent", "role", role, "error", err)
-		roleAgent = a.CoderAgent
-	}
-	// Temporarily swap the coder agent for this session
-	originalAgent := a.CoderAgent
-	a.CoderAgent = roleAgent
-	defer func() { a.CoderAgent = originalAgent }()
-
-	sess, err := a.Sessions.Create(ctx, fmt.Sprintf("nestty:%s", role))
-	if err != nil {
-		return fmt.Errorf("failed to create NesTTY session: %w", err)
-	}
-
-	// Auto-approve all permissions — NesTTY agents run unattended
-	a.Permissions.AutoApproveSession(sess.ID)
-
-	// Signal ready to orchestrator
-	a.nesttyWrite(role, "ready", "")
-
-	// Process initial prompt (bootstrap) if provided
-	if initialPrompt != "" {
-		if err := a.nesttyTurn(ctx, sess.ID, role, initialPrompt); err != nil {
-			return err
-		}
-	}
-
-	// Main loop: read turns from stdin, process each, write conversation to stdout
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB buffer for large context injections
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		// Special commands from orchestrator
-		if line == "__EXIT__" {
-			a.nesttyWrite(role, "exit", "Session ended")
-			return nil
-		}
-
-		if err := a.nesttyTurn(ctx, sess.ID, role, line); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return nil
-			}
-			a.nesttyWrite(role, "error", err.Error())
-			// Don't exit on error — stay alive for next turn
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("stdin read error: %w", err)
-	}
-
-	return nil // stdin closed (orchestrator terminated)
-}
-
-// nesttyTurn processes a single conversation turn and writes the response to stdout.
-func (a *App) nesttyTurn(ctx context.Context, sessionID string, role string, input string) error {
-	done, err := a.CoderAgent.Run(ctx, sessionID, input)
-	if err != nil {
-		return fmt.Errorf("agent run failed: %w", err)
-	}
-
-	result := <-done
-	if result.Error != nil {
-		if errors.Is(result.Error, context.Canceled) || errors.Is(result.Error, agent.ErrRequestCancelled) {
-			return context.Canceled
-		}
-		return result.Error
-	}
-
-	content := ""
-	if result.Message.Content().String() != "" {
-		content = result.Message.Content().String()
-	}
-
-	a.nesttyWrite(role, "message", content)
-	return nil
-}
-
-// nesttyWrite outputs a JSON line to stdout for the orchestrator to parse.
-// Format: {"role": "planner", "type": "message|ready|error|exit", "content": "..."}
-func (a *App) nesttyWrite(role string, msgType string, content string) {
-	out := struct {
-		Role    string `json:"role"`
-		Type    string `json:"type"`
-		Content string `json:"content"`
-		Time    string `json:"time"`
-	}{
-		Role:    role,
-		Type:    msgType,
-		Content: content,
-		Time:    time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.Marshal(out)
-	if err != nil {
-		return
-	}
-	fmt.Println(string(data))
 }
 
 // Shutdown performs a clean shutdown of the application

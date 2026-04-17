@@ -243,12 +243,22 @@ func generateSchema() map[string]any {
 	}
 	agentSchema["additionalProperties"].(map[string]any)["properties"].(map[string]any)["model"].(map[string]any)["enum"] = modelEnum
 
-	// Add specific agent properties
+	// Add specific agent properties — ACT roles plus auxiliary helpers
+	// (title/task/summarizer). There is no generic catch-all role.
 	agentProperties := map[string]any{}
 	knownAgents := []string{
-		string(config.AgentCoder),
+		string(config.RolePlanner),
+		string(config.RoleObserver),
+		string(config.RoleAssurance),
+		string(config.RoleQASynthesizer),
+		string(config.RoleDeveloper),
+		string(config.RoleFrontendDev),
+		string(config.RoleBackendDev),
+		string(config.RoleQAEngineer),
+		string(config.RoleResearcher),
 		string(config.AgentTask),
 		string(config.AgentTitle),
+		string(config.AgentSummarizer),
 	}
 
 	for _, agentName := range knownAgents {
