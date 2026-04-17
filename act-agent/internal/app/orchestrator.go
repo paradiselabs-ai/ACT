@@ -328,6 +328,7 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 	done, err := agentSvc.Run(turnCtx, sessionID, content, attachments...)
 	if err != nil {
 		logging.Error("Agent turn failed to start", "role", role, "error", err)
+		o.emitSystemMessage(context.Background(), sessionID, fmt.Sprintf("⚠  %s could not start — %s", role, humanReadableAgentError(err)))
 		o.mu.Lock()
 		o.currentSpeaker = ""
 		o.mu.Unlock()
@@ -355,7 +356,37 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 
 	if result.Error != nil {
 		logging.Warn("Agent turn completed with error", "role", role, "error", result.Error)
+		o.emitSystemMessage(context.Background(), sessionID, fmt.Sprintf("⚠  %s failed — %s", role, humanReadableAgentError(result.Error)))
 	}
+}
+
+// humanReadableAgentError maps common provider/agent errors into a short line
+// the user can act on. Raw provider errors are often JSON or long — strip them
+// down to the useful signal (auth failure, rate limit, model gone, etc).
+func humanReadableAgentError(err error) string {
+	if err == nil {
+		return "unknown error"
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "api key") || strings.Contains(lower, "unauthorized") || strings.Contains(lower, "401"):
+		return "API key missing or invalid (check ~/.act.json / env vars)"
+	case strings.Contains(lower, "rate limit") || strings.Contains(lower, "429"):
+		return "provider rate-limited — try again shortly"
+	case strings.Contains(lower, "model not found") || strings.Contains(lower, "no such model") || strings.Contains(lower, "404"):
+		return "model not available (may have been deprecated — update ~/.act.json)"
+	case strings.Contains(lower, "context length") || strings.Contains(lower, "token limit"):
+		return "context too long for this model — start a new session"
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
+		return "provider timed out"
+	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host"):
+		return "provider unreachable (network or endpoint misconfigured)"
+	}
+	if len(msg) > 200 {
+		msg = msg[:200] + "…"
+	}
+	return msg
 }
 
 // agentTurnTimeout is the maximum wall-clock time a single agent turn is

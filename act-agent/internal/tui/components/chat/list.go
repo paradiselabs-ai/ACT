@@ -488,10 +488,11 @@ func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
 	}
 	delete(m.cachedContent, m.currentMsgID)
 	m.rendering = true
-	return func() tea.Msg {
-		m.renderView()
-		return renderFinishedMsg{}
-	}
+	// Signal a render on the event loop — renderView mutates m.messages /
+	// m.cachedContent / m.uiMessages, so it must NOT run in a tea.Cmd
+	// goroutine concurrently with Update handlers. renderFinishedMsg's
+	// handler calls renderView synchronously.
+	return func() tea.Msg { return renderFinishedMsg{} }
 }
 
 func (m *messagesCmp) BindingKeys() []key.Binding {
