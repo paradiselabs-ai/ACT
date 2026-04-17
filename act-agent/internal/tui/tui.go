@@ -883,7 +883,9 @@ func (a appModel) View() tea.View {
 		)
 	}
 
-	return tea.NewView(appView)
+	v := tea.NewView(appView)
+	v.AltScreen = true
+	return v
 }
 
 func New(app *app.App) tea.Model {
