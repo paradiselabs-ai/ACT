@@ -178,7 +178,7 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		o.width = msg.Width
 		o.height = msg.Height
 		return o, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 			return o, util.CmdHandler(CloseOnboardingMsg{Initialize: false})
@@ -228,7 +228,7 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleBackendSelection drives the Tier 2 backend picker step.
 // ↑/↓ moves between roles, ←/→ toggles act-agent vs claude-code.
-func (o *onboardingCmp) handleBackendSelection(msg tea.KeyMsg) {
+func (o *onboardingCmp) handleBackendSelection(msg tea.KeyPressMsg) {
 	if len(o.tier2Backends) == 0 {
 		return
 	}
@@ -252,7 +252,7 @@ func (o *onboardingCmp) handleBackendSelection(msg tea.KeyMsg) {
 
 // handleNomikToggle drives the Nomik enable/disable step.
 // Space, ←, →, y, n all toggle. Enter advances.
-func (o *onboardingCmp) handleNomikToggle(msg tea.KeyMsg) {
+func (o *onboardingCmp) handleNomikToggle(msg tea.KeyPressMsg) {
 	switch {
 	case key.Matches(msg, key.NewBinding(key.WithKeys(" ", "h", "l", "left", "right"))):
 		o.nomikEnabled = !o.nomikEnabled
@@ -263,7 +263,7 @@ func (o *onboardingCmp) handleNomikToggle(msg tea.KeyMsg) {
 	}
 }
 
-func (o *onboardingCmp) handleRoleSelection(msg tea.KeyMsg, roles *[]onboardingRole) {
+func (o *onboardingCmp) handleRoleSelection(msg tea.KeyPressMsg, roles *[]onboardingRole) {
 	if len(*roles) == 0 {
 		return
 	}
