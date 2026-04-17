@@ -83,7 +83,7 @@ func (a *App) slashStatus() string {
 	sb.WriteString("## ACT System Status\n\n")
 
 	sb.WriteString("**Tier 1 (in-process)**:\n")
-	t1 := []string{"planner", "observer", "assurance", "qa"}
+	t1 := []string{"planner", "observer", "assurance", "qa_synthesizer"}
 	for _, r := range t1 {
 		if _, ok := a.Agents[r]; ok {
 			sb.WriteString(fmt.Sprintf("  ✓ %s\n", r))

@@ -1315,7 +1315,7 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 func (o *Orchestrator) qaPollLoop(ctx context.Context) {
 	defer o.loopWG.Done()
 
-	if o.getAgent("qa") == nil {
+	if o.getAgent("qa_synthesizer") == nil {
 		return
 	}
 
@@ -1380,7 +1380,7 @@ func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 		AddedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 	prompt := buildSynthesisPrompt(output)
-	o.runAgentTurn(ctx, sid, "qa", prompt)
+	o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt)
 }
 
 // ─── Parsers ───────────────────────────────────────────────────────────────────

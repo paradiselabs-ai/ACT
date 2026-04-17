@@ -35,7 +35,7 @@ type App struct {
 	Permissions permission.Service
 
 	CoderAgent   agent.Service
-	Agents       map[string]agent.Service // Tier 1: "planner", "observer", "assurance", "qa"
+	Agents       map[string]agent.Service // Tier 1: "planner", "observer", "assurance", "qa_synthesizer"
 	SwarmSpecs   []runner.SwarmRoleSpec   // Tier 2: one spec per swarm role to spawn
 	Orchestrator *Orchestrator
 
@@ -74,7 +74,7 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	// schemas per request, blowing Groq's 12K TPM cap. Planner and Observer
 	// only need bash; Assurance and QA need bash + view + grep. See
 	// agent.Tier1ToolsForRole for the rationale.
-	tier1Roles := []string{"planner", "observer", "assurance", "qa"}
+	tier1Roles := []string{"planner", "observer", "assurance", "qa_synthesizer"}
 	app.Agents = make(map[string]agent.Service, len(tier1Roles))
 
 	for _, role := range tier1Roles {
