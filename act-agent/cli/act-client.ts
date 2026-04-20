@@ -130,9 +130,10 @@ export class ACTClient {
     }
   }
 
-  async searchPVM(query: string, limit: number = 10): Promise<any[]> {
+  async searchPVM(query: string, limit: number = 10, project?: string): Promise<any[]> {
     try {
-      const response = await fetch(`${this.serverUrl}/api/pvm/search?query=${encodeURIComponent(query)}&limit=${limit}`);
+      const projectParam = project ? `&project=${encodeURIComponent(project)}` : '';
+      const response = await fetch(`${this.serverUrl}/api/pvm/search?query=${encodeURIComponent(query)}&limit=${limit}${projectParam}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -262,9 +263,10 @@ export class ACTClient {
     }
   }
 
-  async getTasks(): Promise<any[]> {
+  async getTasks(project?: string): Promise<any[]> {
     try {
-      const response = await fetch(`${this.serverUrl}/api/tasks`);
+      const projectParam = project ? `?project=${encodeURIComponent(project)}` : '';
+      const response = await fetch(`${this.serverUrl}/api/tasks${projectParam}`);
       if (!response.ok) return [];
       const data = await response.json();
       return data.tasks || data || [];
@@ -296,9 +298,10 @@ export class ACTClient {
     }
   }
 
-  async getRecentLog(limit: number = 500): Promise<any[]> {
+  async getRecentLog(limit: number = 500, project?: string): Promise<any[]> {
     try {
-      const response = await fetch(`${this.serverUrl}/api/log?limit=${limit}`);
+      const projectParam = project ? `&project=${encodeURIComponent(project)}` : '';
+      const response = await fetch(`${this.serverUrl}/api/log?limit=${limit}${projectParam}`);
       if (!response.ok) return [];
       const data = await response.json();
       return data.events || [];

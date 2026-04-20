@@ -915,9 +915,21 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 
 	// Lazy spawn: the first time tasks appear, bring up the Tier 2 swarm.
 	// StartSwarm is idempotent per-role so calling it on every batch is safe.
+	//
+	// Filter specs by the project's agentsInvolved list when the Planner has
+	// already committed one in PROJECT_BRIEF. Without this, every project
+	// spawns all 5 runners regardless of whether the Planner asked for them —
+	// the brief's "One developer agent" is ignored and 5 node subprocesses
+	// run competing for tasks. Falls back to the full spec list if the
+	// project record has no agents[] (pre-brief turn, or legacy project).
 	if len(o.app.SwarmSpecs) > 0 && !o.runnerSpawner.IsRunning() {
-		logging.Info("First task batch — spawning Tier 2 swarm", "task_count", len(tasks))
-		if err := o.runnerSpawner.StartSwarm(o.app.SwarmSpecs); err != nil {
+		specs := o.filterSwarmSpecsByProject(client)
+		logging.Info("First task batch — spawning Tier 2 swarm",
+			"task_count", len(tasks),
+			"swarm_size", len(specs),
+			"requested_roles", specRoleNames(specs),
+		)
+		if err := o.runnerSpawner.StartSwarm(specs); err != nil {
 			logging.Warn("Failed to start swarm", "error", err)
 		}
 	}
@@ -958,6 +970,62 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 	if created > 0 {
 		go o.maybeRescanNomik(context.Background())
 	}
+}
+
+// filterSwarmSpecsByProject returns the subset of SwarmSpecs whose role
+// appears in the current project's agentsInvolved list. If the project record
+// has no agents[] (missing, empty, or server unreachable), returns the full
+// spec list — safer default than "no runners".
+//
+// The Planner's PROJECT_BRIEF includes agentsInvolved; the server stores it
+// as project.agents. This is the only filter that respects the brief's
+// "One developer agent" directive.
+func (o *Orchestrator) filterSwarmSpecsByProject(client *act.Client) []runner.SwarmRoleSpec {
+	all := o.app.SwarmSpecs
+	if len(all) == 0 {
+		return all
+	}
+	name := o.projectName
+	if name == "" {
+		return all
+	}
+	data, found, err := client.GetProject(name)
+	if err != nil || !found || data == nil {
+		return all
+	}
+	rawAgents, ok := data["agents"].([]any)
+	if !ok || len(rawAgents) == 0 {
+		return all
+	}
+	wanted := make(map[string]struct{}, len(rawAgents))
+	for _, a := range rawAgents {
+		if s, ok := a.(string); ok && s != "" {
+			wanted[s] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return all
+	}
+	filtered := make([]runner.SwarmRoleSpec, 0, len(all))
+	for _, spec := range all {
+		if _, ok := wanted[spec.Role]; ok {
+			filtered = append(filtered, spec)
+		}
+	}
+	if len(filtered) == 0 {
+		// Brief asked for roles none of which are configured — fall back
+		// rather than leave the project with no runners at all.
+		return all
+	}
+	return filtered
+}
+
+func specRoleNames(specs []runner.SwarmRoleSpec) []string {
+	out := make([]string, 0, len(specs))
+	for _, s := range specs {
+		out = append(out, s.Role)
+	}
+	return out
 }
 
 // maybeRescanNomik runs `nomik scan:incremental` if Nomik is enabled and a

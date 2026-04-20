@@ -88,10 +88,17 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Full system status — used by Observer, REPL `status`, and monitoring
+// Full system status — used by Observer, REPL `status`, and monitoring.
+// Accepts ?project=NAME to scope the task list + counts to a single project —
+// without it, old unrelated projects' tasks leak into the current session's
+// Planner view and trigger false "critical issues in other projects" replies.
 app.get('/api/status', (req, res) => {
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
   const allAgents = agentRegistry.getAllAgents();
-  const allTasks = Array.from(taskCoordinator.getAllTasks());
+  let allTasks = Array.from(taskCoordinator.getAllTasks());
+  if (project) {
+    allTasks = allTasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+  }
 
   // Task counts by status
   const tasksByStatus: Record<string, number> = {};
@@ -448,9 +455,16 @@ app.get('/api/projects/:name/briefs/:agentId', (req, res) => {
   res.json({ success: true, content });
 });
 
-// REST task endpoints
+// REST task endpoints. ?project=NAME scopes the listing; without it, all
+// projects' tasks return (useful for server-level tooling, dangerous for
+// a Planner asking "what's on my plate?").
 app.get('/api/tasks', (req, res) => {
-  res.json({ tasks: taskCoordinator.getAllTasks() });
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  let tasks = taskCoordinator.getAllTasks();
+  if (project) {
+    tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+  }
+  res.json({ tasks });
 });
 
 app.post('/api/tasks', async (req, res) => {
@@ -498,12 +512,20 @@ app.get('/api/tasks/failed-permanently', (req, res) => {
   res.json({ success: true, tasks });
 });
 
-// Get the active task assigned to a specific agent (must be before /:taskId)
+// Get the active task assigned to a specific agent (must be before /:taskId).
+// Runners call this every poll interval. Without a project scope, agent IDs
+// (dev-1, backend-1, etc.) are shared across projects — a runner in project
+// A ends up executing a task from project B that happened to still be
+// assigned to the same agent ID. Always pass ?project= from the runner.
 app.get('/api/tasks/assigned', (req, res) => {
   const agentId = req.query.agent_id as string;
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
   if (!agentId) return res.status(400).json({ success: false, error: 'agent_id is required' });
 
-  const tasks = taskCoordinator.getTasksByAgent(agentId);
+  let tasks = taskCoordinator.getTasksByAgent(agentId);
+  if (project) {
+    tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+  }
   const active = tasks.find(t => t.status === 'assigned' || t.status === 'in_progress');
   res.json({ success: true, task: active || null });
 });
@@ -936,11 +958,25 @@ app.get('/api/improvement/status', (req, res) => {
 app.get('/api/pvm/search', async (req, res) => {
   try {
     const { query, limit } = req.query;
+    const project = typeof req.query.project === 'string' ? req.query.project : '';
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ success: false, error: 'Query parameter is required' });
     }
-    
-    const results = await pvmIndexer.search(query, limit ? parseInt(limit as string) : 10);
+
+    const wantN = limit ? parseInt(limit as string) : 10;
+    // Over-fetch when scoping so we still return N project matches after
+    // filtering. PVM returns globally-ranked results — without the filter
+    // the Planner sees old-project patterns dominating the ranking.
+    const fetchN = project ? Math.max(wantN * 5, 50) : wantN;
+    let results = await pvmIndexer.search(query, fetchN);
+    if (project) {
+      results = results.filter((r: any) => {
+        const m = r.message || r;
+        const pn = m.metadata?.projectName || m.data?.projectName || m.data?.task?.metadata?.projectName;
+        return pn === project;
+      });
+      if (results.length > wantN) results = results.slice(0, wantN);
+    }
     res.json({ success: true, results });
   } catch (error: any) {
     logger.error(`PVM search failed: ${error.message}`);
@@ -952,11 +988,30 @@ app.get('/api/pvm/status', (req, res) => {
   res.json(pvmIndexer.getStatus());
 });
 
-// Read raw ChronologicalLog — used by import project to reconstruct task history
+// Read raw ChronologicalLog — used by import project + Tier 1 agents via
+// act_cli log. Accepts ?project=NAME to filter to events scoped to that
+// project (task lifecycle + project-tagged messages). Without the filter,
+// agents see the global stream and surface old-project activity.
 app.get('/api/log', async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 500;
-    const events = await chronologicalLog.getRecent(limit);
+    const project = typeof req.query.project === 'string' ? req.query.project : '';
+    const rawLimit = parseInt(req.query.limit as string) || 500;
+    // When filtering, fetch more and trim after — otherwise the project's
+    // real events get capped by unrelated events in the same window.
+    const fetchLimit = project ? Math.max(rawLimit * 4, 2000) : rawLimit;
+    let events = await chronologicalLog.getRecent(fetchLimit);
+    if (project) {
+      events = events.filter(e => {
+        const d = (e as any).data || {};
+        if (d.task?.metadata?.projectName === project) return true;
+        if (d.projectName === project) return true;
+        if (d.metadata?.projectName === project) return true;
+        // System project-created events
+        if ((e as any).type === 'project_created' && d.name === project) return true;
+        return false;
+      });
+      if (events.length > rawLimit) events = events.slice(-rawLimit);
+    }
     res.json({ success: true, events, count: events.length });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });

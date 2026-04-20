@@ -358,7 +358,11 @@ async function cmdTaskSubmitValidation(client: ACTClient, args: Record<string, a
 
 async function cmdLog(client: ACTClient, args: Record<string, any>): Promise<void> {
   const tail = args['--tail'] || 20;
-  const events = await client.getRecentLog(tail);
+  // Scope to active project. Tier 1 agents call this via act_cli and expect
+  // their own project's event stream — without scoping they see stale
+  // cross-project events and incorrectly decide other projects are active.
+  const project = args['--project'] || process.env.ACT_PROJECT;
+  const events = await client.getRecentLog(tail, project);
 
   for (const event of events) {
     console.log(`[${event.timestamp}] [${event.agent}] ${event.type}: ${event.message}`);
@@ -494,8 +498,13 @@ async function cmdGraphConflicts(client: ACTClient): Promise<void> {
 
 async function cmdStatus(client: ACTClient): Promise<void> {
   const serverUrl = client.getServerUrl();
+  // Scope to current project when ACT_PROJECT is set — default agent/runner
+  // invocations always have it set, so `act status` in a session shows the
+  // current project's state. Unset only in detached ops tooling.
+  const project = process.env.ACT_PROJECT;
+  const projectParam = project ? `?project=${encodeURIComponent(project)}` : '';
   try {
-    const res = await fetch(`${serverUrl}/api/status`);
+    const res = await fetch(`${serverUrl}/api/status${projectParam}`);
     const s = await res.json() as any;
 
     console.log(`ACT System Status — ${s.timestamp}`);
@@ -752,7 +761,11 @@ async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promi
     process.exit(1);
   }
 
-  const results = await client.searchPVM(query, limit);
+  // Scope PVM search to the current project so agents' queries return
+  // patterns from their own project, not a global ranking dominated by
+  // older unrelated work.
+  const project = args['--project'] || process.env.ACT_PROJECT;
+  const results = await client.searchPVM(query, limit, project);
   if (results.length === 0) {
     console.log('No results.');
     return;

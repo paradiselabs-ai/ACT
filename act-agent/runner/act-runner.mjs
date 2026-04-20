@@ -29,6 +29,7 @@ const execFileAsync = promisify(execFile);
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const ACT_SERVER_URL = (process.env.ACT_SERVER_URL || 'http://localhost:8080').replace(/\/$/, '');
+const ACT_PROJECT    = process.env.ACT_PROJECT || '';
 const CLAUDE_PATH    = process.env.CLAUDE_PATH    || 'claude';
 const AGENT_CLI      = process.env.ACTOR_CLI || process.env.AGENT_CLI || './act-agent';
 const POLL_INTERVAL  = parseInt(process.env.POLL_INTERVAL_MS || '5000',  10);
@@ -154,7 +155,12 @@ async function register() {
 }
 
 async function getTask() {
-  const data = await get('/api/tasks/assigned', { agent_id: AGENT_ID });
+  // Scope to current project so this runner only pulls tasks the active
+  // TUI session dispatched — not stale tasks from prior projects that
+  // happened to use the same agent ID (dev-1, backend-1, etc. are shared).
+  const params = { agent_id: AGENT_ID };
+  if (ACT_PROJECT) params.project = ACT_PROJECT;
+  const data = await get('/api/tasks/assigned', params);
   return data.task || null;
 }
 
