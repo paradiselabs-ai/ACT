@@ -761,11 +761,9 @@ async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promi
     process.exit(1);
   }
 
-  // Scope PVM search to the current project so agents' queries return
-  // patterns from their own project, not a global ranking dominated by
-  // older unrelated work.
-  const project = args['--project'] || process.env.ACT_PROJECT;
-  const results = await client.searchPVM(query, limit, project);
+  // PVM is cross-project by design — past patterns from any project are
+  // legitimate routing evidence for the current one.
+  const results = await client.searchPVM(query, limit);
   if (results.length === 0) {
     console.log('No results.');
     return;

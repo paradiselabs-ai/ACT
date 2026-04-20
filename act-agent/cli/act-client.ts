@@ -130,10 +130,9 @@ export class ACTClient {
     }
   }
 
-  async searchPVM(query: string, limit: number = 10, project?: string): Promise<any[]> {
+  async searchPVM(query: string, limit: number = 10): Promise<any[]> {
     try {
-      const projectParam = project ? `&project=${encodeURIComponent(project)}` : '';
-      const response = await fetch(`${this.serverUrl}/api/pvm/search?query=${encodeURIComponent(query)}&limit=${limit}${projectParam}`);
+      const response = await fetch(`${this.serverUrl}/api/pvm/search?query=${encodeURIComponent(query)}&limit=${limit}`);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

@@ -955,28 +955,18 @@ app.get('/api/improvement/status', (req, res) => {
 });
 
 // PVM endpoints
+// PVM search is intentionally cross-project — its purpose is team coordination
+// memory and agent skill profiles built from ALL prior work. Scoping would
+// defeat the point: the Planner asks "has anyone ever solved X?" and wants
+// past patterns from any project, not just the current one.
 app.get('/api/pvm/search', async (req, res) => {
   try {
     const { query, limit } = req.query;
-    const project = typeof req.query.project === 'string' ? req.query.project : '';
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ success: false, error: 'Query parameter is required' });
     }
 
-    const wantN = limit ? parseInt(limit as string) : 10;
-    // Over-fetch when scoping so we still return N project matches after
-    // filtering. PVM returns globally-ranked results — without the filter
-    // the Planner sees old-project patterns dominating the ranking.
-    const fetchN = project ? Math.max(wantN * 5, 50) : wantN;
-    let results = await pvmIndexer.search(query, fetchN);
-    if (project) {
-      results = results.filter((r: any) => {
-        const m = r.message || r;
-        const pn = m.metadata?.projectName || m.data?.projectName || m.data?.task?.metadata?.projectName;
-        return pn === project;
-      });
-      if (results.length > wantN) results = results.slice(0, wantN);
-    }
+    const results = await pvmIndexer.search(query, limit ? parseInt(limit as string) : 10);
     res.json({ success: true, results });
   } catch (error: any) {
     logger.error(`PVM search failed: ${error.message}`);
