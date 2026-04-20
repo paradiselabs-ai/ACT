@@ -813,13 +813,15 @@ func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromConte
 		return
 	}
 	logging.Info("autoroute_planner", "from", fromRole, "consecutive_turns", turns, "content_bytes", len(fromContent))
-	// Brief delay so the source message has fully rendered before Planner runs.
-	time.Sleep(200 * time.Millisecond)
 	prompt := fmt.Sprintf(
 		"The %s agent just sent the following report. React by taking action — emit CREATE_TASK: directives if work needs to be created or reassigned, or only write a chat reply if you need to inform the human. Do NOT echo this report back. Stay silent in chat unless you have something for the human.\n\n[%s]: %s",
 		fromRole, fromRole, fromContent,
 	)
-	o.runAgentTurn(ctx, sid, "planner", prompt)
+	// Wait for any in-flight Planner turn to finish before firing. Hitting
+	// runAgentTurn synchronously here races with a Planner mid-tool-call
+	// and returns "session is currently processing another request",
+	// silently dropping the autoroute prompt.
+	o.fireWhenPlannerIdle(ctx, sid, prompt, "autoroute_from_"+fromRole)
 }
 
 // autoTurnCap is the maximum number of consecutive auto-routed Planner turns
@@ -874,11 +876,47 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 
 	// Kick the Planner into BUILD mode. Without this trigger it has no
 	// human input to respond to, so it just stays silent after intake.
+	//
+	// The PROJECT_BRIEF directive arrives inside a Planner turn — the
+	// pubsub Updated event that triggers this handler may fire while the
+	// same Planner turn is still finishing (tool-call round still in flight).
+	// Running the trigger synchronously here races with that turn and
+	// returns "session is currently processing another request", silently
+	// dropping the build prompt. Result: ACT sits idle, no tasks created.
+	//
+	// Fix: defer to a goroutine that waits for the Planner to finish its
+	// current turn, then fires. Polls IsRoleBusy at 200ms intervals up to
+	// 60s (plenty for any reasonable turn completion).
 	buildPrompt := fmt.Sprintf(
 		"Project '%s' has been created. Switch to BUILD mode now: decompose the project brief into tasks and emit CREATE_TASK: directives for each one. Do not ask for confirmation — start creating tasks immediately.",
 		name,
 	)
-	o.runAgentTurn(ctx, sid, "planner", buildPrompt)
+	go o.fireWhenPlannerIdle(ctx, sid, buildPrompt, "build_mode_trigger")
+}
+
+// fireWhenPlannerIdle waits for the Planner to finish its current turn, then
+// runs a new turn with the given prompt. Used by any orchestrator path that
+// fires a Planner prompt in reaction to a just-completed Planner message
+// (handleProjectBrief, handlePlannerTaskDirectives retries, etc) — calling
+// runAgentTurn synchronously from inside the pubsub handler races with the
+// turn that produced the triggering message.
+func (o *Orchestrator) fireWhenPlannerIdle(ctx context.Context, sessionID, prompt, reason string) {
+	const pollInterval = 200 * time.Millisecond
+	const maxWait = 60 * time.Second
+	deadline := time.Now().Add(maxWait)
+	for o.IsRoleBusy("planner") {
+		if time.Now().After(deadline) {
+			logging.Warn("planner_trigger_timeout", "reason", reason, "waited", maxWait)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pollInterval):
+		}
+	}
+	logging.Info("planner_trigger_fire", "reason", reason, "prompt_bytes", len(prompt))
+	o.runAgentTurn(ctx, sessionID, "planner", prompt)
 }
 
 // handlePlannerTaskDirectives parses CREATE_TASK directives from a Planner
