@@ -322,23 +322,23 @@ func (m *messagesCmp) View() tea.View {
 	baseStyle := styles.BaseStyle()
 
 	if len(m.messages) == 0 {
-		// Reserve 2 rows for the spacer + help line below so the total
-		// JoinVertical output is exactly m.height. Previously this rendered
-		// the splash at m.height-1 and then added 2 more rows (blank + help),
-		// overflowing the allotted messages-pane height by 2 rows. SplitPane's
-		// JoinVertical doesn't truncate, so the overflow pushed the editor
-		// pane off the bottom of the terminal and made the input box
-		// invisible until the user sent a first message.
+		// Hard-truncate the splash to fit in m.height-2 rows so the editor
+		// pane below it stays visible. lipgloss Height() pads up but does
+		// NOT clip content that's already taller — on windows shorter than
+		// the full splash (~42 rows), the overflow was pushing the editor
+		// off-screen entirely. Manual line-slice gives guaranteed fit.
 		splashHeight := m.height - 2
-		if splashHeight < 0 {
-			splashHeight = 0
+		if splashHeight < 1 {
+			splashHeight = 1
+		}
+		splash := m.initialScreen()
+		lines := strings.Split(splash, "\n")
+		if len(lines) > splashHeight {
+			lines = lines[:splashHeight]
 		}
 		content := baseStyle.
 			Width(m.width).
-			Height(splashHeight).
-			Render(
-				m.initialScreen(),
-			)
+			Render(strings.Join(lines, "\n"))
 
 		return tea.NewView(baseStyle.
 			Width(m.width).
