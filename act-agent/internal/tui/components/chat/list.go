@@ -322,9 +322,20 @@ func (m *messagesCmp) View() tea.View {
 	baseStyle := styles.BaseStyle()
 
 	if len(m.messages) == 0 {
+		// Reserve 2 rows for the spacer + help line below so the total
+		// JoinVertical output is exactly m.height. Previously this rendered
+		// the splash at m.height-1 and then added 2 more rows (blank + help),
+		// overflowing the allotted messages-pane height by 2 rows. SplitPane's
+		// JoinVertical doesn't truncate, so the overflow pushed the editor
+		// pane off the bottom of the terminal and made the input box
+		// invisible until the user sent a first message.
+		splashHeight := m.height - 2
+		if splashHeight < 0 {
+			splashHeight = 0
+		}
 		content := baseStyle.
 			Width(m.width).
-			Height(m.height - 1).
+			Height(splashHeight).
 			Render(
 				m.initialScreen(),
 			)
