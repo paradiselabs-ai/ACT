@@ -351,11 +351,19 @@ func (c *Client) CreateTask(title, description string, requiredCapabilities []st
 	return data.Task.ID, nil
 }
 
-// ListTasks fetches all tasks from the ACT server.
+// ListTasks fetches tasks from the ACT server. Scoped to the client's
+// current project when set — without scoping, Observer's status snapshot
+// sees cross-project tasks and flags them as stuck/failed anomalies in
+// the current session.
+//
 // Returns the raw JSON string for the orchestrator to parse.
 // (The orchestrator will use orchestrator_types.go structs to decode this.)
 func (c *Client) ListTasks() (string, error) {
-	return c.getString("/api/tasks")
+	path := "/api/tasks"
+	if c.Project != "" {
+		path += "?project=" + url.QueryEscape(c.Project)
+	}
+	return c.getString(path)
 }
 
 // GetPendingValidation fetches tasks awaiting Assurance validation. Scoped
@@ -391,10 +399,18 @@ func (c *Client) GetFileLocks() (string, error) {
 	return c.getString("/api/files/locks")
 }
 
-// GetLog fetches recent coordination log entries.
+// GetLog fetches recent coordination log entries. Scoped to the client's
+// current project when set — without scoping, the orchestrator's
+// coordinationEventLoop surfaces cross-project task events into the current
+// session's chat.
+//
 // limit is the maximum number of entries to return.
 func (c *Client) GetLog(limit int) (string, error) {
-	return c.getString(fmt.Sprintf("/api/log?limit=%d", limit))
+	path := fmt.Sprintf("/api/log?limit=%d", limit)
+	if c.Project != "" {
+		path += "&project=" + url.QueryEscape(c.Project)
+	}
+	return c.getString(path)
 }
 
 // GetProject fetches a single project by name. Returns (data, true) on 200,
