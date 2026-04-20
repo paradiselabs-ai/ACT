@@ -16,6 +16,7 @@ import (
 	"unsafe"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	zone "github.com/lrstanley/bubblezone/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
@@ -189,6 +190,23 @@ func runTUI(a *app.App, ctx context.Context) error {
 	zone.NewGlobal()
 	program := tea.NewProgram(
 		tui.New(a),
+		// Drop the ModeReportMsg for synchronized output (mode 2026).
+		// Bubbletea v2 queries the terminal for mode 2026 support at startup,
+		// and on a "currently disabled" response it enables BSU/ESU wrapping
+		// around frame writes. On some terminals this wrapping causes frames
+		// to sit in a synchronized-update buffer until the terminal sees an
+		// escape trigger — presents to the user as "output only appears after
+		// a keypress". Dropping the report prevents the enable-path from
+		// firing; frames flush immediately on every FPS tick. Other
+		// ModeReportMsg values (UnicodeCore, etc) still flow through.
+		tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
+			if rep, ok := msg.(tea.ModeReportMsg); ok {
+				if rep.Mode == ansi.ModeSynchronizedOutput {
+					return nil
+				}
+			}
+			return msg
+		}),
 	)
 	logging.InfoPersist("startup:tui.New+NewProgram", "elapsed", time.Since(stepT))
 	stepT = time.Now()

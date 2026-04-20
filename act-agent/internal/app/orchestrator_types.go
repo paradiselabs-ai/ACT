@@ -26,6 +26,7 @@ type TaskSummary struct {
 	RequiredCapabilities []string       `json:"requiredCapabilities,omitempty"`
 	Dependencies         []string       `json:"dependencies,omitempty"`
 	SuccessCriteria      []string       `json:"successCriteria,omitempty"`
+	RetryCount           int            `json:"retryCount,omitempty"`
 	CreatedAt            string         `json:"createdAt,omitempty"`
 	CompletedAt          string         `json:"completedAt,omitempty"`
 	Metadata             map[string]any `json:"metadata,omitempty"`
@@ -51,10 +52,11 @@ type FileLockSummary struct {
 
 // LogEntry is a single coordination log event as returned by /api/log.
 type LogEntry struct {
-	Type      string `json:"type"`
-	Agent     string `json:"agent,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Timestamp string `json:"timestamp,omitempty"`
+	Type      string         `json:"type"`
+	Agent     string         `json:"agent,omitempty"`
+	Message   string         `json:"message,omitempty"`
+	Timestamp string         `json:"timestamp,omitempty"`
+	Data      map[string]any `json:"data,omitempty"`
 }
 
 // StatusSnapshot is a point-in-time view of the entire ACT system state.
@@ -86,6 +88,7 @@ const (
 	CategoryUnvalidated  AnomalyCategory = "unvalidated"
 	CategoryBottleneck   AnomalyCategory = "bottleneck"
 	CategoryFileConflict AnomalyCategory = "conflict"
+	CategoryFailedTask   AnomalyCategory = "failed_task"
 )
 
 // Anomaly is a single issue detected by the Observer's monitoring loop.

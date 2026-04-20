@@ -137,17 +137,25 @@ export class AgentRegistry extends EventEmitter {
 
   getOptimalAgent(requiredCapabilities: string[]): Agent | null {
     const availableAgents = this.getAvailableAgents();
-    console.log(`🔍 Finding optimal agent from ${availableAgents.length} available agents`);
-    availableAgents.forEach(agent => {
-      console.log(`   Agent: ${agent.id} (${agent.name}) - Capabilities: ${agent.capabilities.join(', ')}`);
-    });
 
     if (availableAgents.length === 0) {
       return null;
     }
 
-    // Score agents based on capability match and performance
-    const scoredAgents = availableAgents.map(agent => {
+    // Filter to agents with at least one matching capability when requirements
+    // are specified. This prevents Go tasks being routed to frontend_dev just
+    // because frontend_dev has a higher performance score. Tasks with no
+    // required capabilities still score over all available agents.
+    const eligible = requiredCapabilities.length > 0
+      ? availableAgents.filter(a => requiredCapabilities.some(cap => a.capabilities.includes(cap)))
+      : availableAgents;
+
+    if (eligible.length === 0) {
+      logger.info(`assign_decision: no_capability_match required=[${requiredCapabilities.join(',')}] available_agents=${availableAgents.length}`);
+      return null;
+    }
+
+    const scoredAgents = eligible.map(agent => {
       const capabilityScore = this.calculateCapabilityMatch(agent, requiredCapabilities);
       const performanceScore = agent.performanceScore;
       const workloadScore = agent.status === 'online' ? 1.0 : 0.5;
@@ -158,20 +166,15 @@ export class AgentRegistry extends EventEmitter {
         workloadScore * 0.1
       );
 
-      console.log(`   ${agent.id}: capability=${capabilityScore}, performance=${performanceScore}, workload=${workloadScore}, total=${totalScore.toFixed(2)}`);
-      return { agent, score: totalScore };
+      return { agent, score: totalScore, capabilityScore };
     });
 
-    // Sort by score (highest first)
     scoredAgents.sort((a, b) => b.score - a.score);
-
-    const bestAgent = scoredAgents[0]?.agent;
-
-    if (bestAgent) {
-      logger.info(`Optimal agent selected: ${bestAgent.id} (score: ${scoredAgents[0].score.toFixed(2)})`);
+    const best = scoredAgents[0];
+    if (best) {
+      logger.info(`assign_decision: selected=${best.agent.id} score=${best.score.toFixed(2)} capability_score=${best.capabilityScore.toFixed(2)} required=[${requiredCapabilities.join(',')}]`);
     }
-
-    return bestAgent || null;
+    return best?.agent || null;
   }
 
   private calculateCapabilityMatch(agent: Agent, requiredCapabilities: string[]): number {

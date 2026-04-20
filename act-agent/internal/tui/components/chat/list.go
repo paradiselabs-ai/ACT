@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
@@ -22,9 +23,10 @@ import (
 )
 
 type cacheItem struct {
-	width   int
-	role    string
-	content []uiMessage
+	width    int
+	role     string
+	finished bool // tracks IsFinished() — flipping from false→true invalidates
+	content  []uiMessage
 }
 type messagesCmp struct {
 	app           *app.App
@@ -116,9 +118,23 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				if !messageExists {
-					if len(m.messages) > 0 {
-						lastMsgID := m.messages[len(m.messages)-1].ID
-						delete(m.cachedContent, lastMsgID)
+					// Only invalidate the previous last-message cache if the
+					// new message is a tool response matching a tool_use in
+					// that message. Blindly invalidating every time meant a
+					// finished assistant message re-rendered through Glamour
+					// on every subsequent message creation — one of the
+					// dominant freeze contributors per KI-01.
+					if len(m.messages) > 0 && msg.Payload.Role == message.Tool {
+						prev := m.messages[len(m.messages)-1]
+						toolResults := msg.Payload.ToolResults()
+						for _, tr := range toolResults {
+							for _, tc := range prev.ToolCalls() {
+								if tc.ID == tr.ToolCallID {
+									delete(m.cachedContent, prev.ID)
+									break
+								}
+							}
+						}
 					}
 
 					m.messages = append(m.messages, msg.Payload)
@@ -180,6 +196,11 @@ func formatTimeDifference(unixTime1, unixTime2 int64) string {
 }
 
 func (m *messagesCmp) renderView() {
+	start := time.Now()
+	defer func() {
+		app.BumpRender(time.Since(start), len(m.messages))
+	}()
+
 	m.uiMessages = make([]uiMessage, 0)
 	pos := 0
 	baseStyle := styles.BaseStyle()
@@ -217,14 +238,18 @@ func (m *messagesCmp) renderView() {
 		case message.Assistant:
 			isSummary := m.session.SummaryMessageID == msg.ID
 			role := m.app.Orchestrator.GetOwner(msg.ID)
+			finished := msg.IsFinished()
 
-			// Use cache if width matches and role hasn't changed since caching.
-			// Role can change after initial message creation (race between message
-			// creation and the messageOwnershipLoop), so invalidate when the
-			// cached role differs from the current one.
-			if cache, ok := m.cachedContent[msg.ID]; ok && cache.width == m.width && cache.role == role {
-				m.uiMessages = append(m.uiMessages, cache.content...)
-				continue
+			// Use cache only for finished messages. Unfinished messages are
+			// streaming — their content changes every token, so caching them
+			// would show stale output. Cost is low because renderAssistantMessage
+			// uses plain-text rendering (not Glamour) while the message is
+			// unfinished. See KI-01.
+			if finished {
+				if cache, ok := m.cachedContent[msg.ID]; ok && cache.width == m.width && cache.role == role && cache.finished {
+					m.uiMessages = append(m.uiMessages, cache.content...)
+					continue
+				}
 			}
 
 			assistantMessages := renderAssistantMessage(
@@ -242,11 +267,15 @@ func (m *messagesCmp) renderView() {
 				m.uiMessages = append(m.uiMessages, msg)
 				pos += msg.height + 1 // + 1 for spacing
 			}
-			// Always cache — include role so we invalidate when tagging completes
-			m.cachedContent[msg.ID] = cacheItem{
-				width:   m.width,
-				role:    role,
-				content: assistantMessages,
+			// Only store when the message has settled — streaming cache entries
+			// would go stale immediately.
+			if finished {
+				m.cachedContent[msg.ID] = cacheItem{
+					width:    m.width,
+					role:     role,
+					finished: true,
+					content:  assistantMessages,
+				}
 			}
 		case message.System:
 			// Coordination events injected by the orchestrator (task created,

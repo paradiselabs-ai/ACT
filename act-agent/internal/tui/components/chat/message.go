@@ -46,6 +46,16 @@ func toMarkdown(content string, focused bool, width int) string {
 	return rendered
 }
 
+// toPlainText renders content without Glamour. Used for streaming assistant
+// messages: Glamour's CommonMark parse + ANSI syntax highlight costs seconds
+// on multi-KB content, and re-runs every token update when the message cache
+// is invalidated. During stream we show raw text; on FinishReasonEndTurn the
+// caller re-renders through toMarkdown so the finished message looks identical
+// to the pre-change behavior.
+func toPlainText(content string, width int) string {
+	return styles.BaseStyle().Width(width).Render(content)
+}
+
 func roleColor(role string) color.Color {
 	t := theme.CurrentTheme()
 	switch role {
@@ -87,6 +97,15 @@ func roleLabel(role string, width int) string {
 }
 
 func renderMessage(msg string, isUser bool, isFocused bool, width int, role string, info ...string) string {
+	return renderMessageBody(msg, isUser, isFocused, width, role, true, info...)
+}
+
+// renderMessageBody is renderMessage with an explicit useMarkdown switch. When
+// useMarkdown is false, Glamour rendering is skipped entirely — the body is
+// rendered as plain text inside the same border/padding treatment. Used for
+// streaming assistant messages (see KI-01 in KNOWN_ISSUES.md) where Glamour's
+// per-token re-render was blocking the Bubbletea Update loop for seconds.
+func renderMessageBody(msg string, isUser bool, isFocused bool, width int, role string, useMarkdown bool, info ...string) string {
 	t := theme.CurrentTheme()
 
 	style := styles.BaseStyle().
@@ -102,25 +121,24 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, role stri
 		style = style.BorderForeground(roleColor(role))
 	}
 
-	// Apply markdown formatting and handle background color
-	parts := []string{
-		styles.ForceReplaceBackgroundWithLipgloss(toMarkdown(msg, isFocused, width), t.Background()),
+	var body string
+	if useMarkdown {
+		body = styles.ForceReplaceBackgroundWithLipgloss(toMarkdown(msg, isFocused, width), t.Background())
+	} else {
+		body = toPlainText(msg, width)
 	}
 
-	// Remove newline at the end
-	parts[0] = strings.TrimSuffix(parts[0], "\n")
+	parts := []string{strings.TrimSuffix(body, "\n")}
 	if len(info) > 0 {
 		parts = append(parts, info...)
 	}
 
-	rendered := style.Render(
+	return style.Render(
 		lipgloss.JoinVertical(
 			lipgloss.Left,
 			parts...,
 		),
 	)
-
-	return rendered
 }
 
 func renderUserMessage(msg message.Message, isFocused bool, width int, position int) uiMessage {
@@ -243,7 +261,12 @@ func renderAssistantMessage(
 			info = append(info, baseStyle.Width(width-1).Foreground(t.TextMuted()).Render(" (summary)"))
 		}
 
-		body := renderMessage(content, false, true, width, role, info...)
+		// Skip Glamour markdown while the message is still streaming — each
+		// token update invalidates the render cache, and Glamour on multi-KB
+		// content blocks the Bubbletea Update loop for seconds. Plain text is
+		// ~instant; the moment the turn finishes we re-enter this branch with
+		// finished=true and render the final appearance through Glamour.
+		body := renderMessageBody(content, false, true, width, role, finished, info...)
 		if label := roleLabel(role, width-1); label != "" {
 			content = lipgloss.JoinVertical(lipgloss.Left, label, body)
 		} else {
@@ -259,8 +282,10 @@ func renderAssistantMessage(
 		position += messages[0].height
 		position++ // for the space
 	} else if thinking && thinkingContent != "" {
-		// Render the thinking content
-		content = renderMessage(thinkingContent, false, msg.ID == focusedUIMessageId, width, role)
+		// Thinking/reasoning tokens stream in real time — same Glamour-cost
+		// issue as regular streaming content above. Plain text until it
+		// settles.
+		content = renderMessageBody(thinkingContent, false, msg.ID == focusedUIMessageId, width, role, false)
 	}
 
 	for i, toolCall := range msg.ToolCalls() {
@@ -527,18 +552,23 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 	}
 
 	resultContent := truncateHeight(response.Content, maxResultHeight)
+
+	// Tool results use plain-text rendering. Glamour syntax highlighting on
+	// every tool result (bash output, file views, fetch bodies) was a
+	// cumulative freeze source — each Chroma lexer load is 100-500ms the
+	// first time (bash, text, go, json, etc. each have their own lexer),
+	// and a single assistant message with N tool calls re-renders all N
+	// through Glamour when cache invalidates. 12 tool calls in a Planner
+	// turn measured at 32 seconds for one render pass. Plain text with the
+	// existing border/width treatment keeps results readable without the
+	// Chroma cost. See KI-01.
+	toolTextStyle := baseStyle.Width(width).Foreground(t.TextMuted())
+
 	switch toolCall.Name {
 	case agent.AgentToolName:
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, false, width),
-			t.Background(),
-		)
+		return toolTextStyle.Render(resultContent)
 	case tools.BashToolName:
-		resultContent = fmt.Sprintf("```bash\n%s\n```", resultContent)
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, true, width),
-			t.Background(),
-		)
+		return toolTextStyle.Render(resultContent)
 	case tools.EditToolName:
 		metadata := tools.EditResponseMetadata{}
 		json.Unmarshal([]byte(response.Metadata), &metadata)
@@ -546,64 +576,25 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 		formattedDiff, _ := diff.FormatDiff(truncDiff, diff.WithTotalWidth(width))
 		return formattedDiff
 	case tools.FetchToolName:
-		var params tools.FetchParams
-		json.Unmarshal([]byte(toolCall.Input), &params)
-		mdFormat := "markdown"
-		switch params.Format {
-		case "text":
-			mdFormat = "text"
-		case "html":
-			mdFormat = "html"
-		}
-		resultContent = fmt.Sprintf("```%s\n%s\n```", mdFormat, resultContent)
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, true, width),
-			t.Background(),
-		)
+		return toolTextStyle.Render(resultContent)
 	case tools.GlobToolName:
-		return baseStyle.Width(width).Foreground(t.TextMuted()).Render(resultContent)
+		return toolTextStyle.Render(resultContent)
 	case tools.GrepToolName:
-		return baseStyle.Width(width).Foreground(t.TextMuted()).Render(resultContent)
+		return toolTextStyle.Render(resultContent)
 	case tools.LSToolName:
-		return baseStyle.Width(width).Foreground(t.TextMuted()).Render(resultContent)
+		return toolTextStyle.Render(resultContent)
 	case tools.SourcegraphToolName:
-		return baseStyle.Width(width).Foreground(t.TextMuted()).Render(resultContent)
+		return toolTextStyle.Render(resultContent)
 	case tools.ViewToolName:
 		metadata := tools.ViewResponseMetadata{}
 		json.Unmarshal([]byte(response.Metadata), &metadata)
-		ext := filepath.Ext(metadata.FilePath)
-		if ext == "" {
-			ext = ""
-		} else {
-			ext = strings.ToLower(ext[1:])
-		}
-		resultContent = fmt.Sprintf("```%s\n%s\n```", ext, truncateHeight(metadata.Content, maxResultHeight))
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, true, width),
-			t.Background(),
-		)
+		return toolTextStyle.Render(truncateHeight(metadata.Content, maxResultHeight))
 	case tools.WriteToolName:
 		params := tools.WriteParams{}
 		json.Unmarshal([]byte(toolCall.Input), &params)
-		metadata := tools.WriteResponseMetadata{}
-		json.Unmarshal([]byte(response.Metadata), &metadata)
-		ext := filepath.Ext(params.FilePath)
-		if ext == "" {
-			ext = ""
-		} else {
-			ext = strings.ToLower(ext[1:])
-		}
-		resultContent = fmt.Sprintf("```%s\n%s\n```", ext, truncateHeight(params.Content, maxResultHeight))
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, true, width),
-			t.Background(),
-		)
+		return toolTextStyle.Render(truncateHeight(params.Content, maxResultHeight))
 	default:
-		resultContent = fmt.Sprintf("```text\n%s\n```", resultContent)
-		return styles.ForceReplaceBackgroundWithLipgloss(
-			toMarkdown(resultContent, true, width),
-			t.Background(),
-		)
+		return toolTextStyle.Render(resultContent)
 	}
 }
 

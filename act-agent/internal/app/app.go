@@ -74,6 +74,7 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	tier1Roles := []string{"planner", "observer", "assurance", "qa_synthesizer"}
 	app.Agents = make(map[string]agent.Service, len(tier1Roles))
 
+	cfg := config.Get()
 	for _, role := range tier1Roles {
 		agentName := config.AgentConfigForRole(role)
 		roleTools := agent.Tier1ToolsForRole(
@@ -86,10 +87,37 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 		)
 		agentSvc, err := agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools)
 		if err != nil {
-			logging.Warn("Failed to create agent for role", "role", role, "error", err)
+			logging.Warn("tier1_agent_wire_failed", "role", role, "config_key", string(agentName), "error", err)
 			continue
 		}
 		app.Agents[role] = agentSvc
+
+		// Log the resolved config so a silent fallback (role key missing from
+		// .act.json → falls back to developer) is visible at startup. Without
+		// this, a broken Planner config looks identical to a working one until
+		// the first turn produces unexpected behavior.
+		fallback := string(agentName) != role
+		var modelID, maxTokens string
+		if cfg != nil {
+			if ac, ok := cfg.Agents[agentName]; ok {
+				modelID = string(ac.Model)
+				maxTokens = fmt.Sprintf("%d", ac.MaxTokens)
+			}
+		}
+		logging.Info("tier1_agent_wired",
+			"role", role,
+			"config_key", string(agentName),
+			"config_fallback", fallback,
+			"model", modelID,
+			"max_tokens", maxTokens,
+			"tools", len(roleTools),
+		)
+		if role == "planner" && fallback {
+			logging.Warn("planner_config_fallback",
+				"resolved_key", string(agentName),
+				"reason", "no agents.planner entry in ~/.act.json — using developer config",
+			)
+		}
 	}
 
 	// The Planner is the canonical human-facing agent — non-interactive mode

@@ -509,9 +509,16 @@ app.get('/api/tasks/assigned', (req, res) => {
 });
 
 // Get tasks pending validation (must be before /:taskId)
+// Accepts ?project=NAME to scope to a single project. Without that scope the
+// TUI's Assurance poll loop would pick up tasks from whatever project last
+// ran — Assurance ends up validating work for a project the user isn't even
+// looking at. Runners + orchestrator should always pass the project filter.
 app.get('/api/tasks/pending-validation', (req, res) => {
-  const tasks = taskCoordinator.getTasksByStatus('submitted_for_validation');
-  // Enrich each task with SPIL-extracted success criteria for Assurance
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  let tasks = taskCoordinator.getTasksByStatus('submitted_for_validation');
+  if (project) {
+    tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+  }
   const enriched = tasks.map(t => ({
     ...t,
     successCriteria: extractSuccessCriteria(t.description || ''),
@@ -519,9 +526,15 @@ app.get('/api/tasks/pending-validation', (req, res) => {
   res.json({ tasks: enriched });
 });
 
-// Get validated tasks (must be before /:taskId)
+// Get validated tasks (must be before /:taskId). Same project scoping as
+// pending-validation — prevents QA/Synthesizer from assembling outputs for
+// a project other than the one the TUI is attached to.
 app.get('/api/tasks/validated', (req, res) => {
-  const tasks = taskCoordinator.getTasksByStatus('validated');
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  let tasks = taskCoordinator.getTasksByStatus('validated');
+  if (project) {
+    tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+  }
   res.json({ tasks });
 });
 
@@ -592,14 +605,29 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
       });
     }
 
-    io.emit('task_completed', { taskId, agentId, success: taskSuccess, result, timestamp: new Date().toISOString() });
-    chronologicalLog.append({
-      timestamp: new Date().toISOString(),
-      agent: agentId || 'system',
-      message: `task completed: ${taskId}, success: ${taskSuccess}`,
-      type: 'task_completed',
-      data: { taskId, agentId, success: taskSuccess, result }
-    });
+    // Emit distinct events for success vs failure so the orchestrator's
+    // coordination event loop can auto-route failures to the Planner
+    // (formatCoordEvent has separate handlers for task_completed and task_failed).
+    if (taskSuccess) {
+      io.emit('task_completed', { taskId, agentId, success: true, result, timestamp: new Date().toISOString() });
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: agentId || 'system',
+        message: `task completed: ${taskId}`,
+        type: 'task_completed',
+        data: { taskId, agentId, success: true, result }
+      });
+    } else {
+      const resultSnippet = typeof result === 'string' ? result.slice(0, 200) : '';
+      io.emit('task_failed', { taskId, agentId, result, timestamp: new Date().toISOString() });
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: agentId || 'system',
+        message: `task failed: ${taskId}${resultSnippet ? ' — ' + resultSnippet : ''}`,
+        type: 'task_failed',
+        data: { taskId, agentId, success: false, result }
+      });
+    }
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
@@ -689,6 +717,7 @@ app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
       await taskCoordinator.updateTaskProgress(taskId, { status: 'validated' });
       task.metadata = { ...(task.metadata || {}), validationVerdict: verdict };
 
+      logger.info(`validation_verdict_accepted task=${taskId} score=${score}`);
       io.emit('task_validated', { taskId, agentId, score, timestamp: new Date().toISOString() });
       chronologicalLog.append({
         timestamp: new Date().toISOString(),
@@ -702,13 +731,15 @@ app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
     } else {
       // Failed — return to agent for rework
       await taskCoordinator.updateTaskProgress(taskId, { status: 'assigned' });
+      const attempts = ((task.metadata?.validationAttempts as number) || 0) + 1;
       task.metadata = {
         ...(task.metadata || {}),
         validationVerdict: verdict,
         validationGaps: gaps,
-        validationAttempts: ((task.metadata?.validationAttempts as number) || 0) + 1,
+        validationAttempts: attempts,
       };
 
+      logger.info(`validation_verdict_rejected task=${taskId} score=${score} attempts=${attempts} gaps="${(gaps || '').slice(0, 120)}"`);
       io.emit('task_validation_failed', { taskId, agentId, score, gaps, timestamp: new Date().toISOString() });
       chronologicalLog.append({
         timestamp: new Date().toISOString(),

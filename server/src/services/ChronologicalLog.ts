@@ -485,8 +485,25 @@ export class ChronologicalLog {
               if (d && d.taskId) {
                 const task = tasks.get(d.taskId);
                 if (task) {
-                  task.status = d.success ? 'completed' : 'failed';
-                  task.progress = d.success ? 100 : task.progress;
+                  // Older log entries used a unified 'task_completed' event
+                  // with d.success=false to signal failure. New entries use
+                  // the dedicated 'task_failed' type below. Handle both so
+                  // replay of pre-split logs still works.
+                  task.status = d.success === false ? 'failed' : 'completed';
+                  task.progress = d.success === false ? task.progress : 100;
+                  if (d.result) {
+                    if (!task.metadata) task.metadata = {};
+                    task.metadata.result = d.result;
+                  }
+                }
+              }
+              break;
+            }
+            case 'task_failed': {
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.status = 'failed';
                   if (d.result) {
                     if (!task.metadata) task.metadata = {};
                     task.metadata.result = d.result;

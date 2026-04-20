@@ -358,14 +358,27 @@ func (c *Client) ListTasks() (string, error) {
 	return c.getString("/api/tasks")
 }
 
-// GetPendingValidation fetches tasks awaiting Assurance validation.
+// GetPendingValidation fetches tasks awaiting Assurance validation. Scoped
+// to the client's current project so Assurance only sees work from the
+// project the TUI is attached to — without scoping, tasks from prior
+// sessions in other directories leak into this one's validation queue.
 func (c *Client) GetPendingValidation() (string, error) {
-	return c.getString("/api/tasks/pending-validation")
+	path := "/api/tasks/pending-validation"
+	if c.Project != "" {
+		path += "?project=" + url.QueryEscape(c.Project)
+	}
+	return c.getString(path)
 }
 
-// GetValidatedTasks fetches tasks that have passed Assurance and are awaiting QA synthesis.
+// GetValidatedTasks fetches tasks that have passed Assurance and are awaiting
+// QA synthesis. Scoped to the client's current project for the same reason
+// as GetPendingValidation — prevents cross-project QA runs.
 func (c *Client) GetValidatedTasks() (string, error) {
-	return c.getString("/api/tasks/validated")
+	path := "/api/tasks/validated"
+	if c.Project != "" {
+		path += "?project=" + url.QueryEscape(c.Project)
+	}
+	return c.getString(path)
 }
 
 // ListAgents fetches all registered agents from the ACT server.
@@ -400,11 +413,19 @@ func (c *Client) GetProject(name string) (map[string]any, bool, error) {
 	if resp.StatusCode >= 400 {
 		return nil, false, fmt.Errorf("act GET %s: HTTP %d", path, resp.StatusCode)
 	}
-	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	// Server wraps the project in {success, project: {...}}. Callers expect
+	// the inner shape (description, techStack, etc. at top level).
+	var wrapper struct {
+		Success bool           `json:"success"`
+		Project map[string]any `json:"project"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&wrapper); err != nil {
 		return nil, false, fmt.Errorf("decode project: %w", err)
 	}
-	return data, true, nil
+	if !wrapper.Success || wrapper.Project == nil {
+		return nil, false, nil
+	}
+	return wrapper.Project, true, nil
 }
 
 // CreateProject POSTs a new project to the ACT server. Called by the

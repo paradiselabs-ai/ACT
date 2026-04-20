@@ -41,6 +41,7 @@ export type MessageType =
   | 'task_created'
   | 'task_assigned'
   | 'task_completed'
+  | 'task_failed'
   | 'brief_stored'
   | 'agent_registered'
   // Assurance validation types

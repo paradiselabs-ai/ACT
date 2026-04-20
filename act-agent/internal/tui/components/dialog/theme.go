@@ -108,6 +108,10 @@ func (t *themeDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err := theme.SetTheme(selectedTheme); err != nil {
 					return t, util.ReportError(err)
 				}
+				// Glamour renderers are cached per width and capture the
+				// previous theme's style config. Drop the cache so the next
+				// GetMarkdownRenderer rebuilds with the new theme.
+				styles.InvalidateMarkdownRendererCache()
 				return t, util.CmdHandler(ThemeChangedMsg{
 					ThemeName: selectedTheme,
 				})

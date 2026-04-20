@@ -14,7 +14,7 @@ CREATE_TASK: {"title": "Build auth", "description": "JWT auth with refresh token
 
 That's the first one.`
 
-	tasks := parseCreateTaskDirectives(input)
+	tasks, _, _, _ := parseCreateTaskDirectives(input)
 	if len(tasks) != 1 {
 		t.Fatalf("expected 1 task, got %d", len(tasks))
 	}
@@ -34,7 +34,7 @@ CREATE_TASK: {"title": "Task B", "description": "second"}
 CREATE_TASK: {"title": "Task C", "description": "third"}
 `
 
-	tasks := parseCreateTaskDirectives(input)
+	tasks, _, _, _ := parseCreateTaskDirectives(input)
 	if len(tasks) != 3 {
 		t.Fatalf("expected 3 tasks, got %d", len(tasks))
 	}
@@ -49,7 +49,7 @@ CREATE_TASK: {"title": "Task C", "description": "third"}
 
 func TestParseCreateTaskDirectives_NoDirectives(t *testing.T) {
 	input := "Here's my analysis but I'm not creating any tasks yet."
-	tasks := parseCreateTaskDirectives(input)
+	tasks, _, _, _ := parseCreateTaskDirectives(input)
 	if len(tasks) != 0 {
 		t.Errorf("expected 0 tasks, got %d", len(tasks))
 	}
@@ -59,7 +59,7 @@ func TestParseCreateTaskDirectives_MalformedJSONSkipped(t *testing.T) {
 	input := `CREATE_TASK: {this is not json}
 CREATE_TASK: {"title": "Valid task", "description": "ok"}`
 
-	tasks := parseCreateTaskDirectives(input)
+	tasks, _, _, _ := parseCreateTaskDirectives(input)
 	if len(tasks) != 1 {
 		t.Fatalf("expected 1 task (malformed skipped), got %d", len(tasks))
 	}
@@ -79,7 +79,7 @@ func TestParseCreateTaskDirectives_TasksArrayPattern(t *testing.T) {
 }
 `
 
-	tasks := parseCreateTaskDirectives(input)
+	tasks, _, _, _ := parseCreateTaskDirectives(input)
 	if len(tasks) != 2 {
 		t.Fatalf("expected 2 tasks from array pattern, got %d", len(tasks))
 	}

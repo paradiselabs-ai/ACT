@@ -277,18 +277,37 @@ func (o *Orchestrator) detectProjectState() {
 		// sees a blank conversation and falls back to asking intake questions.
 		desc, _ := data["description"].(string)
 		tech, _ := data["techStack"].(string)
+		sc, _ := data["successCriteria"].(string)
+		briefsCount := 0
+		if b, ok := data["briefs"].(map[string]any); ok {
+			briefsCount = len(b)
+		}
 		o.resumeContext = fmt.Sprintf(
 			"[SYSTEM] Resuming project '%s'. A project brief already exists on the server — do NOT run intake. Switch immediately to BUILD mode: decompose the brief into tasks and emit CREATE_TASK: directives.\nBrief summary — description: %s | techStack: %s",
 			name, desc, tech,
 		)
 		o.firstPlannerTurn = true
+		o.mu.Unlock()
+		logging.Info("project_resume",
+			"project", name,
+			"desc", truncate(desc, 80),
+			"tech", truncate(tech, 60),
+			"has_success_criteria", sc != "",
+			"brief_count", briefsCount,
+		)
+		// Silent envelope-unwrap regressions (today's GetProject bug) show up as
+		// all-blank preview fields. Fire a loud warning so the next regression
+		// is caught within seconds of startup instead of after the first turn.
+		if desc == "" && tech == "" {
+			logging.Warn("project_resume_blank_fields",
+				"project", name,
+				"reason", "description and techStack both empty — possible response envelope regression",
+			)
+		}
+		return
 	}
 	o.mu.Unlock()
-	if !found {
-		logging.Info("No server-side project record — entering INTAKE mode", "project", name)
-	} else {
-		logging.Info("Project found on server — RESUME mode", "project", name)
-	}
+	logging.Info("No server-side project record — entering INTAKE mode", "project", name)
 }
 
 // runAgentTurn executes a single turn for the given role.
@@ -473,37 +492,86 @@ func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
 
 	// /api/log returns events newest-first; iterate oldest-first so they
 	// appear chronologically in the chat.
+	//
+	// Pre-count new events so we can batch when a single poll returns a flood
+	// (swarm doing rapid task cycling, replay backlog, etc). Emitting one
+	// message per event spams the PubSub → every emit triggers a full chat
+	// re-render → the Bubbletea Update loop saturates and input latency
+	// balloons. Observed cap: render cost scales ~O(n) with message count,
+	// so >floodThreshold new events in one tick degrade input latency
+	// noticeably. When we exceed the threshold, compact everything into a
+	// single summary line.
 	newest := since
+	newEventCount := 0
+	for _, ev := range resp.Events {
+		if ev.Timestamp > since {
+			newEventCount++
+		}
+	}
+	batchMode := newEventCount > coordEventFloodThreshold
+	typeCounts := map[string]int{}
+	failedTaskCount := 0
+	var firstFailedSummary string
+
 	for i := len(resp.Events) - 1; i >= 0; i-- {
 		ev := resp.Events[i]
 		if ev.Timestamp == "" || ev.Timestamp <= since {
 			continue
 		}
-		text := formatCoordEvent(ev)
-		if text != "" {
-			o.emitSystemMessage(ctx, sid, text)
+		if batchMode {
+			typeCounts[ev.Type]++
+		} else {
+			text := formatCoordEvent(ev)
+			if text != "" {
+				o.emitSystemMessage(ctx, sid, text)
+			}
 		}
 
 		// Task failures need more than a chat line — the Planner must see
-		// them so it can decide whether to retry, reassign, or abandon. The
-		// autoRoutePlanner recursion cap protects against loops if the
-		// Planner keeps triggering more failures.
+		// them so it can decide whether to retry, reassign, or abandon. In
+		// non-batch mode each failure autoroutes; in batch mode we collapse
+		// to a single autoroute covering the whole burst so we don't swamp
+		// the Planner with N chained turns. The autoRoutePlanner recursion
+		// cap (autoTurnCap) protects against loops regardless.
 		if ev.Type == "task_failed" {
-			taskID, _ := ev.Data["taskId"].(string)
-			result, _ := ev.Data["result"].(string)
-			if len(result) > 400 {
-				result = result[:400] + "..."
+			failedTaskCount++
+			if !batchMode {
+				taskID, _ := ev.Data["taskId"].(string)
+				result, _ := ev.Data["result"].(string)
+				if len(result) > 400 {
+					result = result[:400] + "..."
+				}
+				summary := fmt.Sprintf(
+					"Task %s just failed (agent %s). Error: %s\n\nDecide: POST /api/tasks/%s/retry to retry with the same agent, or emit CREATE_TASK: to reassign to a different role, or ask the human if this looks unrecoverable.",
+					truncate(taskID, 36), ev.Agent, result, taskID,
+				)
+				go o.autoRoutePlanner(ctx, "system", summary)
+			} else if firstFailedSummary == "" {
+				taskID, _ := ev.Data["taskId"].(string)
+				firstFailedSummary = fmt.Sprintf("task %s (agent %s)", truncate(taskID, 36), ev.Agent)
 			}
-			summary := fmt.Sprintf(
-				"Task %s just failed (agent %s). Error: %s\n\nDecide: POST /api/tasks/%s/retry to retry with the same agent, or emit CREATE_TASK: to reassign to a different role, or ask the human if this looks unrecoverable.",
-				truncate(taskID, 36), ev.Agent, result, taskID,
-			)
-			go o.autoRoutePlanner(ctx, "system", summary)
 		}
 
 		if ev.Timestamp > newest {
 			newest = ev.Timestamp
 		}
+	}
+
+	if batchMode && failedTaskCount > 0 {
+		go o.autoRoutePlanner(ctx, "system", fmt.Sprintf(
+			"%d task(s) failed in the last burst (e.g. %s). Check /api/tasks for full state and decide how to handle them.",
+			failedTaskCount, firstFailedSummary,
+		))
+	}
+
+	if batchMode {
+		// Render a single compacted summary in place of N individual lines.
+		parts := []string{fmt.Sprintf("📊  coordination burst — %d events in last %s", newEventCount, coordinationEventInterval)}
+		for typ, count := range typeCounts {
+			parts = append(parts, fmt.Sprintf("%s=%d", typ, count))
+		}
+		o.emitSystemMessage(ctx, sid, strings.Join(parts, "  "))
+		logging.Info("coord_events_batched", "count", newEventCount, "types", typeCounts)
 	}
 
 	if newest != since {
@@ -512,6 +580,11 @@ func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
 		o.mu.Unlock()
 	}
 }
+
+// coordEventFloodThreshold is the max number of new coordination events we'll
+// render as individual chat lines in a single poll tick. Above this we compact
+// into a single summary to keep the Bubbletea render loop responsive.
+const coordEventFloodThreshold = 8
 
 // formatCoordEvent renders a server log entry as a single user-friendly chat
 // line. Returns empty string for event types that aren't worth surfacing
@@ -758,7 +831,23 @@ const autoTurnCap = 5
 // response and POSTs it to the ACT server. On success, clears intakeMode so the
 // next Planner turn falls back to normal task-decomposition behavior.
 func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
+	markerFound := strings.Contains(content, "PROJECT_BRIEF:")
 	brief := parseProjectBrief(content)
+	descBytes := 0
+	if brief != nil {
+		descBytes = len(brief.Description)
+	}
+	logging.Info("project_brief_parse",
+		"content_bytes", len(content),
+		"marker_found", markerFound,
+		"parsed", brief != nil,
+		"desc_bytes", descBytes,
+	)
+	if markerFound && brief == nil {
+		logging.Warn("project_brief_parse_failed",
+			"reason", "PROJECT_BRIEF: marker present but JSON extraction or parse failed — Planner output malformed",
+		)
+	}
 	if brief == nil {
 		return // still gathering — Planner hasn't summarized yet
 	}
@@ -800,7 +889,20 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 // yet — but is kept on the signature so the caller's loop context can be
 // threaded through once the HTTP client is made context-aware.
 func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content string) {
-	tasks := parseCreateTaskDirectives(content)
+	tasks, markersFound, firstFailPreview, pattern2Used := parseCreateTaskDirectives(content)
+	logging.Info("create_task_parse",
+		"content_bytes", len(content),
+		"markers_found", markersFound,
+		"tasks_parsed", len(tasks),
+		"pattern2_used", pattern2Used,
+	)
+	if markersFound > 0 && len(tasks) == 0 {
+		logging.Warn("create_task_parse_failed",
+			"markers_found", markersFound,
+			"first_fail_preview", firstFailPreview,
+			"reason", "markers present but no JSON parsed — Planner output malformed",
+		)
+	}
 	if len(tasks) == 0 {
 		return
 	}
@@ -931,6 +1033,22 @@ func (o *Orchestrator) observerLoop(ctx context.Context) {
 }
 
 func (o *Orchestrator) runObserverCheck(ctx context.Context) {
+	// Periodic TUI render stats — emitted every Observer tick regardless of
+	// whether anomalies exist. Cheap (atomic loads) and gives a rolling view
+	// of whether the render pipeline is healthy. Slow ratio > 5% under load
+	// suggests the message-render path is the bottleneck.
+	total, slow, msgs := RenderStatsSnapshot()
+	slowRatio := 0.0
+	if total > 0 {
+		slowRatio = float64(slow) / float64(total) * 100
+	}
+	logging.Info("render_stats",
+		"total", total,
+		"slow", slow,
+		"slow_pct", fmt.Sprintf("%.1f", slowRatio),
+		"last_msgs", msgs,
+	)
+
 	if o.IsAnyBusy("") {
 		logging.Info("observer_check_skip", "reason", "any_agent_busy")
 		return // don't interrupt active turns
@@ -1568,35 +1686,44 @@ func extractJSONContaining(text, marker string) string {
 // Supports two patterns:
 //   1. CREATE_TASK: { json } — inline directives
 //   2. { "tasks": [ ... ] } — full planning JSON block
-func parseCreateTaskDirectives(content string) []TaskDef {
-	var tasks []TaskDef
-
-	// Pattern 1: inline directives
+//
+// Returns the parsed tasks, the count of CREATE_TASK: markers found (successful
+// or not), and a short preview of the first marker that failed to parse. The
+// counts let callers distinguish "Planner didn't try" from "Planner tried and
+// produced malformed JSON" — a critical difference when debugging LLM drift.
+func parseCreateTaskDirectives(content string) (tasks []TaskDef, markersFound int, firstFailPreview string, pattern2Used bool) {
 	for _, match := range createTaskInlineRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) < 2 {
 			continue
 		}
+		markersFound++
 		var t TaskDef
 		if err := json.Unmarshal([]byte(match[1]), &t); err == nil {
 			tasks = append(tasks, t)
+		} else if firstFailPreview == "" {
+			preview := match[1]
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			firstFailPreview = preview
 		}
 	}
 
 	if len(tasks) > 0 {
-		return tasks
+		return tasks, markersFound, firstFailPreview, false
 	}
 
-	// Pattern 2: full planning JSON with "tasks": [...]
 	if jsonMatch := extractJSONContaining(content, `"tasks"`); jsonMatch != "" {
 		var wrapper struct {
 			Tasks []TaskDef `json:"tasks"`
 		}
 		if err := json.Unmarshal([]byte(jsonMatch), &wrapper); err == nil {
 			tasks = append(tasks, wrapper.Tasks...)
+			pattern2Used = true
 		}
 	}
 
-	return tasks
+	return tasks, markersFound, firstFailPreview, pattern2Used
 }
 
 // parseProjectBrief extracts a PROJECT_BRIEF directive from a Planner intake

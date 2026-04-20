@@ -265,15 +265,20 @@ async function runAgentActAgent(prompt) {
   }
 }
 
-async function runAgentClaudeCode(prompt) {
-  log(`  Invoking Claude Code (${CLAUDE_PATH})...`);
+async function runAgentClaudeCode(prompt, attempt = 1) {
+  log(`  [claude invoke] path=${CLAUDE_PATH} attempt=${attempt} prompt_bytes=${prompt.length}`);
   try {
+    // `input: ''` closes stdin with EOF immediately. Without this Node leaves
+    // stdin as a piped-but-empty stream and claude's "--print" mode waits 3s
+    // for user input, prints a warning to stderr, then hangs until TASK_TIMEOUT
+    // kills it. Passing empty input cleanly tells claude "no piped input".
     const { stdout, stderr } = await execFileAsync(
       CLAUDE_PATH,
       ['--print', '--dangerously-skip-permissions', prompt],
-      { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024 }
+      { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024, input: '' }
     );
-    if (stderr) log(`  [claude stderr] ${stderr.trim()}`);
+    if (stderr) log(`  [claude stderr] ${stderr.trim().split('\n')[0]}`);
+    log(`  [claude result] success=true code=0 out_bytes=${stdout.length}`);
     return {
       success: true,
       output: stdout.trim(),
@@ -283,6 +288,18 @@ async function runAgentClaudeCode(prompt) {
     const output = err.stdout?.trim() || '';
     const errMsg = err.stderr?.trim() || err.message;
     const code = Number.isInteger(err.code) ? err.code : 1;
+    const firstErrLine = (errMsg || '').split('\n')[0];
+    log(`  [claude result] success=false code=${code} stderr="${firstErrLine}" out_bytes=${output.length}`);
+
+    // One-shot retry on transient failure: no output AND (timeout OR non-zero code).
+    // Transient here means the process died without producing a response — most
+    // commonly a stdin-wait timeout, a 5xx from the API, or a dropped connection.
+    // A second attempt with a fresh process + closed stdin almost always resolves it.
+    if (attempt === 1 && !output) {
+      log(`  [claude retry] first attempt had no output; retrying once`);
+      return runAgentClaudeCode(prompt, 2);
+    }
+
     return {
       success: false,
       output,

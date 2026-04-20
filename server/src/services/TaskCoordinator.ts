@@ -92,32 +92,38 @@ export class TaskCoordinator extends EventEmitter {
       return null;
     }
 
-    // Find optimal agent
+    // Find optimal agent. getOptimalAgent now enforces capability match when
+    // requirements are specified — returns null if no agent has any matching
+    // capability. This prevents wrong-role assignment (e.g. Go task to
+    // frontend_dev). Tasks with empty requiredCapabilities still match any agent.
     let selectedAgent = this.agentRegistry.getOptimalAgent(task.requiredCapabilities);
     let reason = selectedAgent
       ? `Optimal match for capabilities: ${task.requiredCapabilities.join(', ')}`
       : '';
 
-    // PVM fallback if no capability match
-    if (!selectedAgent && this.pvmIndexer) {
+    // PVM similarity fallback — only for tasks with required capabilities
+    // where no agent currently matches. PVM may surface a recently-seen
+    // pattern where another agent type handled similar work successfully.
+    if (!selectedAgent && this.pvmIndexer && task.requiredCapabilities.length > 0) {
       const pvmAgentId = await this.pickAgentFromPVM(task);
       if (pvmAgentId) {
-        selectedAgent = this.agentRegistry.getAgent(pvmAgentId) || null;
-        reason = `PVM similarity match from prior coordination`;
+        const pvmAgent = this.agentRegistry.getAgent(pvmAgentId);
+        // Only accept the PVM suggestion if that agent also has the capability —
+        // PVM is a hint, not an override of the capability contract.
+        if (pvmAgent && task.requiredCapabilities.some(cap => pvmAgent.capabilities.includes(cap))) {
+          selectedAgent = pvmAgent;
+          reason = `PVM similarity match with capability overlap`;
+        }
       }
     }
 
-    // Best-effort fallback if still none (as requested, always try)
+    // No best-effort fallback for capability-specified tasks. Leaving the task
+    // pending is preferable to assigning it to a wrong-role agent that will
+    // either fail immediately or produce garbage — both of which block the
+    // validation pipeline. The task stays pending and will be re-evaluated
+    // whenever an agent status changes (agent comes online, completes a task, etc).
     if (!selectedAgent) {
-      const bestEffort = this.getBestEffortAgent();
-      if (bestEffort) {
-        selectedAgent = bestEffort;
-        reason = `Best-effort assignment (no capability/PVM match)`;
-      }
-    }
-
-    if (!selectedAgent) {
-      logger.warn(`No agent available for task ${taskId}, leaving pending for PVM/availability retry`);
+      logger.warn(`assign_decision: leaving_pending task=${taskId} required=[${task.requiredCapabilities.join(',')}] reason=no_capability_match`);
       return null;
     }
 
@@ -214,7 +220,10 @@ export class TaskCoordinator extends EventEmitter {
       await this.agentRegistry.updateAgentStatus(task.assignedAgent, 'online');
     }
 
-    logger.warn(`Task failed: ${task.id} - ${task.description}`);
+    const resultSnippet = typeof task.metadata?.result === 'string'
+      ? (task.metadata.result as string).slice(0, 160)
+      : '';
+    logger.warn(`task_failure_handled task=${task.id} agent=${task.assignedAgent || 'none'} retry=${task.retryCount}/${MAX_TASK_RETRIES} result="${resultSnippet}"`);
   }
 
   private async checkDependencies(task: Task): Promise<string[]> {
