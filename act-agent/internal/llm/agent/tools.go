@@ -73,40 +73,44 @@ func TaskAgentTools(lspClients map[string]*lsp.Client) []tools.BaseTool {
 // DeveloperTools roster — they're the ones actually building things.
 
 // PlannerTools returns the minimum tool set for the Planner agent.
-// Planner needs bash (for `act` CLI commands) plus expand_prompt_section
+// Planner uses act_cli (subcommand-whitelisted) plus expand_prompt_section
 // (to pull deeper guidance on demand without bloating the base prompt).
+// Per KI-02: no raw bash — Planner's surface is narrowed to the act CLI to
+// prevent exploratory shell commands (ls, go version, view main.go etc.)
+// that waste tokens and turn latency.
 func PlannerTools(permissions permission.Service) []tools.BaseTool {
 	return []tools.BaseTool{
-		tools.NewBashTool(permissions),
+		tools.NewActCLITool("planner", permissions),
 		tools.NewExpandPromptSectionTool(),
 	}
 }
 
 // ObserverTools returns the minimum tool set for the Observer agent.
-// Observer only needs bash to run `act log`, `act graph`, `act status`, etc.
+// Observer uses act_cli with status/log/graph/context subcommands for
+// anomaly detection. No bash — Observer has never needed shell access.
 func ObserverTools(permissions permission.Service) []tools.BaseTool {
 	return []tools.BaseTool{
-		tools.NewBashTool(permissions),
+		tools.NewActCLITool("observer", permissions),
 	}
 }
 
 // AssuranceTools returns the minimum tool set for the Assurance agent.
-// Assurance needs bash for `act validation queue` and view/grep to read
-// the submitted work being validated against @success_criteria.
+// Assurance uses act_cli (validation queue, log, status) plus view/grep
+// to read submitted work against @success_criteria.
 func AssuranceTools(permissions permission.Service, lspClients map[string]*lsp.Client) []tools.BaseTool {
 	return []tools.BaseTool{
-		tools.NewBashTool(permissions),
+		tools.NewActCLITool("assurance", permissions),
 		tools.NewViewTool(lspClients),
 		tools.NewGrepTool(),
 	}
 }
 
 // QASynthesizerTools returns the minimum tool set for the QA/Synthesizer agent.
-// QA needs bash for `act` CLI and view/grep to read validated outputs while
-// assembling the final deliverable.
+// QA uses act_cli (validation, log, status, codebase) plus view/grep to read
+// validated outputs while assembling the final deliverable.
 func QASynthesizerTools(permissions permission.Service, lspClients map[string]*lsp.Client) []tools.BaseTool {
 	return []tools.BaseTool{
-		tools.NewBashTool(permissions),
+		tools.NewActCLITool("qa_synthesizer", permissions),
 		tools.NewViewTool(lspClients),
 		tools.NewGrepTool(),
 	}
