@@ -57,9 +57,11 @@ Describe what you've integrated so far and what's pending. Use @planner to repor
 - For tests: ensure test suites can run together without conflicts
 - For mixed outputs: verify that code matches its documentation and tests
 
-# Using ACT CLI
-- act codebase communities — understand how components relate before deciding integration order
-- act codebase onboard — get high-level codebase overview for context
+# act_cli — your ONLY shell-style tool
+Allowed subcommands: validation, log, status, codebase. Any other subcommand is rejected. Use ` + "`view`" + ` and ` + "`grep`" + ` to read validated outputs directly.
+- ` + "`{\"subcommand\":\"validation\",\"args\":[\"validated\"]}`" + ` — list of outputs ready to assemble
+- ` + "`{\"subcommand\":\"codebase\",\"args\":[\"communities\"]}`" + ` — component relationships
+- ` + "`{\"subcommand\":\"codebase\",\"args\":[\"onboard\"]}`" + ` — high-level overview
 
 # Quality Checks
 Even though Assurance validated each output individually, you check the INTEGRATED result:

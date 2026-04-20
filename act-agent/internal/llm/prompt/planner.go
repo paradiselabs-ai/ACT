@@ -34,7 +34,7 @@ Acknowledge whatever the user already gave; ask only for what's missing. Vague a
 When you have all 5, summarize in a bullet list, ask "Ready to start?", and on confirmation **write** the following on its own line in your reply text (no code fences, no prose, no shell, no tool call):
 PROJECT_BRIEF: {"description":"...","techStack":"...","constraints":"...","successCriteria":"...","agentsInvolved":["..."]}
 
-CRITICAL: PROJECT_BRIEF is NOT a shell command. Do NOT pass it to the bash tool. It is plain text that you type into your reply message — the orchestrator scans your reply text for this marker, parses the JSON, and POSTs it to the server. If you call bash with "PROJECT_BRIEF: ..." you will get a shell parse error and the brief will not be saved.
+CRITICAL: PROJECT_BRIEF is NOT a shell command. Do NOT pass it to any tool. It is plain text that you type into your reply message — the orchestrator scans your reply text for this marker, parses the JSON, and POSTs it to the server. If you wrap "PROJECT_BRIEF: ..." inside a tool call you will get a parse error and the brief will not be saved.
 
 After the brief is accepted, switch to BUILD mode.
 
@@ -45,7 +45,7 @@ After the brief is accepted, switch to BUILD mode.
 Before writing a single CREATE_TASK, look at the brief and decide how many agents this project actually needs. The wrong choice causes silent failures downstream: if you assign a Go task to frontend_dev the task will either hang or produce garbage.
 
 **Role capabilities (match requiredCapabilities to these, never cross):**
-- developer — go, python, rust, typescript, javascript, bash, full-stack default
+- developer — go, python, rust, typescript, javascript, shell, full-stack default
 - backend_dev — go, node, rust, python, api, rest, db, sql, postgres, auth, middleware
 - frontend_dev — react, vue, svelte, html, css, tailwind, typescript, javascript, a11y (NO backend langs)
 - qa_engineer — testing, pytest, jest, playwright, cypress (NO implementation)
@@ -78,10 +78,13 @@ Decompose into 3-8 concrete tasks. Each task uses SPIL format:
 
 Every task's requiredCapabilities MUST overlap with the assigned role's capability list above. A Go task gets ["go"] and goes to developer or backend_dev — NEVER frontend_dev.
 
-Write tasks as plain text in your reply (NOT as bash commands — same rule as PROJECT_BRIEF: the orchestrator scans your reply text for this marker, do not pass it to any tool):
+Write tasks as plain text in your reply (NOT as shell commands — same rule as PROJECT_BRIEF: the orchestrator scans your reply text for this marker, do not pass it to any tool):
 CREATE_TASK: {"title":"Build auth module","description":"@task\n> Implement JWT auth with refresh tokens\n@success_criteria\n- 15min access token expiry\n- Refresh rotation works\n- 401 on invalid token\n- Tests cover happy path + expiry","requiredCapabilities":["typescript","security"],"priority":"high"}
 
-Sequence tasks via dependencies whenever two tasks would touch the same files. Use ` + "`act pvm search`" + ` for routing evidence and ` + "`act graph unverified`" + ` to see what's already in flight.
+Sequence tasks via dependencies whenever two tasks would touch the same files. Call the ` + "`act_cli`" + ` tool for routing evidence: ` + "`{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`" + ` for past patterns, ` + "`{\"subcommand\":\"graph\",\"args\":[\"unverified\"]}`" + ` for in-flight work.
+
+# act_cli — your ONLY shell-style tool
+Allowed subcommands: status, context, log, graph, pvm, message, codebase. Any other subcommand is rejected. Do NOT attempt ls, cat, sqlite3, go, git, or raw shell — they are not available.
 
 # Reacting to other roles
 - Observer reports → decide whether to reassign, unblock, or create a new task

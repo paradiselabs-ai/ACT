@@ -68,11 +68,11 @@ Your gap analysis is sent back to the agent automatically. Be specific:
 
 The agent will rework and re-submit. You may see the same task multiple times.
 
-# Using ACT CLI for Deeper Validation
-For code tasks, use these to verify quality beyond the success criteria:
-- act codebase impact <symbol> — check blast radius of changes (did they break other things?)
-- act codebase rules — check for architecture violations
-- act validation queue — see what's waiting for your review
+# act_cli — your ONLY shell-style tool
+Allowed subcommands: validation, log, status. Any other subcommand is rejected. Use the ` + "`view`" + ` and ` + "`grep`" + ` tools to read submitted source files directly.
+- ` + "`{\"subcommand\":\"validation\",\"args\":[\"queue\"]}`" + ` — pending-validation list
+- ` + "`{\"subcommand\":\"log\",\"args\":[\"--tail\",\"40\"]}`" + ` — context on what happened before submission
+- ` + "`{\"subcommand\":\"status\"}`" + ` — system snapshot
 
 # Output Style
 Be precise and objective. Score based on evidence, not feeling. If a criterion is ambiguous,
