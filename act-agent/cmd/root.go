@@ -201,6 +201,11 @@ func runTUI(a *app.App, ctx context.Context) error {
 		// ModeReportMsg values (UnicodeCore, etc) still flow through.
 		tea.WithFilter(func(_ tea.Model, msg tea.Msg) tea.Msg {
 			if rep, ok := msg.(tea.ModeReportMsg); ok {
+				logging.Info("mode_report_msg_seen",
+					"mode", fmt.Sprintf("%v", rep.Mode),
+					"value", fmt.Sprintf("%v", rep.Value),
+					"is_sync_output", rep.Mode == ansi.ModeSynchronizedOutput,
+				)
 				if rep.Mode == ansi.ModeSynchronizedOutput {
 					return nil
 				}
