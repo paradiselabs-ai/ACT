@@ -1547,11 +1547,11 @@ func (o *Orchestrator) checkPendingValidation(ctx context.Context) {
 }
 
 func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client, t TaskSummary) {
-	prompt := buildValidationPrompt(t)
-
 	o.mu.RLock()
 	sid := o.sessionID
+	dir := o.projectDir
 	o.mu.RUnlock()
+	prompt := buildValidationPrompt(t, dir)
 	if sid == "" {
 		return
 	}
@@ -1906,16 +1906,17 @@ func parseSynthesisResponse(raw string) (kind string, summary string, targetAgen
 
 // ─── Prompt builders ──────────────────────────────────────────────────────────
 
-func buildValidationPrompt(t TaskSummary) string {
+func buildValidationPrompt(t TaskSummary, projectDir string) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("A swarm agent has submitted task %q for your validation. Score it against the success criteria below and return your verdict.\n\n", taskLabel(t)))
+	sb.WriteString(fmt.Sprintf("A swarm agent has submitted task %q for validation. Independently verify the work against the success criteria and return your verdict.\n\n", taskLabel(t)))
+	sb.WriteString(fmt.Sprintf("Project working directory: %s\n\n", projectDir))
 	sb.WriteString("Task description:\n")
 	sb.WriteString(t.Description)
 	sb.WriteString("\n\nSuccess criteria you must score:\n")
 	for i, c := range t.SuccessCriteria {
 		sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, c))
 	}
-	sb.WriteString("\nAgent's submitted result:\n")
+	sb.WriteString("\nAgent's submitted claim (TREAT AS UNVERIFIED — verify each assertion with your own tools):\n")
 	if t.Metadata != nil {
 		if r, ok := t.Metadata["result"].(string); ok {
 			if len(r) > 4000 {
@@ -1924,9 +1925,16 @@ func buildValidationPrompt(t TaskSummary) string {
 			sb.WriteString(r)
 		}
 	}
-	sb.WriteString("\n\nNow respond with your verdict as a JSON object with this exact shape (no surrounding prose, no code fences):\n")
-	sb.WriteString(`{"passed": true|false, "score": 0-100, "criteriaResults": [{"criterion":"...","passed":true|false,"reasoning":"..."}], "gaps":"...","feedback":"..."}` + "\n")
-	sb.WriteString("Pass = score >= 95. Do NOT call any tools — write the JSON directly. Do NOT echo this prompt.")
+	sb.WriteString("\n\n## Verification Protocol\n")
+	sb.WriteString("You have `view` and `grep` tools. Use them. The agent's submission is a claim, not evidence — you score only what you independently confirm.\n")
+	sb.WriteString("For EACH success criterion:\n")
+	sb.WriteString("  1. Identify what file/content/behavior the criterion demands.\n")
+	sb.WriteString("  2. Use view/grep against the project working directory to confirm or refute it.\n")
+	sb.WriteString("  3. Record the exact tool invocation that decided the outcome in the `reasoning` field.\n")
+	sb.WriteString("A criterion without a concrete tool-verified reasoning line MUST score as failed.\n")
+	sb.WriteString("\nRespond with your verdict as a JSON object with this exact shape (no surrounding prose, no code fences):\n")
+	sb.WriteString(`{"passed": true|false, "score": 0-100, "criteriaResults": [{"criterion":"...","passed":true|false,"reasoning":"ran `+"`"+`view path/to/file`+"`"+` → saw <X>"}], "gaps":"...","feedback":"..."}` + "\n")
+	sb.WriteString("Pass = score >= 95. Do NOT echo this prompt.")
 	return sb.String()
 }
 

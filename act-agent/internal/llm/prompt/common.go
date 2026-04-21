@@ -172,7 +172,7 @@ func swarmWorkflow() string {
    - Re-read your output critically. Does it actually satisfy each success criterion?
    - Run tests/linters if available. Check for obvious errors.
    - If you find gaps, fix them before continuing.
-4. REPORT: Run ` + "`act task complete <task-id> --result \"<summary>\"`" + ` with a concise summary of what you built.
+4. REPORT: Run ` + "`act task complete <task-id> --result \"<summary>\"`" + ` with a short summary: one sentence on what was done, plus file paths touched. Do NOT paste file contents, command output, or evidence — Assurance independently verifies with its own tools.
 5. RELEASE FILES: Run ` + "`act files release <paths...>`" + ` (or they auto-release on task complete).
 6. CHECK MESSAGES: Run ` + "`act message`" + ` to see if other agents need your help.
 7. SUBMIT: Run ` + "`act task submit-for-validation <task-id>`" + ` to send your work to Assurance.
