@@ -28,6 +28,8 @@ const (
 	OpenRouterMiniMaxM25Free       ModelID = "openrouter.minimax-m2.5-free"
 	OpenRouterLlama33_70BFree      ModelID = "openrouter.llama-3.3-70b-free"
 	OpenRouterGemma3_27BFree       ModelID = "openrouter.gemma-3-27b-free"
+	OpenRouterGemma4_31BFree       ModelID = "openrouter.gemma-4-31b-free"
+	OpenRouterGLM45AirFree         ModelID = "openrouter.glm-4.5-air-free"
 	OpenRouterQwen3CoderFree       ModelID = "openrouter.qwen3-coder-free"
 )
 
@@ -332,6 +334,23 @@ var OpenRouterModels = map[ModelID]Model{
 		DefaultMaxTokens:   3000,
 	},
 
+	// Gemma 4 31B — successor to Gemma 3 27B. 262K context, strong instruction-
+	// following. Multimodal (text+image+video) but Tier 1 only uses text.
+	// Replaces Nemotron Super 120B as default Planner — Nemotron 3 Super
+	// exhibited hallucination + loop behavior on free tier (see KNOWN_ISSUES.md).
+	OpenRouterGemma4_31BFree: {
+		ID:                 OpenRouterGemma4_31BFree,
+		Name:               "OpenRouter – Gemma 4 31B Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "google/gemma-4-31b-it:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      262_144,
+		DefaultMaxTokens:   5000,
+	},
+
 	// Qwen3 Coder 480B A35B — coding-focused MoE, 262K context. Replaces
 	// Qwen 2.5 72B (removed from free tier). Strong at structured output
 	// and code validation — good fit for Assurance.
@@ -363,6 +382,22 @@ var OpenRouterModels = map[ModelID]Model{
 		CostPer1MOutCached: 0,
 		ContextWindow:      131_072,
 		DefaultMaxTokens:   5000,
+	},
+
+	// GLM-4.5 Air — Zhipu's 4.5 Air. Via Z.AI direct (different upstream from
+	// OpenInference / Venice), so it's the provider-diversity pick for Planner
+	// when other Tier 1 roles are on OpenInference-hosted models.
+	OpenRouterGLM45AirFree: {
+		ID:                 OpenRouterGLM45AirFree,
+		Name:               "OpenRouter – GLM-4.5 Air Free",
+		Provider:           ProviderOpenRouter,
+		APIModel:           "z-ai/glm-4.5-air:free",
+		CostPer1MIn:        0,
+		CostPer1MInCached:  0,
+		CostPer1MOut:       0,
+		CostPer1MOutCached: 0,
+		ContextWindow:      131_072,
+		DefaultMaxTokens:   8000,
 	},
 
 	// MiniMax M2.5 — MiniMax's large free model via OpenInference. Different

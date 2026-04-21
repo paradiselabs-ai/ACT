@@ -287,6 +287,26 @@ See `docs/Vault/Agent Coordination Toolkit/nestty/BUILD_ORDER.md` for full detai
 
 ***
 
+## Delegated /plans (multi-Claude execution)
+
+When writing a `/plan` that the user intends to execute across multiple Claude instances in parallel, every delegated task block must include:
+
+1. **Dependency block** — explicit list of upstream tasks (by ID or name) this task depends on. Include a line: *"Do NOT attempt to fulfill dependency requirements yourself — wait until the dependency is marked complete in `act-coordination.json` before starting."* The goal is strict serialization of dependent work; parallel instances must not race to fill each other's gaps.
+2. **Success criteria** — concrete, testable outcomes. Not "works correctly" — actual conditions: files exist at paths X/Y/Z, `go build` clean, function returns shape Q, endpoint responds with schema R. The criteria must be precise enough that a reviewer can verdict pass/fail without judgment calls.
+3. **Code constraints** — exact shape of the fix: which files to touch, which to leave alone, no side-effect refactors, no speculative abstractions, no "while I'm here" cleanup. Constraints exist to prevent drift from ACT's philosophy: minimal surface area, trust the framework, no defensive scaffolding, no re-exports/compat shims, comments only for non-obvious *why*, no backwards-compat hacks (see CLAUDE.md "Doing tasks" + "Executing actions with care").
+4. **Philosophy alignment** — success criteria and constraints together must make it obvious *how* best practices apply for this specific task. Reference the relevant ACT architectural principle (Three-Layer Separation, `act-coordination.json` append-only, Tier 1 in-process, `~/.act.json` as config truth, etc.) so the delegated instance doesn't re-derive it.
+5. **Coordination protocol** — each delegated instance must:
+   - Read the last 50–100 lines of `act-coordination.json` before starting any task.
+   - Append a `task_start` entry with its task ID and timestamp before beginning work.
+   - Append `task_progress` entries at meaningful checkpoints (not every file save — at decision points, blockers, dependency resolutions).
+   - Append a `task_complete` entry with a summary of what was done and which success criteria were verified, before moving on.
+   - Check for dependency-fulfillment entries from other instances at every checkpoint — not on a timer.
+   - Never edit existing `act-coordination.json` entries; only append.
+
+A delegated `/plan` task that omits any of these produces drift, races, or duplicated work across instances. All five are required, even for "small" tasks — the coordination overhead is the point.
+
+***
+
 ## Handoff Protocol
 
 If the user says **"this is a handoff"** or **"handoff session"**, read `.claude/HANDOFF.md` for session continuity — it contains what was done, what's in progress, and what's next. **Do NOT read HANDOFF.md otherwise** — it may be stale and is only relevant when explicitly invoked.
