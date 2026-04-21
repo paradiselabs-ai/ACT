@@ -953,7 +953,11 @@ async function main(): Promise<void> {
         strict: false,
         allowPositionals: true
       });
-      await cmdTaskComplete(client, { '<task-id>': taskArgs.values['<0>'], ...taskArgs.values });
+      await cmdTaskComplete(client, {
+        '<task-id>': args[2],
+        '--result': taskArgs.values['result'],
+        'agent-id': taskArgs.values['agent-id'],
+      });
     } else if (command === 'task' && subcommand === 'progress') {
       const progArgs = parseArgs({
         options: {
@@ -963,7 +967,11 @@ async function main(): Promise<void> {
         strict: false,
         allowPositionals: true
       });
-      await cmdTaskProgress(client, { '<task-id>': progArgs.values['<0>'], ...progArgs.values });
+      await cmdTaskProgress(client, {
+        '<task-id>': args[2],
+        '--percent': progArgs.values['percent'],
+        'agent-id': progArgs.values['agent-id'],
+      });
     } else if (command === 'brief' && subcommand === 'update') {
       const briefArgs = parseArgs({
         options: {
@@ -973,7 +981,11 @@ async function main(): Promise<void> {
         strict: false,
         allowPositionals: true
       });
-      await cmdBriefUpdate(client, { '<agent-id>': briefArgs.values['<0>'], ...briefArgs.values });
+      await cmdBriefUpdate(client, {
+        '<agent-id>': args[2],
+        '--project': briefArgs.values['project'],
+        '--session': briefArgs.values['session'],
+      });
     } else if (command === 'task' && subcommand === 'retry') {
       // act task retry <task-id>
       const retryTaskId = args[2] || '';
@@ -988,7 +1000,11 @@ async function main(): Promise<void> {
         strict: false,
         allowPositionals: true
       });
-      await cmdTaskSubmitValidation(client, { '<task-id>': valArgs.values['task-id'], ...valArgs.values });
+      await cmdTaskSubmitValidation(client, {
+        '<task-id>': args[2] || valArgs.values['task-id'],
+        'agent-id': valArgs.values['agent-id'],
+        'result': valArgs.values['result'],
+      });
     } else if (command === 'files' && subcommand === 'claim') {
       const claimArgs = parseArgs({
         options: {
@@ -998,7 +1014,11 @@ async function main(): Promise<void> {
         strict: false,
         allowPositionals: true
       });
-      await cmdFilesClaim(client, { '<paths>': claimArgs.values.positionals, ...claimArgs.values });
+      await cmdFilesClaim(client, {
+        '<paths>': claimArgs.positionals.slice(2),
+        '--task-id': claimArgs.values['task-id'],
+        'agent-id': claimArgs.values['agent-id'],
+      });
     } else if (command === 'files' && subcommand === 'release') {
       const releaseArgs = parseArgs({
         options: {
@@ -1008,7 +1028,11 @@ async function main(): Promise<void> {
         strict: false,
         allowPositionals: true
       });
-      await cmdFilesRelease(client, { '<paths>': releaseArgs.values.positionals, ...releaseArgs.values });
+      await cmdFilesRelease(client, {
+        '<paths>': releaseArgs.positionals.slice(2),
+        '--task-id': releaseArgs.values['task-id'],
+        'agent-id': releaseArgs.values['agent-id'],
+      });
     } else if (command === 'pvm' && subcommand === 'search') {
       // act pvm search "query" [--limit N]
       const pvmArgs = parseArgs({
