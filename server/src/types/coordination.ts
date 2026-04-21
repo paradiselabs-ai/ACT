@@ -8,25 +8,22 @@ export interface CoordinationMessage {
   message: string;
   type: MessageType;
   data?: Record<string, any>;  // Structured payload for event sourcing replay
+  // scope: "project" = real project/coordination work (default for search results).
+  // "meta" = events about ACT harness itself (CLI behavior, server HTTP errors,
+  // runner tool-state issues). Meta scope is EXCLUDED from default PVM search so
+  // stale tooling-state claims don't leak into agent task context on later runs.
+  // Omitted scope is treated as "project" (pre-existing events age out naturally).
+  scope?: 'project' | 'meta';
 }
 
 export type MessageType =
+  // Coordination categories
   | 'feature_complete'
   | 'documentation_update'
   | 'architecture_decision'
-  | 'phase_5_proposal'
   | 'task_breakdown'
-  | 'instance_spawning'
   | 'progress_report'
   | 'blocker_identified'
-  | 'question_for_team'
-  | 'pvm_discovery'
-  | 'pvm_extended_capabilities_discovery'
-  | 'act_studio_vision_documentation'
-  | 'naming_bundling_clarification'
-  | 'mcp_server_ready'
-  | 'agent_status_check'
-  | 'task_assignment_confirmation'
   | 'coordination'
   // Agent socket message types (used for real-time routing classification)
   | 'status_update'
@@ -124,4 +121,7 @@ export interface VectorSearchQuery {
     start: string;
     end: string;
   };
+  // Include meta-scope events (harness/tooling state). Default false — agent-facing
+  // search excludes meta so stale "CLI broken" claims don't feed back into new runs.
+  includeMeta?: boolean;
 }

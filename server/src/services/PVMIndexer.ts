@@ -3,6 +3,36 @@ import { VectorMemoryStore } from './VectorMemoryStore';
 import { CoordinationMessage } from '../types/coordination';
 import { logger } from '../utils/logger';
 
+// classifyScope tags events as "meta" (harness/tooling state — CLI behavior, server
+// errors, runner issues) or "project" (real coordination work). Meta-scope events
+// are excluded from default PVM search so stale "CLI broken" claims from a prior
+// session don't feed back into new agent context after the bug is fixed.
+const META_TEXT_PATTERNS = [
+  /\bact\s+task\b/i,
+  /\bact\s+files\b/i,
+  /\bact\s+cli\b/i,
+  /\bact-agent\b/i,
+  /\bact-runner\b/i,
+  /\bact_cli\b/i,
+  /Unknown command/i,
+  /HTTP 5\d\d\b/,
+  /server error/i,
+  /\.getTime is not a function/i,
+  /TERMINAL_STATE_TRANSITION/,
+  /subcommand (un)?available/i
+];
+const META_EVENT_TYPES = new Set<string>([
+  'server_error', 'runner_error', 'cli_error', 'harness_diagnostic'
+]);
+
+function classifyScope(eventType: string | undefined, text: string): 'project' | 'meta' {
+  if (eventType && META_EVENT_TYPES.has(eventType)) return 'meta';
+  for (const re of META_TEXT_PATTERNS) {
+    if (re.test(text)) return 'meta';
+  }
+  return 'project';
+}
+
 export class PVMIndexer {
   private chronologicalLog: ChronologicalLog;
   private vectorStore: VectorMemoryStore;
@@ -81,12 +111,16 @@ export class PVMIndexer {
       logger.info(`📥 PVMIndexer found ${events.length} new events to index`);
 
       // Convert events to CoordinationMessages and index them
-      const coordinationMessages: CoordinationMessage[] = events.map(event => ({
-        timestamp: event.timestamp,
-        agent: (event as any).agentId || 'system',
-        message: event.message || (event as any).content || 'Unknown event',
-        type: event.type || 'coordination'
-      }));
+      const coordinationMessages: CoordinationMessage[] = events.map(event => {
+        const text = event.message || (event as any).content || 'Unknown event';
+        return {
+          timestamp: event.timestamp,
+          agent: (event as any).agentId || 'system',
+          message: text,
+          type: event.type || 'coordination',
+          scope: classifyScope(event.type, text)
+        };
+      });
 
       // Store in vector store
       await this.vectorStore.batchStore(coordinationMessages);
@@ -123,13 +157,17 @@ export class PVMIndexer {
       logger.info(`📥 PVMIndexer found ${events.length} events to index`);
       
       // Convert events to CoordinationMessages and index them
-      const coordinationMessages: CoordinationMessage[] = events.map(event => ({
-        timestamp: event.timestamp,
-        agent: (event as any).agentId || 'system',
-        message: event.message || (event as any).content || 'Unknown event',
-        type: event.type || 'coordination'
-      }));
-      
+      const coordinationMessages: CoordinationMessage[] = events.map(event => {
+        const text = event.message || (event as any).content || 'Unknown event';
+        return {
+          timestamp: event.timestamp,
+          agent: (event as any).agentId || 'system',
+          message: text,
+          type: event.type || 'coordination',
+          scope: classifyScope(event.type, text)
+        };
+      });
+
       // Store in vector store
       await this.vectorStore.batchStore(coordinationMessages);
       

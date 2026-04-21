@@ -170,6 +170,12 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     const queryVector = await this.embed(searchQuery.query);
 
     let filtered = this.points;
+    if (!searchQuery.includeMeta) {
+      // Default: exclude harness/tooling-state events so stale "CLI broken"
+      // claims don't leak into agent task context. Events without an explicit
+      // scope are treated as project (pre-existing indexed events).
+      filtered = filtered.filter(p => p.message.scope !== 'meta');
+    }
     if (searchQuery.agentFilter) {
       filtered = filtered.filter(p => p.message.agent === searchQuery.agentFilter);
     }
