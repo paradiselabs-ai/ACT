@@ -305,6 +305,8 @@ When writing a `/plan` that the user intends to execute across multiple Claude i
 
 A delegated `/plan` task that omits any of these produces drift, races, or duplicated work across instances. All five are required, even for "small" tasks — the coordination overhead is the point.
 
+**Discovery convention.** Write the plan file at `/Users/user/.claude/plans/<name>.md` AND append a coord entry of type `plan_delegated` pointing the target instance at it (fields: `plan_file`, `target_agent`, `phase`). Other Claude instances discover their work by grepping `act-coordination.json` for their agent ID — not by the author remembering to paste the path. If the plan file isn't linked from coord, the delegation didn't happen.
+
 ***
 
 ## Handoff Protocol
