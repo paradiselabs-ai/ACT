@@ -309,6 +309,46 @@ A delegated `/plan` task that omits any of these produces drift, races, or dupli
 
 ***
 
+## Kanban Board (`.devtool/`)
+
+Bugs and feature requests are tracked as markdown files in `.devtool/`:
+- `.devtool/features/` — active tasks (any status except `done`)
+- `.devtool/done/` — completed tasks
+
+Each task is a single `.md` file with YAML frontmatter. Example:
+
+```markdown
+---
+id: "tui-scroll-up-to-see-current-session-history-2026-04-21"
+status: "todo"
+priority: "medium"
+assignee: null
+dueDate: null
+created: "2026-04-21T17:16:00.885Z"
+modified: "2026-04-21T17:16:00.885Z"
+completedAt: null
+labels: ["TUI", "design"]
+order: "a0"
+---
+# TUI Scroll up to see current session history
+
+<body — description of the bug or feature>
+```
+
+**Frontmatter fields:**
+- `id` — kebab-case slug + ISO date suffix
+- `status` — one of: `backlog`, `todo`, `in-progress`, `review`, `done`
+- `priority` — one of: `low`, `medium`, `high`, `critical`
+- `assignee` — default `null` unless user specifies
+- `dueDate` — default `null` unless user specifies
+- `created` / `modified` / `completedAt` — ISO timestamps (`completedAt` null until `done`)
+- `labels` — custom tag array (e.g., `["TUI", "design"]`)
+- `order` — lexicographic sort key within column (e.g., `"a0"`)
+
+When a task reaches `done`, move the file from `.devtool/features/` → `.devtool/done/` and set `completedAt`.
+
+***
+
 ## Handoff Protocol
 
 If the user says **"this is a handoff"** or **"handoff session"**, read `.claude/HANDOFF.md` for session continuity — it contains what was done, what's in progress, and what's next. **Do NOT read HANDOFF.md otherwise** — it may be stale and is only relevant when explicitly invoked.

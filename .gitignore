@@ -155,6 +155,9 @@ interact/interact
 # ── Obsidian Vault (large plugins/caches) ────
 docs/Vault/
 
+# ── Skills lock file ─────────────────────────
+skills-lock.json
+
 # ── Tool-generated state ─────────────────────
 .manifests/
 .nomik/
@@ -181,3 +184,5 @@ tests/README.md
 # ── Misc tooling state ──────────────────────
 docs-assembler-config.json
 .DS_Store
+github.comparadiselabs-ai-act-tree-nestty.md
+
