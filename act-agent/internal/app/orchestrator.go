@@ -1592,7 +1592,7 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 			"criterion": cr.Criterion,
 			"passed":    cr.Passed,
 			"score":     cr.Score,
-			"feedback":  cr.Feedback,
+			"reasoning": cr.Reasoning,
 		})
 	}
 	if err := client.SubmitVerdict(t.ID, "assurance", verdict.Passed, verdict.OverallScore, criteriaResults, verdict.Gaps, verdict.Feedback); err != nil {
@@ -1867,7 +1867,7 @@ func parseValidationVerdict(taskID, raw string) *ValidationVerdict {
 
 	var parsed struct {
 		CriteriaResults       []CriterionResult `json:"criteriaResults"`
-		OverallScore          int               `json:"overallScore"`
+		OverallScore          int               `json:"score"`
 		SelfVerificationValid bool              `json:"selfVerificationValid"`
 		Gaps                  string            `json:"gaps"`
 		Feedback              string            `json:"feedback"`

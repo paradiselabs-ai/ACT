@@ -94,9 +94,9 @@ func TestParseValidationVerdict_PassedAt100(t *testing.T) {
 	raw := `Here's my verdict:
 {
   "criteriaResults": [
-    {"criterion": "Tests pass", "passed": true, "score": 100, "feedback": "all green"}
+    {"criterion": "Tests pass", "passed": true, "score": 100, "reasoning": "all green"}
   ],
-  "overallScore": 100,
+  "score": 100,
   "selfVerificationValid": true,
   "feedback": "great work"
 }`
@@ -118,9 +118,9 @@ func TestParseValidationVerdict_PassedAt100(t *testing.T) {
 func TestParseValidationVerdict_FailedBelow95(t *testing.T) {
 	raw := `{
   "criteriaResults": [
-    {"criterion": "Tests pass", "passed": false, "score": 60, "feedback": "2 failures"}
+    {"criterion": "Tests pass", "passed": false, "score": 60, "reasoning": "2 failures"}
   ],
-  "overallScore": 60,
+  "score": 60,
   "selfVerificationValid": false,
   "gaps": "missing test for edge case X",
   "feedback": "incomplete"
@@ -138,7 +138,7 @@ func TestParseValidationVerdict_FailedBelow95(t *testing.T) {
 }
 
 func TestParseValidationVerdict_BoundaryAt95(t *testing.T) {
-	raw := `{"criteriaResults":[{"criterion":"x","passed":true,"score":95}],"overallScore":95}`
+	raw := `{"criteriaResults":[{"criterion":"x","passed":true,"score":95}],"score":95}`
 	verdict := parseValidationVerdict("t", raw)
 	if verdict == nil {
 		t.Fatal("expected verdict")
@@ -161,7 +161,7 @@ func TestParseValidationVerdict_JSONInProse(t *testing.T) {
 
 The task has some issues. Specifically:
 
-{"criteriaResults": [{"criterion": "compiles", "passed": true, "score": 100}], "overallScore": 80, "gaps": "missing tests"}
+{"criteriaResults": [{"criterion": "compiles", "passed": true, "score": 100}], "score": 80, "gaps": "missing tests"}
 
 Let me know if you need more detail.`
 

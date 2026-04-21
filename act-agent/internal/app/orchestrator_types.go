@@ -105,8 +105,8 @@ type Anomaly struct {
 type CriterionResult struct {
 	Criterion string `json:"criterion"`
 	Passed    bool   `json:"passed"`
-	Score     int    `json:"score"`
-	Feedback  string `json:"feedback,omitempty"`
+	Score     int    `json:"score,omitempty"`
+	Reasoning string `json:"reasoning,omitempty"`
 }
 
 // ValidationVerdict is the full Assurance verdict for a task.
