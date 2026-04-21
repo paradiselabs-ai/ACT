@@ -42,6 +42,7 @@ type Orchestrator struct {
 	sessionID      string            // shared session for the NesTTY conversation
 	seenTasks      map[string]bool   // task IDs we've already routed (validation/qa)
 	attemptCount   map[string]int    // validation/qa attempt counter keyed "validation:TASK" / "qa:TASK"
+	dispatchedMsgs map[string]bool   // finished assistant message IDs already dispatched — prevents duplicate CREATE_TASK / brief handling when pubsub re-fires UpdatedEvent on the same message
 
 	// Background loop control
 	loopsStarted bool
@@ -95,6 +96,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 		app:           app,
 		messageOwners: make(map[string]string),
 		seenTasks:     make(map[string]bool),
+		dispatchedMsgs: make(map[string]bool),
 		attemptCount:  make(map[string]int),
 		runnerSpawner: runner.NewSpawner(),
 	}
@@ -767,6 +769,17 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 				if content == "" {
 					continue
 				}
+				// Pubsub re-fires UpdatedEvent on the same finished message
+				// (streaming provider emits multiple terminal updates). Without
+				// this guard the CREATE_TASK / PROJECT_BRIEF handlers race on
+				// identical content and POST every directive twice.
+				o.mu.Lock()
+				if o.dispatchedMsgs[msg.ID] {
+					o.mu.Unlock()
+					continue
+				}
+				o.dispatchedMsgs[msg.ID] = true
+				o.mu.Unlock()
 
 				switch role {
 				case "planner":
@@ -1916,7 +1929,7 @@ func buildValidationPrompt(t TaskSummary, projectDir string) string {
 	for i, c := range t.SuccessCriteria {
 		sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, c))
 	}
-	sb.WriteString("\nAgent's submitted claim (TREAT AS UNVERIFIED — verify each assertion with your own tools):\n")
+	sb.WriteString("\nAgent's completion report (summary + file paths touched — NOT evidence; use it to locate what to verify, then verify with your tools):\n")
 	if t.Metadata != nil {
 		if r, ok := t.Metadata["result"].(string); ok {
 			if len(r) > 4000 {
@@ -1926,7 +1939,7 @@ func buildValidationPrompt(t TaskSummary, projectDir string) string {
 		}
 	}
 	sb.WriteString("\n\n## Verification Protocol\n")
-	sb.WriteString("You have `view` and `grep` tools. Use them. The agent's submission is a claim, not evidence — you score only what you independently confirm.\n")
+	sb.WriteString("You have `view` and `grep` tools. Use them. Score only what you independently confirm against the actual files in the project working directory.\n")
 	sb.WriteString("For EACH success criterion:\n")
 	sb.WriteString("  1. Identify what file/content/behavior the criterion demands.\n")
 	sb.WriteString("  2. Use view/grep against the project working directory to confirm or refute it.\n")
