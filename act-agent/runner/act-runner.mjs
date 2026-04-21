@@ -458,8 +458,17 @@ async function proactiveCoordination(task, parallelContext) {
 /**
  * Broadcast a completion summary so parallel agents know what was built
  * and what interfaces/outputs are now available.
+ *
+ * The task has already been marked complete on the server before this runs.
+ * A failure here is a broadcast failure, not a task outcome — the claude
+ * subprocess exit code is deliberately not propagated to any task-state
+ * endpoint. See KI-10.
  */
-async function broadcastCompletion(task, output) {
+async function broadcastCompletion(task, output, deps = {}) {
+  const invokeAgent = deps.runAgent || runAgent;
+  const send = deps.sendMessage || sendMessage;
+  const logFn = deps.log || log;
+
   const prompt = [
     `You are ${AGENT_NAME}, an AI agent in the ACT coordination system.`,
     ``,
@@ -478,13 +487,24 @@ async function broadcastCompletion(task, output) {
     `Keep it under 200 words.`,
   ].join('\n');
 
-  const { success, output: summary } = await runAgent(prompt);
-  if (!success) return;
+  let result;
+  try {
+    result = await invokeAgent(prompt);
+  } catch (err) {
+    logFn(`  [coord] Broadcast invocation threw (${err.message}); task already complete, ignoring`);
+    return;
+  }
 
-  const cleaned = summary.trim();
+  const { success, output: summary } = result;
+  if (!success) {
+    logFn(`  [coord] Broadcast invocation failed; task already complete, ignoring`);
+    return;
+  }
+
+  const cleaned = (summary || '').trim();
   if (cleaned) {
-    await sendMessage(cleaned.startsWith('status:') ? cleaned : `status: ${cleaned}`);
-    log(`  [coord] Broadcast completion summary to team`);
+    await send(cleaned.startsWith('status:') ? cleaned : `status: ${cleaned}`);
+    logFn(`  [coord] Broadcast completion summary to team`);
   }
 }
 
@@ -814,7 +834,12 @@ async function main() {
   log(`Max iterations (${maxIterations}) reached. Exiting.`);
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+const isDirectInvocation = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+if (isDirectInvocation) {
+  main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}
+
+export { broadcastCompletion };

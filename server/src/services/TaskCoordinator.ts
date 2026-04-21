@@ -24,6 +24,33 @@ export interface Task {
 
 export const MAX_TASK_RETRIES = 3;
 
+// Status transitions the state machine refuses once a task has reached a
+// success-side status. Sources: `completed` (the race target — runner's
+// post-completion broadcast exit 1 must not flip it to `failed`), `validated`
+// (assurance-accepted, nothing downgrades it), and `failed` (runner retry goes
+// through a separate reset path, not updateTaskProgress). Transitions listed
+// here are rejected; everything else passes through unchanged.
+const FORBIDDEN_TRANSITIONS: ReadonlyMap<Task['status'], ReadonlySet<Task['status']>> = new Map([
+  ['completed', new Set<Task['status']>(['failed', 'pending', 'assigned', 'in_progress'])],
+  ['validated', new Set<Task['status']>(['failed', 'pending', 'assigned', 'in_progress', 'completed', 'submitted_for_validation'])],
+  ['failed', new Set<Task['status']>(['completed', 'validated', 'submitted_for_validation'])],
+]);
+
+export class TerminalStateTransitionError extends Error {
+  readonly code = 'TERMINAL_STATE_TRANSITION';
+  readonly taskId: string;
+  readonly fromStatus: Task['status'];
+  readonly toStatus: Task['status'];
+
+  constructor(taskId: string, fromStatus: Task['status'], toStatus: Task['status']) {
+    super(`Task ${taskId} is in terminal state '${fromStatus}'; refusing transition to '${toStatus}'`);
+    this.name = 'TerminalStateTransitionError';
+    this.taskId = taskId;
+    this.fromStatus = fromStatus;
+    this.toStatus = toStatus;
+  }
+}
+
 export interface TaskAssignment {
   taskId: string;
   agentId: string;
@@ -160,6 +187,17 @@ export class TaskCoordinator extends EventEmitter {
     }
 
     const previousStatus = task.status;
+
+    // Why: KI-10 race — a late runner POST (e.g. post-completion broadcast exit 1)
+    // could overwrite a completed task to 'failed' before the original success
+    // write landed, flipping the state machine mid-cycle.
+    if (update.status && update.status !== previousStatus) {
+      const forbidden = FORBIDDEN_TRANSITIONS.get(previousStatus);
+      if (forbidden && forbidden.has(update.status)) {
+        logger.warn(`terminal_state_guard: rejected task=${taskId} from=${previousStatus} to=${update.status}`);
+        throw new TerminalStateTransitionError(taskId, previousStatus, update.status);
+      }
+    }
 
     if (update.progress !== undefined) {
       task.progress = Math.max(0, Math.min(100, update.progress));
