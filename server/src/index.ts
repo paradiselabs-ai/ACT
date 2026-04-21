@@ -5,7 +5,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { AgentRegistry } from './services/AgentRegistry';
 import { Task } from './services/TaskCoordinator';
-import { TaskCoordinator, MAX_TASK_RETRIES } from './services/TaskCoordinator';
+import { TaskCoordinator, MAX_TASK_RETRIES, TerminalStateTransitionError } from './services/TaskCoordinator';
 import { EventHub } from './services/EventHub';
 import { SelfImprovementEngine } from './services/SelfImprovementEngine';
 import { ChronologicalLog } from './services/ChronologicalLog';
@@ -593,6 +593,9 @@ app.post('/api/tasks/:taskId/progress', async (req, res) => {
     io.emit('task_progress_updated', { taskId, agentId, progress, status, message, timestamp: new Date().toISOString() });
     res.json({ success: true });
   } catch (error: any) {
+    if (error instanceof TerminalStateTransitionError) {
+      return res.status(409).json({ success: false, error: error.message, code: error.code, fromStatus: error.fromStatus, toStatus: error.toStatus });
+    }
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -652,6 +655,9 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
     }
     res.json({ success: true });
   } catch (error: any) {
+    if (error instanceof TerminalStateTransitionError) {
+      return res.status(409).json({ success: false, error: error.message, code: error.code, fromStatus: error.fromStatus, toStatus: error.toStatus });
+    }
     res.status(500).json({ success: false, error: error.message });
   }
 });
