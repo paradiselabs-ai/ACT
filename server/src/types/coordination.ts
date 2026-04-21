@@ -45,6 +45,9 @@ export type MessageType =
   | 'task_submitted_for_validation'
   | 'task_validated'
   | 'task_validation_failed'
+  // QA/Synthesizer outcome
+  | 'synthesis_complete'
+  | 'synthesis_needs_clarification'
   | 'dev_reset';
 
 export interface AgentProfile {

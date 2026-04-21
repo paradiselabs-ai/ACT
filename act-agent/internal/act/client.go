@@ -482,3 +482,23 @@ func (c *Client) SubmitVerdict(taskID, agentID string, passed bool, score int, c
 	defer resp.Body.Close()
 	return nil
 }
+
+// SubmitSynthesis records a QA/Synthesizer outcome for a validated task.
+// kind is "complete" or "need_clarification"; targetAgent + question only
+// apply to the clarification path. Called from the orchestrator's QA poller
+// once parseSynthesisResponse resolves the agent's reply.
+func (c *Client) SubmitSynthesis(taskID, agentID, kind, summary, targetAgent, question string) error {
+	body := map[string]any{
+		"agentId":     agentID,
+		"kind":        kind,
+		"summary":     summary,
+		"targetAgent": targetAgent,
+		"question":    question,
+	}
+	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/synthesis", url.PathEscape(taskID)), body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}

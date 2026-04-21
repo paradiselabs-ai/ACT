@@ -784,6 +784,48 @@ app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
   }
 });
 
+// QA/Synthesizer records the outcome of a validated task's synthesis pass.
+// Posted by the Go orchestrator after parseSynthesisResponse resolves the
+// QA agent's reply. Writes to ChronLog so the coordination event loop can
+// surface it in the TUI and so audit trails show the synthesis-complete
+// boundary alongside task_validated.
+app.post('/api/tasks/:taskId/synthesis', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { agentId, kind, summary, targetAgent, question } = req.body;
+    const task = taskCoordinator.getTask(taskId);
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+
+    const ts = new Date().toISOString();
+    if (kind === 'complete') {
+      const msg = summary ? `synthesized: ${summary}` : `synthesized ${taskId}`;
+      chronologicalLog.append({
+        timestamp: ts,
+        agent: agentId || 'qa_synthesizer',
+        message: msg,
+        type: 'synthesis_complete',
+        data: { taskId, summary }
+      });
+      io.emit('synthesis_complete', { taskId, summary, timestamp: ts });
+    } else if (kind === 'need_clarification') {
+      chronologicalLog.append({
+        timestamp: ts,
+        agent: agentId || 'qa_synthesizer',
+        message: `needs clarification from @${targetAgent}: ${question}`,
+        type: 'synthesis_needs_clarification',
+        data: { taskId, targetAgent, question }
+      });
+      io.emit('synthesis_needs_clarification', { taskId, targetAgent, question, timestamp: ts });
+    } else {
+      return res.status(400).json({ success: false, error: `unknown synthesis kind: ${kind}` });
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // (validated route moved above /:taskId)
 
 // Send an agent message (MCP bridge alternative to socket agent_message)

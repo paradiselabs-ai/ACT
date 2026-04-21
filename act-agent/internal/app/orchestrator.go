@@ -605,10 +605,14 @@ func formatCoordEvent(ev LogEntry) string {
 		return fmt.Sprintf("✗   %s failed: %s", ev.Agent, truncate(ev.Message, 140))
 	case "task_submitted_for_validation":
 		return fmt.Sprintf("📤  %s submitted for validation: %s", ev.Agent, truncate(ev.Message, 120))
-	case "validation_passed":
+	case "validation_passed", "task_validated":
 		return fmt.Sprintf("✅  validation passed — %s", truncate(ev.Message, 140))
-	case "validation_failed":
+	case "validation_failed", "task_validation_failed":
 		return fmt.Sprintf("❌  validation failed — %s", truncate(ev.Message, 140))
+	case "synthesis_complete":
+		return fmt.Sprintf("🎁  synthesized — %s", truncate(ev.Message, 140))
+	case "synthesis_needs_clarification":
+		return fmt.Sprintf("❓  QA needs clarification — %s", truncate(ev.Message, 140))
 	case "agent_message", "message":
 		return fmt.Sprintf("→   %s: %s", ev.Agent, truncate(ev.Message, 140))
 	case "peer_response":
@@ -1684,10 +1688,12 @@ func (o *Orchestrator) checkValidatedTasks(ctx context.Context) {
 func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 	o.mu.RLock()
 	sid := o.sessionID
+	projectName := o.projectName
 	o.mu.RUnlock()
 	if sid == "" {
 		return
 	}
+	client := act.NewClient("qa_synthesizer", projectName)
 
 	result := ""
 	if t.Metadata != nil {
@@ -1722,8 +1728,19 @@ func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 	if lastQA == "" {
 		return
 	}
+	kind, summary, targetAgent, question := parseSynthesisResponse(lastQA)
+	if kind == "in_progress" {
+		// No marker emitted — leave the task unseen so the poller retries
+		// once more. Don't write a ChronLog event for indeterminate output.
+		logging.Warn("synthesis_no_marker", "task_id", t.ID, "reply_bytes", len(lastQA))
+		return
+	}
+	if err := client.SubmitSynthesis(t.ID, "qa_synthesizer", kind, summary, targetAgent, question); err != nil {
+		logging.Warn("synthesis_submit_failed", "task_id", t.ID, "kind", kind, "error", err)
+		return
+	}
 	o.markSeen("qa:" + t.ID)
-	logging.Info("synthesis_emitted", "task_id", t.ID, "reply_bytes", len(lastQA))
+	logging.Info("synthesis_emitted", "task_id", t.ID, "kind", kind, "reply_bytes", len(lastQA))
 }
 
 // ─── Parsers ───────────────────────────────────────────────────────────────────
