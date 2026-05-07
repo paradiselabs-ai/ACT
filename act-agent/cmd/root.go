@@ -32,7 +32,7 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "act",
+	Use:   "act-agent",
 	Short: "ACT — Agent Coordination Toolkit",
 	Long: `ACT — the multi-agent coordination TUI.
 Launches a single window hosting four Tier 1 agents (Planner, Observer,
@@ -40,16 +40,16 @@ Assurance, QA/Synthesizer) over a parallel swarm of headless workers.
 The TUI is the harness; there is no separate orchestrator process.`,
 	Example: `
   # Launch the ACT TUI in the current directory
-  act
+  act-agent
 
   # Launch the TUI for a specific project (cd into the project dir first)
-  act --project my-app
+  act-agent --project my-app
 
   # Headless worker mode (spawned by the swarm runner — not for users)
-  act --agent dev-1 --role developer -p "implement auth"
+  act-agent --agent dev-1 --role developer -p "implement auth"
 
   # Single non-interactive prompt (returns the response on stdout and exits)
-  act -p "Explain this codebase"
+  act-agent -p "Explain this codebase"
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Route CLI subcommands (e.g., `act context`, `act task complete`, `act files claim`,

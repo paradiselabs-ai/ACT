@@ -84,11 +84,11 @@ func NewActCLITool(role string, permissions permission.Service) BaseTool {
 
 func (t *actCLITool) Info() ToolInfo {
 	allowedStr := strings.Join(t.allowedList, ", ")
-	desc := fmt.Sprintf(`Call the ACT coordination CLI. Runs "act <subcommand> [args]" and returns stdout.
+	desc := fmt.Sprintf(`Call the ACT coordination CLI. Runs "act-agent <subcommand> [args]" and returns stdout.
 
 ALLOWED subcommands for role %q: %s
 
-The subcommand you pass is the FIRST positional token after "act". Sub-sub commands (like "pvm search" or "graph unverified") go into args. Examples:
+The subcommand you pass is the FIRST positional token after "act-agent". Sub-sub commands (like "pvm search" or "graph unverified") go into args. Examples:
 - Check system status: {"subcommand":"status"}
 - Get log: {"subcommand":"log","args":["--limit","20"]}
 - PVM search: {"subcommand":"pvm","args":["search","markdown URL extraction"]}
@@ -110,7 +110,7 @@ Timeout defaults to 30000ms (30s), max 120000ms (2m).`, t.role, allowedStr)
 			},
 			"args": map[string]any{
 				"type":        "array",
-				"description": "Positional arguments and flags for the subcommand. E.g. for \"act pvm search X\" use args=[\"search\",\"X\"].",
+				"description": "Positional arguments and flags for the subcommand. E.g. for \"act-agent pvm search X\" use args=[\"search\",\"X\"].",
 				"items": map[string]any{
 					"type": "string",
 				},
@@ -173,7 +173,7 @@ func (t *actCLITool) Run(ctx context.Context, call ToolCall) (ToolResponse, erro
 			Path:      config.WorkingDirectory(),
 			ToolName:  ActCLIToolName,
 			Action:    "execute",
-			Description: fmt.Sprintf("Run: act %s %s",
+			Description: fmt.Sprintf("Run: act-agent %s %s",
 				params.Subcommand, strings.Join(params.Args, " ")),
 			Params: actCLIPermissionsParams{
 				Role:       t.role,
@@ -206,7 +206,7 @@ func (t *actCLITool) Run(ctx context.Context, call ToolCall) (ToolResponse, erro
 
 	startTime := time.Now()
 	cmdArgs := append([]string{params.Subcommand}, params.Args...)
-	cmd := exec.CommandContext(execCtx, "act", cmdArgs...)
+	cmd := exec.CommandContext(execCtx, "act-agent", cmdArgs...)
 	cmd.Dir = config.WorkingDirectory()
 
 	out, err := cmd.CombinedOutput()
@@ -231,7 +231,7 @@ func (t *actCLITool) Run(ctx context.Context, call ToolCall) (ToolResponse, erro
 				"timeout_ms", timeoutMs,
 			)
 			return WithResponseMetadata(NewTextErrorResponse(fmt.Sprintf(
-				"act %s timed out after %dms. Output so far:\n%s",
+				"act-agent %s timed out after %dms. Output so far:\n%s",
 				params.Subcommand, timeoutMs, stdout,
 			)), metadata), nil
 		}
@@ -243,7 +243,7 @@ func (t *actCLITool) Run(ctx context.Context, call ToolCall) (ToolResponse, erro
 		)
 		// Non-zero exit — still return output so the model can inspect stderr.
 		if stdout == "" {
-			stdout = fmt.Sprintf("act %s exited %d with no output (error: %s)",
+			stdout = fmt.Sprintf("act-agent %s exited %d with no output (error: %s)",
 				params.Subcommand, exitCode, err.Error())
 		}
 		return WithResponseMetadata(NewTextErrorResponse(stdout), metadata), nil

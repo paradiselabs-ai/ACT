@@ -28,7 +28,7 @@ async function cmdContext(client: ACTClient, args: Record<string, any>): Promise
 
   if (!agentId || typeof agentId !== 'string' || agentId.startsWith('--')) {
     printError('Error: agent-id is required as the first positional argument (or set ACT_AGENT_ID).');
-    printError('Usage: act context <agent-id> --project <name>');
+    printError('Usage: act-agent context <agent-id> --project <name>');
     process.exit(1);
   }
   if (!projectName) {
@@ -374,7 +374,7 @@ async function cmdLog(client: ACTClient, args: Record<string, any>): Promise<voi
 async function cmdGraphTask(client: ACTClient, taskId: string): Promise<void> {
   if (!taskId) {
     printError('Error: task-id is required');
-    printError('Usage: act graph task <task-id>');
+    printError('Usage: act-agent graph task <task-id>');
     process.exit(1);
   }
 
@@ -568,7 +568,7 @@ async function runNomik(args: string[]): Promise<boolean> {
 }
 
 async function cmdCodebaseImpact(symbol: string): Promise<void> {
-  if (!symbol) { printError('Usage: act codebase impact <symbol>'); process.exit(1); }
+  if (!symbol) { printError('Usage: act-agent codebase impact <symbol>'); process.exit(1); }
   await runNomik(['impact', symbol]);
 }
 
@@ -619,7 +619,7 @@ async function cmdSwarm(args: string[]): Promise<void> {
     const role = args[1];
     const backend = args[2];
     if (!role || !backend) {
-      printError('Usage: act swarm set <role|all> <act-agent|claude-code>');
+      printError('Usage: act-agent swarm set <role|all> <act-agent|claude-code>');
       process.exit(1);
     }
     if (!VALID_BACKENDS.includes(backend)) {
@@ -727,7 +727,7 @@ async function cmdRegister(client: ACTClient, args: Record<string, any>): Promis
 
   if (!agentId) {
     printError('Error: agent-id is required');
-    printError('Usage: act register <agent-id> [--session-id <id>]');
+    printError('Usage: act-agent register <agent-id> [--session-id <id>]');
     process.exit(1);
   }
 
@@ -763,7 +763,7 @@ async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promi
 
   if (!query) {
     printError('Error: query is required');
-    printError('Usage: act pvm search "query" [--limit N]');
+    printError('Usage: act-agent pvm search "query" [--limit N]');
     process.exit(1);
   }
 
@@ -797,7 +797,7 @@ async function cmdTaskRetry(client: ACTClient, args: Record<string, any>): Promi
 
   if (!taskId) {
     printError('Error: task-id is required');
-    printError('Usage: act task retry <task-id>');
+    printError('Usage: act-agent task retry <task-id>');
     process.exit(1);
   }
 
@@ -861,7 +861,7 @@ async function main(): Promise<void> {
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     console.log('ACT CLI - Agent interface to ACT coordination layer');
     console.log('');
-    console.log('Usage: act <command> [options]');
+    console.log('Usage: act-agent <command> [options]');
     console.log('');
     console.log('Commands:');
     for (const [cmd, desc] of Object.entries(commands)) {
@@ -1100,7 +1100,7 @@ async function main(): Promise<void> {
       await cmdNomik(args.slice(1));
     } else {
       printError(`Unknown command: ${command}${subcommand ? ' ' + subcommand : ''}`);
-      printError('Run "act --help" for usage information');
+      printError('Run "act-agent --help" for usage information');
       process.exit(1);
     }
   } catch (error: any) {

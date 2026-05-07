@@ -67,81 +67,81 @@ func boolToYesNo(b bool) string {
 // actCLICommands returns the ACT CLI commands relevant to a specific role.
 // The output also appends role-specific Nomik (codebase graph) guidance
 // from NomikGuidance(role) so every role learns when to invoke
-// `act codebase` commands proactively.
+// `act-agent codebase` commands proactively.
 func actCLICommands(role string) string {
 	var base string
 	switch role {
 	case "planner":
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages. CREATE_TASK and PROJECT_BRIEF are markers in your reply text, not shell commands.
-- act context --project <name>    Load full project context (tasks, agents, brief)
-- act graph unverified            Show tasks not yet validated
-- act pvm search "<query>"        Search coordination history for relevant patterns
-- act codebase onboard            High-level architecture overview (Nomik)
-- act codebase communities        Functional clusters / module boundaries (Nomik)
-- act status                      Show server status (agents, tasks, locks)
-- act log --tail 20               Show recent coordination log entries`
+- act-agent context --project <name>    Load full project context (tasks, agents, brief)
+- act-agent graph unverified            Show tasks not yet validated
+- act-agent pvm search "<query>"        Search coordination history for relevant patterns
+- act-agent codebase onboard            High-level architecture overview (Nomik)
+- act-agent codebase communities        Functional clusters / module boundaries (Nomik)
+- act-agent status                      Show server status (agents, tasks, locks)
+- act-agent log --tail 20               Show recent coordination log entries`
 
 	case "observer":
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
-- act log --tail 20               Show recent coordination log entries
-- act graph conflicts             Check for file lock conflicts between agents
-- act codebase rules              Architecture rule violations (Nomik)
-- act codebase impact <symbol>    Blast radius of a symbol (Nomik)
-- act status                      Show server status (agents, tasks, locks)
-- act graph unverified            Show tasks awaiting validation`
+- act-agent log --tail 20               Show recent coordination log entries
+- act-agent graph conflicts             Check for file lock conflicts between agents
+- act-agent codebase rules              Architecture rule violations (Nomik)
+- act-agent codebase impact <symbol>    Blast radius of a symbol (Nomik)
+- act-agent status                      Show server status (agents, tasks, locks)
+- act-agent graph unverified            Show tasks awaiting validation`
 
 	case "assurance":
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
-- act validation queue            Show tasks awaiting validation
-- act codebase impact <symbol>    Check blast radius of code changes (Nomik)
-- act codebase rules              Check for architecture violations (Nomik)
-- act status                      Show server status`
+- act-agent validation queue            Show tasks awaiting validation
+- act-agent codebase impact <symbol>    Check blast radius of code changes (Nomik)
+- act-agent codebase rules              Check for architecture violations (Nomik)
+- act-agent status                      Show server status`
 
 	case "qa_synthesizer":
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
-- act codebase communities        Functional clusters / integration points (Nomik)
-- act codebase onboard            High-level architecture overview (Nomik)
-- act status                      Show server status`
+- act-agent codebase communities        Functional clusters / integration points (Nomik)
+- act-agent codebase onboard            High-level architecture overview (Nomik)
+- act-agent status                      Show server status`
 
 	case "researcher":
 		base = `## ACT CLI Commands (available to you)
-- act codebase onboard            High-level architecture overview (Nomik)
-- act codebase impact <symbol>    Blast radius of a symbol (Nomik)
-- act codebase rules              Architecture rule violations (Nomik)
-- act codebase communities        Functional clusters (Nomik)
-- act pvm search "<query>"        Search coordination history
-- act status                      Show server status
-- act message "<text>"            Send a message to the coordination channel`
+- act-agent codebase onboard            High-level architecture overview (Nomik)
+- act-agent codebase impact <symbol>    Blast radius of a symbol (Nomik)
+- act-agent codebase rules              Architecture rule violations (Nomik)
+- act-agent codebase communities        Functional clusters (Nomik)
+- act-agent pvm search "<query>"        Search coordination history
+- act-agent status                      Show server status
+- act-agent message "<text>"            Send a message to the coordination channel`
 
 	case "developer", "frontend_dev", "backend_dev", "qa_engineer":
 		base = `## ACT CLI Commands (available to you)
-- act task complete <id> --result "<summary>"    Report task completion with summary
-- act task progress <id> --note "<text>"         Report progress update
-- act task submit-for-validation <id>            Submit completed work for Assurance review
-- act files claim <paths...>                     Claim exclusive access to files
-- act files release <paths...>                   Release file locks
-- act codebase impact <symbol>                   Blast radius of a symbol (Nomik)
-- act codebase onboard                           High-level architecture overview (Nomik)
-- act codebase communities                       Functional clusters (Nomik)
-- act codebase rules                             Architecture rule violations (Nomik)
-- act brief update                               Save your session brief before exit
-- act message "<text>"                           Send a message to the coordination channel
-- act pvm search "<query>"                       Search coordination history`
+- act-agent task complete <id> --result "<summary>"    Report task completion with summary
+- act-agent task progress <id> --note "<text>"         Report progress update
+- act-agent task submit-for-validation <id>            Submit completed work for Assurance review
+- act-agent files claim <paths...>                     Claim exclusive access to files
+- act-agent files release <paths...>                   Release file locks
+- act-agent codebase impact <symbol>                   Blast radius of a symbol (Nomik)
+- act-agent codebase onboard                           High-level architecture overview (Nomik)
+- act-agent codebase communities                       Functional clusters (Nomik)
+- act-agent codebase rules                             Architecture rule violations (Nomik)
+- act-agent brief update                               Save your session brief before exit
+- act-agent message "<text>"                           Send a message to the coordination channel
+- act-agent pvm search "<query>"                       Search coordination history`
 
 	default: // unknown role
 		base = `## ACT CLI Commands (available to you)
-- act task complete <id> --result "<summary>"    Report task completion with summary
-- act task progress <id> --note "<text>"         Report progress update
-- act task submit-for-validation <id>            Submit completed work for Assurance review
-- act files claim <paths...>                     Claim exclusive access to files
-- act files release <paths...>                   Release file locks
-- act brief update                               Save your session brief before exit
-- act message "<text>"                           Send a message to the coordination channel
-- act pvm search "<query>"                       Search coordination history`
+- act-agent task complete <id> --result "<summary>"    Report task completion with summary
+- act-agent task progress <id> --note "<text>"         Report progress update
+- act-agent task submit-for-validation <id>            Submit completed work for Assurance review
+- act-agent files claim <paths...>                     Claim exclusive access to files
+- act-agent files release <paths...>                   Release file locks
+- act-agent brief update                               Save your session brief before exit
+- act-agent message "<text>"                           Send a message to the coordination channel
+- act-agent pvm search "<query>"                       Search coordination history`
 	}
 
 	// Append role-specific Nomik guidance ("when to use the codebase graph").
@@ -160,22 +160,22 @@ You are in a shared NesTTY conversation window with other Tier 1 agents.
 - To address someone specific: include @planner, @observer, @assurance, or @qa in your message.
 - Tool execution (file reads, code changes, CLI commands) is invisible to others — only your explicit messages show.
 - The Planner is the ONLY decision-maker. Do not make decisions outside your role.
-- When using act CLI commands, the output is only visible to you. Share relevant findings in your messages.`
+- When using act-agentCLI commands, the output is only visible to you. Share relevant findings in your messages.`
 }
 
 // swarmWorkflow returns the standard workflow instructions for Tier 2 swarm agents.
 func swarmWorkflow() string {
 	return `## Workflow
-1. CLAIM FILES: Before editing any files, run ` + "`act files claim <paths...>`" + ` to prevent conflicts with parallel agents.
+1. CLAIM FILES: Before editing any files, run ` + "`act-agent files claim <paths...>`" + ` to prevent conflicts with parallel agents.
 2. IMPLEMENT: Complete the task. Be thorough and precise.
 3. SELF-VERIFY (Ralph Wiggum Loop): Before reporting complete, verify your own work:
    - Re-read your output critically. Does it actually satisfy each success criterion?
    - Run tests/linters if available. Check for obvious errors.
    - If you find gaps, fix them before continuing.
-4. REPORT: Run ` + "`act task complete <task-id> --result \"<summary>\"`" + ` with a short summary: one sentence on what was done, plus file paths touched. Do NOT paste file contents, command output, or evidence — Assurance independently verifies with its own tools.
-5. RELEASE FILES: Run ` + "`act files release <paths...>`" + ` (or they auto-release on task complete).
-6. CHECK MESSAGES: Run ` + "`act message`" + ` to see if other agents need your help.
-7. SUBMIT: Run ` + "`act task submit-for-validation <task-id>`" + ` to send your work to Assurance.
+4. REPORT: Run ` + "`act-agent task complete <task-id> --result \"<summary>\"`" + ` with a short summary: one sentence on what was done, plus file paths touched. Do NOT paste file contents, command output, or evidence — Assurance independently verifies with its own tools.
+5. RELEASE FILES: Run ` + "`act-agent files release <paths...>`" + ` (or they auto-release on task complete).
+6. CHECK MESSAGES: Run ` + "`act-agent message`" + ` to see if other agents need your help.
+7. SUBMIT: Run ` + "`act-agent task submit-for-validation <task-id>`" + ` to send your work to Assurance.
 
 If your task was previously rejected by Assurance, a gap analysis will be included in your context.
 Focus on fixing the specific gaps identified — do not rewrite everything.`
@@ -207,7 +207,7 @@ func coordinationConstraints(role string) string {
 - NEVER implement fixes yourself — send gap analysis back to the agent.
 - NEVER override the 95% gate. If it fails, it fails.
 - This is NOT FLUX State — you don't evaluate agent reasoning or suppress memories.
-- You only validate work that has been submitted via act task submit-for-validation.`
+- You only validate work that has been submitted via act-agent task submit-for-validation.`
 
 	case "qa_synthesizer":
 		return `## Constraints
@@ -221,9 +221,9 @@ func coordinationConstraints(role string) string {
 - You execute assigned tasks. You do NOT create new tasks or assign work.
 - NEVER skip the self-verification step (Ralph Wiggum Loop).
 - NEVER commit to git unless explicitly asked in the task description.
-- If you encounter a blocking issue, report it via act task progress with a clear description.
+- If you encounter a blocking issue, report it via act-agent task progress with a clear description.
 - If other agents message you, respond helpfully — coordination is critical.
-- Save your session brief (act brief update) before your session ends.`
+- Save your session brief (act-agent brief update) before your session ends.`
 	}
 }
 

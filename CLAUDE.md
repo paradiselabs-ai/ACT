@@ -22,7 +22,7 @@ NesTTY = multiple agent REPLs sharing one terminal window. The TUI IS NesTTY.
   - **Observer** — silent background watchdog on a ~120s loop. Only injects a message when anomalies detected (stuck tasks, file conflicts, idle agents with pending work, unresponsive agents, bottlenecks, duplicate assignments).
   - **Assurance** — event-driven. Activates when a swarm agent submits work for validation. Scores `@success_criteria` items (95% gate).
   - **QA/Synthesizer** — event-driven. Activates when Assurance passes validated work. Assembles into final deliverable.
-- **Coordination flow**: Human → Planner (INTAKE: 5-question conversation → `PROJECT_BRIEF:` → BUILD: `CREATE_TASK:` directives) → ACT server → Runner spawns swarm agents → swarm executes → Runner calls `act task complete` then `act task submit-for-validation` → Assurance validates → QA assembles → Planner reports to human.
+- **Coordination flow**: Human → Planner (INTAKE: 5-question conversation → `PROJECT_BRIEF:` → BUILD: `CREATE_TASK:` directives) → ACT server → Runner spawns swarm agents → swarm executes → Runner calls `act-agent task complete` then `act-agent task submit-for-validation` → Assurance validates → QA assembles → Planner reports to human.
 - **INTAKE mode**: When the Planner detects a new project (server returns 404 for the project name), it runs a 5-question intake conversation (description, techStack, constraints, successCriteria, agentsInvolved), summarizes, asks "Ready to start?", then emits `PROJECT_BRIEF: {json}` on confirmation. The orchestrator parses it and POSTs to `/api/projects`. Only after that does it switch to BUILD mode and start creating tasks.
 
 ***
@@ -46,13 +46,13 @@ The swarm agents execute tasks headlessly with role specializations: `frontend_d
 - `act-agent` (default) — the local Go binary, configured via per-role model in `~/.act.json`
 - `claude-code` — the official Claude Code CLI (`claude --print --dangerously-skip-permissions`)
 
-Users change backends with `/swarm <role> <backend>` (in the TUI) or `act swarm set <role> <backend>` (CLI). The bulk form is `/swarm all claude-code` or `act swarm set all claude-code`. **Backend selection only applies to Tier 2** — Tier 1 agents are in-process goroutines and have no executable to swap.
+Users change backends with `/swarm <role> <backend>` (in the TUI) or `act-agent swarm set <role> <backend>` (CLI). The bulk form is `/swarm all claude-code` or `act-agent swarm set all claude-code`. **Backend selection only applies to Tier 2** — Tier 1 agents are in-process goroutines and have no executable to swap.
 
 **Other swarm details:**
 - Planner picks role mix per project → writes tasks to role IDs → Runner spawns swarm agents
-- Self-bootstrap on spawn: `act context <agent-id> --project <name>`
-- Session save: `act brief update` before exit
-- Ralph Wiggum Loop: iterative self-verification before `act task complete` (Layer 1 validation)
+- Self-bootstrap on spawn: `act-agent context <agent-id> --project <name>`
+- Session save: `act-agent brief update` before exit
+- Ralph Wiggum Loop: iterative self-verification before `act-agent task complete` (Layer 1 validation)
 - Role-based model selection: each role can use a different LLM via `~/.act.json` (e.g., cheap local model for routine coding, stronger model for research)
 - Capability-based routing: each Runner registers with capability tags from `runner.DefaultCapabilities[role]` so the server's `assignOptimalAgent` matches tasks to the right role
 
@@ -61,6 +61,60 @@ Users change backends with `/swarm <role> <backend>` (in the TUI) or `act swarm 
 Planner (LLM decisions) → ACT Server (deterministic state) → Runner (thin spawner) → Swarm
 ```
 Planner never talks to Runner. Runner never asks Planner. Planner writes to ACT; Runner reacts.
+
+***
+
+## Team & Dual-Development Workflow
+
+ACT is a two-founder project as of 2026-05-07. Domain ownership splits the codebase to prevent merge conflicts and eliminate cross-bottlenecks. **Both founders ship in parallel from day one — neither waits on the other to finish "their part" first.**
+
+### Domain ownership
+
+| Owner | Domain | Subdirectories | First-authority decisions |
+|-------|--------|----------------|---------------------------|
+| **Project owner** | Architecture / Orchestrator / Server | `act-agent/internal/app/`, `act-agent/internal/llm/`, `act-agent/cmd/`, `server/`, `act-agent/cli/`, `act-agent/runner/` | Coordination protocol, Tier 1 prompts, server contracts, runner behavior, validation pipeline, model registry |
+| **Cofounder (Domain C)** | TUI + UX | `act-agent/internal/tui/` | Bubbletea v2 rendering, keyboard handling, scroll/viewport, message layout, demo videos, all `tui-*` kanban items |
+
+**The boundary between them is `app.Service` (the orchestrator API surface).** TUI consumes orchestrator events; orchestrator emits events. Neither side reaches into the other's internals.
+
+### Branch protocol
+
+- **`main`** — untouched until alpha tag (`v0.1.0-alpha.1`).
+- **`NesTTY`** — shared integration branch. Both founders pull from it, branch off it, PR back to it.
+- **Feature branches:** `feat/<short-task-name>` per task. Examples: `feat/tui-scroll`, `feat/observer-watchdog`. Branch off `NesTTY`, not `main`.
+- **PRs target `NesTTY`**, not `main`. When all alpha items merge into NesTTY and tests pass, NesTTY merges to main with the alpha tag attached.
+- **No direct commits to `NesTTY`.** Always via PR.
+- **Branch protection (set on GitHub before alpha):** require PR before merge to main; require linear history (squash-merge); no force pushes.
+
+### Review etiquette
+
+- **Inside a domain:** owner opens, owner merges. Other founder doesn't review unless tagged.
+- **At the boundary (API contract changes — `app.Service` signature, event schemas, REST contracts):** owner opens, other founder reviews within 24h, merge after sign-off.
+- Reviews focus on **contract correctness, blast radius, test coverage**. Not style — domain owner's call inside the domain.
+
+### Communication rhythms
+
+- **Daily 60-second async ping** in Discord/Slack: "yesterday: X, today: Y, blocking: Z." Not a status report.
+- **Weekly 30-min sync** — high-level only. Calendar invite, recurring same day each week.
+- **Architecture decisions affecting the boundary** — write a `decisions/<short-name>.md` in `docs/Vault/decisions/` (gitignored), drop link in Discord, wait 24h for ack or pushback before merging.
+- **Async-first.** Synchronous calls only when async fails three times.
+
+### Commit conventions
+
+Conventional Commits: `<type>(<scope>): <description>`. Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`. Scope = roughly the domain (`server`, `tui`, `runner`, `orchestrator`, etc.).
+
+Examples:
+- `feat(server): add per-project ChronLog rotation`
+- `fix(tui): wire scroll-up keybinding to chat list viewport`
+- `docs: update CLAUDE.md with team workflow`
+
+### Anti-pattern check
+
+If either founder catches themselves doing any of these, stop and recalibrate:
+- "I should wait for the other founder to finish before starting" — NO. Parallel from day one.
+- "Should I ask permission before merging this internal-domain change?" — NO. Inside your domain, you decide.
+- "I should review every PR they open even on internal-domain stuff" — NO. Boundary changes only.
+- "We should pair-program on this" — RARE. Only for specific cross-domain knowledge transfer. Otherwise async > sync.
 
 ***
 
@@ -203,12 +257,12 @@ cd server && npm install && npm run dev     # port 8080, tsx watch
 cd act-agent && /opt/homebrew/bin/go build -o act-agent .
 
 # Launch the TUI (the NesTTY window — Planner + Observer + Assurance + QA in one terminal)
-act                      # in any project directory
-act --project my-app     # for a specific project
+act-agent                      # in any project directory
+act-agent --project my-app     # for a specific project
 
 # Headless/internal modes (not for users)
-act --agent dev-1 --role developer -p "..."  # spawned by Runner for Tier 2 swarm agents
-act -p "single query"                         # OpenCode single-turn mode (legacy)
+act-agent --agent dev-1 --role developer -p "..."  # spawned by Runner for Tier 2 swarm agents
+act-agent -p "single query"                         # OpenCode single-turn mode (legacy)
 
 # Nomik (codebase KG — requires Docker + Neo4j on port 7687)
 nomik rules              # architecture violations

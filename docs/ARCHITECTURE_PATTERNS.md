@@ -54,7 +54,7 @@ PostToolUse(toolName, input, output) → { log | inject context | trigger side e
 ```
 
 **Use cases in ACT:**
-- **PreToolUse → file locking:** Before `Edit` or `Write`, auto-claim the file via `act files claim`. If another agent holds it, deny or queue.
+- **PreToolUse → file locking:** Before `Edit` or `Write`, auto-claim the file via `act-agent files claim`. If another agent holds it, deny or queue.
 - **PreToolUse → permission gates:** Observer or Assurance can block dangerous operations on production files.
 - **PostToolUse → ChronLog:** After any tool call, log the event to the coordination log for Observer to monitor.
 - **PostToolUse → progress tracking:** After `Bash(npm test)`, extract pass/fail counts and update task progress.

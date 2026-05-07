@@ -2,7 +2,7 @@
 
 **Four specialized AI roles run a swarm of coding agents on your project, with hard validation between work and delivery. One terminal. One chat view.**
 
-You launch `act`, tell it what you want built, and four roles take it from there:
+You launch `act-agent`, tell it what you want built, and four roles take it from there:
 
 - **Planner** — the only role that talks to you. Decomposes the goal into tasks with explicit `@success_criteria`.
 - **Observer** — silent background watcher. Flags stuck work, file conflicts, idle agents, bottlenecks.
@@ -35,22 +35,40 @@ The separation is the whole point. It is the difference between *"here's a thous
 
 ## Quick Start
 
+**Prerequisites:** Node.js v18+, Go v1.21+, npm. (Optional: Claude Code CLI for subscription-backed swarm.)
+
+### macOS / Linux / WSL
+
 ```bash
 git clone https://github.com/paradiselabs-ai/ACT
 cd ACT
 ./install.sh
-
-# Configure roles + API keys in ~/.act.json
-# Each Tier 1 role and each swarm role can use a different model.
-# Schema: act-agent/act-schema.json
-
-act                      # launches the TUI in the current directory
-act --project my-app     # for a specific project
 ```
+
+### Windows (PowerShell 5.1+)
+
+```powershell
+git clone https://github.com/paradiselabs-ai/ACT
+cd ACT
+.\install.ps1
+```
+
+If PowerShell rejects the script: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, then re-run.
+
+### After install
+
+The installer copies `.act.example.json` to `~/.act.json` and `.env.example` to `.env` if they don't exist yet. Edit `~/.act.json` to add your API keys (Anthropic, Groq, OpenRouter, etc.) — that file is the canonical place for per-role model + provider config.
+
+```bash
+act-agent                      # launches the TUI in the current directory
+act-agent --project my-app     # for a specific project
+```
+
+> **Why `act-agent` and not `act`?** [`nektos/act`](https://github.com/nektos/act) is the popular GitHub Actions local runner — it owns the `act` command name in dev environments. To avoid collision, ACT's CLI is `act-agent`. If you previously had an `act` symlink from an older install, the installer removes it.
 
 **Supported terminals:** [Ghostty](https://ghostty.org/) (recommended), [iTerm2](https://iterm2.com/), [Alacritty](https://alacritty.org/), [kitty](https://sw.kovidgoyal.net/kitty/). Apple Terminal.app is **not supported** — it lacks Synchronized Output (mode 2026) and the TUI render pipeline hangs after each prompt. See `docs/Vault/Agent Coordination Toolkit/nestty/KNOWN_ISSUES.md` (KI-14).
 
-The first time you run `act` for a new project, the Planner enters **INTAKE mode** — a five-question conversation (description, tech stack, constraints, success criteria, agents involved). It summarizes, you confirm, and only then does the swarm spin up and the first task batch get created. No yes/no wizard, no scanning empty directories looking for AGENT.md files that don't exist yet.
+The first time you run `act-agent` for a new project, the Planner enters **INTAKE mode** — a five-question conversation (description, tech stack, constraints, success criteria, agents involved). It summarizes, you confirm, and only then does the swarm spin up and the first task batch get created. No yes/no wizard, no scanning empty directories looking for AGENT.md files that don't exist yet.
 
 ---
 
