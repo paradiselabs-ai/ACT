@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -1039,6 +1040,16 @@ func LoadGitHubToken() (string, error) {
 		configDir = filepath.Join(os.Getenv("HOME"), ".config")
 	}
 
+	// Try gh CLI first — returns the fresh active token from the keyring.
+	// gho_ tokens with 'copilot' scope work as direct bearers; ghu_ tokens
+	// require exchange but may be expired. gh auth token always gives the
+	// freshest credential.
+	if out, err := exec.Command("gh", "auth", "token").Output(); err == nil {
+		if token := strings.TrimSpace(string(out)); token != "" {
+			return token, nil
+		}
+	}
+
 	// Try both hosts.json and apps.json files
 	filePaths := []string{
 		filepath.Join(configDir, "github-copilot", "hosts.json"),
@@ -1064,6 +1075,8 @@ func LoadGitHubToken() (string, error) {
 			}
 		}
 	}
+
+
 
 	return "", fmt.Errorf("GitHub token not found in standard locations")
 }

@@ -11,6 +11,7 @@ const (
 	CopilotClaude35        ModelID = "copilot.claude-3.5-sonnet"
 	CopilotClaude37        ModelID = "copilot.claude-3.7-sonnet"
 	CopilotClaude4         ModelID = "copilot.claude-sonnet-4"
+	CopilotClaude45        ModelID = "copilot.claude-sonnet-4-5"
 	CopilotO1              ModelID = "copilot.o1"
 	CopilotO3Mini          ModelID = "copilot.o3-mini"
 	CopilotO4Mini          ModelID = "copilot.o4-mini"
@@ -25,6 +26,7 @@ var CopilotAnthropicModels = []ModelID{
 	CopilotClaude37,
 	CopilotClaude37Thought,
 	CopilotClaude4,
+	CopilotClaude45,
 }
 
 // GitHub Copilot models available through GitHub's API
@@ -113,6 +115,19 @@ var CopilotModels = map[ModelID]Model{
 		Name:                "GitHub Copilot Claude Sonnet 4",
 		Provider:            ProviderCopilot,
 		APIModel:            "claude-sonnet-4",
+		CostPer1MIn:         0.0, // Included in GitHub Copilot subscription
+		CostPer1MInCached:   0.0,
+		CostPer1MOutCached:  0.0,
+		CostPer1MOut:        0.0,
+		ContextWindow:       128_000,
+		DefaultMaxTokens:    16000,
+		SupportsAttachments: true,
+	},
+	CopilotClaude45: {
+		ID:                  CopilotClaude45,
+		Name:                "GitHub Copilot Claude Sonnet 4.5",
+		Provider:            ProviderCopilot,
+		APIModel:            "claude-sonnet-4.5",
 		CostPer1MIn:         0.0, // Included in GitHub Copilot subscription
 		CostPer1MInCached:   0.0,
 		CostPer1MOutCached:  0.0,

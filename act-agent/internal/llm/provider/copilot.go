@@ -139,16 +139,14 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 			httpClient:      httpClient,
 		}
 
-		// Exchange GitHub token for bearer token
+		// Exchange GitHub token for bearer token.
+		// ghu_ tokens require exchange; gho_ tokens with "copilot" scope work as direct bearers.
 		var err error
 		bearerToken, err = tempClient.exchangeGitHubToken(githubToken)
 		if err != nil {
-			logging.Error("Failed to exchange GitHub token for Copilot bearer token", "error", err)
-			return &copilotClient{
-				providerOptions: opts,
-				options:         copilotOpts,
-				httpClient:      httpClient,
-			}
+			logging.Debug("Token exchange failed, falling back to direct bearer", "error", err)
+			// Use the token directly — gho_ tokens with copilot scope are accepted by api.githubcopilot.com
+			bearerToken = githubToken
 		}
 	}
 
@@ -519,6 +517,9 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 			if attempts > maxRetries {
 				logging.Warn("Maximum retry attempts reached for rate limit", "attempts", attempts, "max_retries", maxRetries)
 				retry = false
+				if retryErr == nil {
+					retryErr = fmt.Errorf("authentication failed after %d retries: token may be expired or missing copilot scope", maxRetries)
+				}
 			}
 			if retry {
 				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d (paused for %d ms)", attempts, maxRetries, after), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
@@ -573,15 +574,14 @@ func (c *copilotClient) shouldRetry(attempts int, err error) (bool, int64, error
 
 		if githubToken != "" {
 			newBearerToken, tokenErr := c.exchangeGitHubToken(githubToken)
-			if tokenErr == nil {
-				c.options.bearerToken = newBearerToken
-				// Update the client with the new token
-				// Note: This is a simplified approach. In a production system,
-				// you might want to recreate the entire client with the new token
-				logging.Info("Refreshed Copilot bearer token")
-				return true, 1000, nil // Retry immediately with new token
+			if tokenErr != nil {
+				// Exchange failed — fall back to direct bearer (gho_ tokens with copilot scope)
+				logging.Debug("Token exchange failed during refresh, using token directly", "error", tokenErr)
+				newBearerToken = githubToken
 			}
-			logging.Error("Failed to refresh Copilot bearer token", "error", tokenErr)
+			c.options.bearerToken = newBearerToken
+			logging.Info("Refreshed Copilot bearer token")
+			return true, 1000, nil // Retry immediately with new token
 		}
 		return false, 0, fmt.Errorf("authentication failed: %w", err)
 	}
