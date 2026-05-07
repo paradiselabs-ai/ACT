@@ -127,7 +127,8 @@ func (s *Spawner) startOneLocked(nodeBin, scriptPath string, spec SwarmRoleSpec)
 	// kill the entire subtree by signaling the negative pgid. Without this,
 	// if the TUI dies abnormally (terminal close, force quit), the runner
 	// subprocesses orphan and keep polling the server forever.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	setProcGroup(cmd.SysProcAttr)
 
 	// Redirect stdout/stderr to a per-runner log file at ~/.act/runners/<role>.log
 	// instead of inheriting the parent's stdio. The parent here is the Bubble
@@ -225,7 +226,7 @@ func (s *Spawner) Stop() {
 		if rp.cmd != nil && rp.cmd.Process != nil {
 			pid := rp.cmd.Process.Pid
 			// Negative pid = kill the whole process group.
-			if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+			if err := killProcessGroup(pid); err != nil {
 				// Fall back to single-process kill if pgkill fails.
 				_ = rp.cmd.Process.Kill()
 			}
