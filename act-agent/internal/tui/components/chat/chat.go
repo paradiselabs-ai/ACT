@@ -252,7 +252,7 @@ func welcomeGuide(width int) string {
 	}
 
 	command := func(name, desc string) string {
-		return "    " + cmdStyle.Width(18).Render(name) + descStyle.Render(desc)
+		return "    " + cmdStyle.Width(24).Render(name) + descStyle.Render(desc)
 	}
 
 	sepLen := min(36, width-6)
