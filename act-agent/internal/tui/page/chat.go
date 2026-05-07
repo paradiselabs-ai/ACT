@@ -3,6 +3,7 @@ package page
 import (
 	"context"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -18,6 +19,15 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
+// firstPromptFlushMsg nudges the bubbletea event loop after the first prompt
+// of a fresh session. On a fresh `.act/` directory the splash→chat transition
+// can sit in the synchronized-output buffer until a second tea.Msg arrives —
+// previously the user had to press Enter twice. Three staggered ticks (50ms,
+// 150ms, 400ms) cover the timing window across slow/fast LLM first-token
+// arrivals. Update doesn't switch on this type; the act of dispatch is enough
+// to trigger a render frame.
+type firstPromptFlushMsg struct{}
+
 var ChatPage PageID = "chat"
 
 type chatPage struct {
@@ -30,6 +40,7 @@ type chatPage struct {
 	completionDialog     dialog.CompletionDialog
 	showCompletionDialog bool
 	showNavigator        bool
+	firstSendDone        bool
 }
 
 type ChatKeyMap struct {
@@ -148,12 +159,31 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (p *chatPage) sendMessage(text string, attachments []message.Attachment) tea.Cmd {
 	var cmds []tea.Cmd
 
+	trimmed := strings.TrimSpace(text)
+
 	// Slash command intercept — handle /swarm, /nomik, /status, /help, etc.
 	// before routing to the Planner. Unknown commands fall through.
-	if strings.HasPrefix(strings.TrimSpace(text), "/") {
+	if strings.HasPrefix(trimmed, "/") {
 		if response, handled := p.app.HandleSlashCommand(text); handled {
 			return util.ReportInfo(response)
 		}
+	}
+
+	// Palette-ID intercept — if the user typed a palette command literally
+	// (e.g. "act:status"), dispatch the deterministic CLI handler instead of
+	// routing to the Planner. Keep this argv map in sync with tui.go.
+	if argv, ok := paletteCmdArgv(trimmed); ok {
+		if p.session.ID == "" {
+			sess, err := p.app.Sessions.Create(context.Background(), "New Session")
+			if err != nil {
+				return util.ReportError(err)
+			}
+			p.session = sess
+			cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(sess)))
+		}
+		sid := p.session.ID
+		go p.app.Orchestrator.RunDirectCommand(context.Background(), sid, trimmed, argv)
+		return tea.Batch(cmds...)
 	}
 
 	if p.session.ID == "" {
@@ -172,7 +202,40 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 	p.app.Orchestrator.Start(context.Background(), p.session.ID)
 
 	go p.app.Orchestrator.HandleHumanInput(context.Background(), p.session.ID, text, attachments...)
+
+	// First-prompt flush nudge — see firstPromptFlushMsg comment. Without these
+	// the user had to press Enter twice on the very first prompt of a fresh
+	// `.act/` to see the response. Three staggered ticks cover the LLM-first-
+	// token timing variance.
+	if !p.firstSendDone {
+		p.firstSendDone = true
+		flush := func(time.Time) tea.Msg { return firstPromptFlushMsg{} }
+		cmds = append(cmds,
+			tea.Tick(50*time.Millisecond, flush),
+			tea.Tick(150*time.Millisecond, flush),
+			tea.Tick(400*time.Millisecond, flush),
+		)
+	}
+
 	return tea.Batch(cmds...)
+}
+
+func paletteCmdArgv(s string) ([]string, bool) {
+	switch s {
+	case "act:status":
+		return []string{"status"}, true
+	case "act:log":
+		return []string{"log", "--tail", "10"}, true
+	case "act:tasks":
+		return []string{"graph", "unverified"}, true
+	case "act:validation":
+		return []string{"validation", "queue"}, true
+	case "act:conflicts":
+		return []string{"graph", "conflicts"}, true
+	case "act:swarm":
+		return []string{"swarm"}, true
+	}
+	return nil, false
 }
 
 func (p *chatPage) SetSize(width, height int) tea.Cmd {

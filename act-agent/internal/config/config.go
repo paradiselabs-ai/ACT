@@ -225,12 +225,16 @@ const (
 )
 
 // defaultContextPaths are files auto-loaded into every agent's system prompt
-// at startup. ACT.md is the canonical (and only) project memory file for ACT.
-// Other-agent conventions (CLAUDE.md, .cursorrules, copilot-instructions.md,
-// etc.) are intentionally NOT auto-loaded — they bloat prompts by tens of
-// thousands of tokens and break free-tier rate limits. Users who want to share
-// memory with another tool can symlink ACT.md to that tool's filename.
+// at startup. AGENTS.md is the Planner-authored project brief (cross-vendor
+// spec, ~1-2K tokens, regenerated from the server brief on every PROJECT_BRIEF
+// parse). ACT.md/ACT.local.md are user-authored project memory. CLAUDE.md is
+// deliberately NOT in this list — it's the AGENTS.md mirror for the claude-code
+// swarm backend's own file-discovery and would double-load for Tier 1 agents
+// that already read AGENTS.md here. Other-agent conventions (.cursorrules,
+// copilot-instructions.md, etc.) are also excluded — they bloat prompts by
+// tens of thousands of tokens without adding ACT-shaped context.
 var defaultContextPaths = []string{
+	"AGENTS.md",
 	"ACT.md",
 	"ACT.local.md",
 }

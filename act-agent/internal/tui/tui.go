@@ -37,6 +37,13 @@ type keyMap struct {
 
 type startCompactSessionMsg struct{}
 
+// runDirectCommandMsg is dispatched by palette commands that bypass the
+// Planner and shell out directly to the act CLI via Orchestrator.RunDirectCommand.
+type runDirectCommandMsg struct {
+	label string
+	argv  []string
+}
+
 const (
 	quitKey = "q"
 )
@@ -380,6 +387,16 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := config.MarkProjectInitialized(); err != nil {
 			return a, util.ReportError(err)
 		}
+		return a, nil
+
+	case runDirectCommandMsg:
+		sid := a.selectedSession.ID
+		if sid == "" || a.app.Orchestrator == nil {
+			return a, util.ReportWarn("No active session — start a conversation first")
+		}
+		label := msg.label
+		argv := append([]string(nil), msg.argv...)
+		go a.app.Orchestrator.RunDirectCommand(context.Background(), sid, label, argv)
 		return a, nil
 
 	case chat.SessionSelectedMsg:
@@ -945,66 +962,49 @@ If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-ins
 			}
 		},
 	})
-	// ACT coordination commands (HITL — human-in-the-loop)
+	// ACT coordination commands (HITL — bypass Planner, shell out direct).
+	// Each command execs the act binary and renders stdout as a System message.
+	directCmd := func(label string, argv ...string) func(dialog.Command) tea.Cmd {
+		args := argv
+		return func(cmd dialog.Command) tea.Cmd {
+			return util.CmdHandler(runDirectCommandMsg{label: label, argv: args})
+		}
+	}
 	model.RegisterCommand(dialog.Command{
 		ID:          "act:status",
 		Title:       "ACT Status",
-		Description: "Show ACT coordination server status",
-		Handler: func(cmd dialog.Command) tea.Cmd {
-			return tea.Batch(
-				util.CmdHandler(chat.SendMsg{
-					Text: "Run this command and show me the output: act status",
-				}),
-			)
-		},
-	})
-	model.RegisterCommand(dialog.Command{
-		ID:          "act:agents",
-		Title:       "ACT Agents",
-		Description: "List registered agents and their tasks",
-		Handler: func(cmd dialog.Command) tea.Cmd {
-			return tea.Batch(
-				util.CmdHandler(chat.SendMsg{
-					Text: "Run this command and show me the output: act status | grep -A 50 'Agents:'",
-				}),
-			)
-		},
-	})
-	model.RegisterCommand(dialog.Command{
-		ID:          "act:tasks",
-		Title:       "ACT Tasks",
-		Description: "Show task queue and progress",
-		Handler: func(cmd dialog.Command) tea.Cmd {
-			return tea.Batch(
-				util.CmdHandler(chat.SendMsg{
-					Text: "Run this command and show me the output: act graph unverified",
-				}),
-			)
-		},
+		Description: "Server health, registered agents, projects",
+		Handler:     directCmd("act:status", "status"),
 	})
 	model.RegisterCommand(dialog.Command{
 		ID:          "act:log",
 		Title:       "ACT Log",
-		Description: "Show recent coordination log entries",
-		Handler: func(cmd dialog.Command) tea.Cmd {
-			return tea.Batch(
-				util.CmdHandler(chat.SendMsg{
-					Text: "Run this command and show me the output: act log --tail 10",
-				}),
-			)
-		},
+		Description: "Last 10 coordination log entries",
+		Handler:     directCmd("act:log", "log", "--tail", "10"),
+	})
+	model.RegisterCommand(dialog.Command{
+		ID:          "act:tasks",
+		Title:       "ACT Tasks",
+		Description: "Tasks awaiting validation",
+		Handler:     directCmd("act:tasks", "graph", "unverified"),
+	})
+	model.RegisterCommand(dialog.Command{
+		ID:          "act:validation",
+		Title:       "ACT Validation Queue",
+		Description: "Assurance queue (tasks pending validation)",
+		Handler:     directCmd("act:validation", "validation", "queue"),
 	})
 	model.RegisterCommand(dialog.Command{
 		ID:          "act:conflicts",
 		Title:       "ACT File Conflicts",
-		Description: "Show file lock conflicts between agents",
-		Handler: func(cmd dialog.Command) tea.Cmd {
-			return tea.Batch(
-				util.CmdHandler(chat.SendMsg{
-					Text: "Run this command and show me the output: act graph conflicts",
-				}),
-			)
-		},
+		Description: "File lock conflicts between agents",
+		Handler:     directCmd("act:conflicts", "graph", "conflicts"),
+	})
+	model.RegisterCommand(dialog.Command{
+		ID:          "act:swarm",
+		Title:       "ACT Swarm",
+		Description: "Per-role backend selection (act-agent vs claude-code)",
+		Handler:     directCmd("act:swarm", "swarm"),
 	})
 
 	// Load custom commands

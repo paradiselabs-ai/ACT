@@ -277,10 +277,12 @@ func welcomeGuide(width int) string {
 		"",
 		sectionTitle("Commands  (ctrl+k)"),
 		command("init", "Create ACT.md project memory"),
-		command("act:status", "Coordination server status"),
-		command("act:tasks", "Task queue and progress"),
-		command("act:agents", "List registered agents"),
+		command("act:status", "Server, agents, projects"),
 		command("act:log", "Recent coordination log"),
+		command("act:tasks", "Tasks awaiting validation"),
+		command("act:validation", "Assurance queue"),
+		command("act:conflicts", "File lock conflicts"),
+		command("act:swarm", "Per-role backend"),
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)

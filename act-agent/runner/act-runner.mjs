@@ -23,6 +23,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseArgs } from 'node:util';
+import { existsSync } from 'node:fs';
 
 const execFileAsync = promisify(execFile);
 
@@ -511,15 +512,27 @@ async function broadcastCompletion(task, output, deps = {}) {
 // ─── Task execution ───────────────────────────────────────────────────────────
 
 /**
- * Fetch the AGENT.md brief for this agent from the ACT server.
+ * Fetch the AGENTS.md/CLAUDE.md brief for this agent from the ACT server.
  * Returns the brief content string, or null if not found.
+ *
+ * Short-circuits for the claude-code backend when an on-disk AGENTS.md or
+ * CLAUDE.md exists in cwd (which is the project working directory via Go→Node
+ * cwd inheritance). Claude-code auto-discovers CLAUDE.md walking up from cwd,
+ * so HTTP-injecting the same content would double-load it in the prompt and
+ * waste tokens. For the act-agent backend we still inject — that binary's
+ * contextPaths loader only picks up the file after the Planner writes it, and
+ * runners may be executing a task before the first PROJECT_BRIEF lands.
  */
 async function fetchAgentBrief(projectName) {
   if (!projectName) return null;
+  if (BACKEND === 'claude-code' && (existsSync('CLAUDE.md') || existsSync('AGENTS.md'))) {
+    log(`  [brief] claude-code backend + on-disk AGENTS.md/CLAUDE.md detected — skipping HTTP inject (auto-loaded)`);
+    return null;
+  }
   try {
     const data = await get(`/api/projects/${encodeURIComponent(projectName)}/briefs/${encodeURIComponent(AGENT_ID)}`);
     const content = data.brief?.content || data.content || null;
-    if (content) log(`  [brief] Loaded AGENT.md brief for project "${projectName}"`);
+    if (content) log(`  [brief] Loaded brief for project "${projectName}" via HTTP`);
     return content;
   } catch {
     return null; // no brief stored yet — non-fatal

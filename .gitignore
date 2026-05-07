@@ -5,8 +5,6 @@
 # ── Agent/AI context files ──────────────────
 *.md~
 *.md.bak
-AGENT.md
-*AGENT*.md
 openmemory.md
 .claude_project
 
@@ -47,6 +45,7 @@ taskade agentics.md
 *.md
 !README.md
 !CLAUDE.md
+!AGENTS.md
 !docs/**/*.md
 !nestty/*.md
 !tests/*.md
@@ -163,7 +162,7 @@ skills-lock.json
 .nomik/
 **/.nomik/
 .tmp
-CLAUDE.md
+
 
 # ── ACT runtime state (per-project sqlite + sessions) ─
 # Note: act-agent/.act.json is intentionally tracked (LSP config, no secrets).
@@ -186,3 +185,4 @@ docs-assembler-config.json
 .DS_Store
 github.comparadiselabs-ai-act-tree-nestty.md
 
+CLAUDE.md

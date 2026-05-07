@@ -7,6 +7,7 @@
  */
 
 import { parseArgs } from 'node:util';
+import { basename } from 'node:path';
 import { ACTClient } from './act-client.js';
 
 const DEFAULT_SERVER_URL = process.env.ACT_SERVER_URL || 'http://localhost:8080';
@@ -25,8 +26,9 @@ async function cmdContext(client: ACTClient, args: Record<string, any>): Promise
   const agentId = args['agent-id'] || args['<agent-id>'];
   const projectName = args['--project'];
 
-  if (!agentId) {
-    printError('Error: agent-id is required (--agent-id flag or ACT_AGENT_ID env var)');
+  if (!agentId || typeof agentId !== 'string' || agentId.startsWith('--')) {
+    printError('Error: agent-id is required as the first positional argument (or set ACT_AGENT_ID).');
+    printError('Usage: act context <agent-id> --project <name>');
     process.exit(1);
   }
   if (!projectName) {
@@ -498,43 +500,47 @@ async function cmdGraphConflicts(client: ACTClient): Promise<void> {
 
 async function cmdStatus(client: ACTClient): Promise<void> {
   const serverUrl = client.getServerUrl();
-  // Scope to current project when ACT_PROJECT is set — default agent/runner
-  // invocations always have it set, so `act status` in a session shows the
-  // current project's state. Unset only in detached ops tooling.
-  const project = process.env.ACT_PROJECT;
-  const projectParam = project ? `?project=${encodeURIComponent(project)}` : '';
+  const project = process.env.ACT_PROJECT || basename(process.cwd());
+
+  let verifyRes: Response;
   try {
-    const res = await fetch(`${serverUrl}/api/status${projectParam}`);
-    const s = await res.json() as any;
-
-    console.log(`ACT System Status — ${s.timestamp}`);
-    console.log();
-
-    // Tasks
-    console.log(`Tasks: ${s.tasks.total}`);
-    for (const [status, count] of Object.entries(s.tasks.byStatus)) {
-      console.log(`  ${status}: ${count}`);
-    }
-    console.log();
-
-    // Agents
-    console.log(`Agents: ${s.agents.total}`);
-    for (const agent of s.agents.list || []) {
-      const task = agent.currentTask ? ` → ${agent.currentTask.substring(0, 8)}...` : '';
-      const role = agent.role ? ` [${agent.role}]` : '';
-      console.log(`  ${agent.id}${role}: ${agent.status}${task}`);
-    }
-    console.log();
-
-    // Other
-    console.log(`File locks: ${s.fileLocks}`);
-    console.log(`Projects: ${s.projects}`);
-    if (s.pvm) {
-      console.log(`PVM: ${s.pvm.indexed || 0} events indexed`);
-    }
+    verifyRes = await fetch(`${serverUrl}/api/projects/${encodeURIComponent(project)}`);
   } catch {
     printError('Cannot reach ACT server at ' + serverUrl);
     process.exit(1);
+  }
+  if (verifyRes.status === 404) {
+    console.log('Not an ACT project directory.');
+    return;
+  }
+  if (!verifyRes.ok) {
+    printError(`ACT server returned HTTP ${verifyRes.status}`);
+    process.exit(1);
+  }
+
+  let s: any;
+  try {
+    const res = await fetch(`${serverUrl}/api/status?project=${encodeURIComponent(project)}`);
+    s = await res.json();
+  } catch {
+    printError('Cannot reach ACT server at ' + serverUrl);
+    process.exit(1);
+  }
+
+  console.log(`ACT Project: ${project} — ${s.timestamp}`);
+  console.log();
+
+  console.log(`Tasks: ${s.tasks.total}`);
+  for (const [status, count] of Object.entries(s.tasks.byStatus)) {
+    console.log(`  ${status}: ${count}`);
+  }
+  console.log();
+
+  console.log(`Agents: ${s.agents.total}`);
+  for (const agent of s.agents.list || []) {
+    const task = agent.currentTask ? ` → ${agent.currentTask.substring(0, 8)}...` : '';
+    const role = agent.role ? ` [${agent.role}]` : '';
+    console.log(`  ${agent.id}${role}: ${agent.status}${task}`);
   }
 }
 

@@ -200,7 +200,12 @@ func renderSystemMessage(msg message.Message, width int, position int) uiMessage
 	}
 }
 
-// Returns multiple uiMessages because of the tool calls
+// Returns multiple uiMessages because of the tool calls.
+// useMarkdown decouples the Glamour render decision from msg.IsFinished() so
+// callers can defer Glamour off the Update goroutine. When false, the body is
+// rendered as plain text regardless of finish state — used by the sync
+// renderView path while the async Glamour cmd is in flight. When true, full
+// Glamour markdown is applied — used by the async goroutine.
 func renderAssistantMessage(
 	msg message.Message,
 	role string,
@@ -211,6 +216,7 @@ func renderAssistantMessage(
 	isSummary bool,
 	width int,
 	position int,
+	useMarkdown bool,
 ) []uiMessage {
 	messages := []uiMessage{}
 	content := msg.Content().String()
@@ -264,9 +270,11 @@ func renderAssistantMessage(
 		// Skip Glamour markdown while the message is still streaming — each
 		// token update invalidates the render cache, and Glamour on multi-KB
 		// content blocks the Bubbletea Update loop for seconds. Plain text is
-		// ~instant; the moment the turn finishes we re-enter this branch with
-		// finished=true and render the final appearance through Glamour.
-		body := renderMessageBody(content, false, true, width, role, finished, info...)
+		// ~instant. On FinishReasonEndTurn, list.go kicks an async goroutine
+		// that re-enters this function with useMarkdown=true and posts the
+		// rendered result back as a markdownRenderedMsg — keeping Glamour off
+		// the Update goroutine entirely.
+		body := renderMessageBody(content, false, true, width, role, useMarkdown, info...)
 		if label := roleLabel(role, width-1); label != "" {
 			content = lipgloss.JoinVertical(lipgloss.Left, label, body)
 		} else {

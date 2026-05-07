@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -88,6 +90,12 @@ type Orchestrator struct {
 	// human input in between. Capped at autoTurnCap to prevent agent loops.
 	// Reset to 0 by HandleHumanInput.
 	consecutiveAutoTurns int
+
+	// lastTurnAt[role] records the start time of the most recent runAgentTurn
+	// for that Tier 1 role. Powers the Observer Tier 1 watchdog (α-2): when a
+	// queue is non-empty AND the responsible role is idle AND its last turn was
+	// >tier1StuckThreshold ago, Observer re-triggers it directly. Mu-protected.
+	lastTurnAt map[string]time.Time
 }
 
 // NewOrchestrator creates an orchestrator wired to the given app.
@@ -99,6 +107,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 		dispatchedMsgs: make(map[string]bool),
 		attemptCount:  make(map[string]int),
 		runnerSpawner: runner.NewSpawner(),
+		lastTurnAt:    make(map[string]time.Time),
 	}
 }
 
@@ -339,6 +348,7 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 
 	o.mu.Lock()
 	o.currentSpeaker = role
+	o.lastTurnAt[role] = time.Now()
 	o.mu.Unlock()
 
 	// Per-turn timeout: an agent that hasn't produced a response in this long
@@ -644,6 +654,57 @@ func stripStatusPrefix(s string) string {
 	return strings.TrimPrefix(s, "status: ")
 }
 
+// directCommandTimeout caps subprocess wall time for palette commands.
+const directCommandTimeout = 5 * time.Second
+
+// directCommandOutputCap is the max byte length of CLI output we render
+// inline. Anything beyond is truncated with a tail note.
+const directCommandOutputCap = 4096
+
+// RunDirectCommand executes a read-only act CLI subcommand and emits the
+// output as a single System message in the active session. Bypasses the
+// Planner — used by palette commands (act:status, act:log, etc.) for HITL
+// inspection of the deterministic state layer.
+func (o *Orchestrator) RunDirectCommand(parentCtx context.Context, sessionID, label string, argv []string) {
+	if sessionID == "" || len(argv) == 0 {
+		return
+	}
+
+	bin, err := os.Executable()
+	if err != nil || bin == "" {
+		bin = os.Args[0]
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, directCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, bin, argv...)
+	cmd.Env = os.Environ()
+	out, runErr := cmd.CombinedOutput()
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		o.emitSystemMessage(parentCtx, sessionID, fmt.Sprintf("⏱  /%s timed out after %s", label, directCommandTimeout))
+		return
+	}
+
+	body := strings.TrimRight(string(out), "\n")
+	if len(body) > directCommandOutputCap {
+		extra := len(body) - directCommandOutputCap
+		body = body[:directCommandOutputCap] + fmt.Sprintf("\n… (%d more bytes truncated)", extra)
+	}
+
+	var rendered string
+	switch {
+	case body == "" && runErr != nil:
+		rendered = fmt.Sprintf("⚠  /%s failed: %v", label, runErr)
+	case body == "":
+		rendered = fmt.Sprintf("🛠  /%s — (no output)", label)
+	default:
+		rendered = fmt.Sprintf("🛠  /%s\n```\n%s\n```", label, body)
+	}
+	o.emitSystemMessage(parentCtx, sessionID, rendered)
+}
+
 // emitSystemMessage creates a Role=System message in the active chat session.
 // The TUI's chat list renders these via renderSystemMessage as muted lines
 // (no avatar, no header). Used for orchestrator-level coordination events
@@ -885,6 +946,19 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 		logging.Warn("Failed to POST project brief", "project", name, "error", err)
 		return
 	}
+
+	// Materialize AGENTS.md + CLAUDE.md in the project working directory. The
+	// server-stored brief remains the source of truth (replayed on restart);
+	// these files are a derived view that (a) lets claude-code swarm agents
+	// auto-discover the brief without an HTTP fetch and (b) travels with the
+	// repo so teammates cloning get the project context for free. Any user
+	// content after the preserve marker survives regeneration.
+	if err := writeAgentsMd(dir, name, brief); err != nil {
+		logging.Warn("Failed to write AGENTS.md", "project", name, "dir", dir, "error", err)
+	} else {
+		logging.Info("AGENTS.md + CLAUDE.md written", "project", name, "dir", dir)
+	}
+
 	o.mu.Lock()
 	o.intakeMode = false
 	sid := o.sessionID
@@ -1129,6 +1203,10 @@ const (
 	// system message when no anomalies are detected. Without this it's
 	// indistinguishable from a dead goroutine. Every 4 cycles ≈ every 8 minutes.
 	observerHealthEvery = 4
+	// tier1StuckThreshold — if a Tier 1 role (Assurance, QA) is idle while its
+	// queue is non-empty and its last turn was longer ago than this, Observer
+	// re-triggers it directly. α-2 watchdog. Decisions still route to Planner.
+	tier1StuckThreshold = 5 * time.Minute
 )
 
 // observerLoop runs the Observer monitoring loop. Every ~120s it polls the
@@ -1195,6 +1273,14 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 	sid := o.sessionID
 	o.mu.Unlock()
 
+	// α-2 Tier 1 watchdog: if Assurance or QA is idle while their queue is
+	// non-empty and last turn was >tier1StuckThreshold ago, re-trigger them
+	// directly. Skip the Observer LLM this cycle if we acted — kicking the
+	// stuck role is the action; the Observer's narrative would be redundant.
+	if o.tier1Watchdog(ctx, sid, snapshot) {
+		return
+	}
+
 	anomalies := detectAnomalies(snapshot)
 	if len(anomalies) == 0 {
 		// Silent watchdog — but every Nth cycle emit a health ping so the
@@ -1248,6 +1334,66 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 	)
 
 	o.runAgentTurn(ctx, sid, "observer", prompt)
+}
+
+// tier1Watchdog re-triggers Assurance or QA when their queue is non-empty,
+// they're idle, and their last turn was longer ago than tier1StuckThreshold.
+// Returns true if it acted (caller should skip the Observer LLM this cycle).
+// Mechanical re-triggers only — judgment cases (rejection patterns, missing
+// inputs) still surface through the regular Observer anomaly path to Planner.
+func (o *Orchestrator) tier1Watchdog(ctx context.Context, sid string, snap *StatusSnapshot) bool {
+	if sid == "" || snap == nil {
+		return false
+	}
+
+	pendingValidation := 0
+	pendingSynthesis := 0
+	for _, t := range snap.Tasks {
+		switch t.Status {
+		case "submitted_for_validation":
+			pendingValidation++
+		case "validated":
+			pendingSynthesis++
+		}
+	}
+
+	now := time.Now()
+
+	if pendingValidation > 0 && !o.IsRoleBusy("assurance") {
+		o.mu.RLock()
+		last, seen := o.lastTurnAt["assurance"]
+		o.mu.RUnlock()
+		if !seen || now.Sub(last) > tier1StuckThreshold {
+			logging.Warn("tier1_watchdog.fire",
+				"role", "assurance",
+				"pending", pendingValidation,
+				"last_turn_ago", now.Sub(last).String(),
+			)
+			o.emitSystemMessage(ctx, sid, fmt.Sprintf("👁  Observer: Assurance idle with %d task(s) in validation queue — re-triggering", pendingValidation))
+			prompt := fmt.Sprintf("Validation queue check — %d task(s) in submitted_for_validation. Run a validation pass on the oldest pending task.", pendingValidation)
+			go o.runAgentTurn(ctx, sid, "assurance", prompt)
+			return true
+		}
+	}
+
+	if pendingSynthesis > 0 && !o.IsRoleBusy("qa_synthesizer") {
+		o.mu.RLock()
+		last, seen := o.lastTurnAt["qa_synthesizer"]
+		o.mu.RUnlock()
+		if !seen || now.Sub(last) > tier1StuckThreshold {
+			logging.Warn("tier1_watchdog.fire",
+				"role", "qa_synthesizer",
+				"pending", pendingSynthesis,
+				"last_turn_ago", now.Sub(last).String(),
+			)
+			o.emitSystemMessage(ctx, sid, fmt.Sprintf("👁  Observer: QA idle with %d validated task(s) awaiting synthesis — re-triggering", pendingSynthesis))
+			prompt := fmt.Sprintf("Synthesis queue check — %d validated task(s) awaiting QA synthesis. Process the oldest validated task.", pendingSynthesis)
+			go o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt)
+			return true
+		}
+	}
+
+	return false
 }
 
 // buildStatusSnapshot polls the server for tasks, agents, file locks, and

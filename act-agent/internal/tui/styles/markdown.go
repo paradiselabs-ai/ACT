@@ -302,11 +302,50 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 	}
 }
 
+// darkBackgroundCached caches the result of lipgloss.HasDarkBackground.
+//
+// lipgloss.HasDarkBackground sends a DCS query to the terminal and BLOCKS
+// waiting for the response (OSC 11 on most terms, CSI 2026 on kitty-proto).
+// On Ghostty the round-trip is ~200ms. generateMarkdownStyleConfig calls
+// adaptiveColorToString ~50 times — 50 × 200ms = 10 seconds of blocked
+// Update goroutine on first-render per width. That was the splash-screen
+// freeze the user was hitting.
+//
+// Resolving once at init and reusing drops first-render to single-digit ms.
+// The terminal's dark/light state doesn't change during a session; if a
+// theme refresh is ever needed, call resetDarkBackgroundCache.
+var (
+	darkBackgroundCached bool
+	darkBackgroundOnce   sync.Once
+)
+
+func isDarkBackground() bool {
+	return IsDarkBackground()
+}
+
+// IsDarkBackground is the package-public wrapper around the cached query.
+// Use this from any code that needs the terminal's dark/light state — it
+// lazily resolves on first call and reuses thereafter, avoiding the DCS
+// round-trip that HasDarkBackground blocks on.
+func IsDarkBackground() bool {
+	darkBackgroundOnce.Do(func() {
+		darkBackgroundCached = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	})
+	return darkBackgroundCached
+}
+
+// resetDarkBackgroundCache clears the cached background-color query so the
+// next adaptiveColorToString re-queries the terminal. Wire this into theme
+// change if/when users can toggle terminal background dynamically.
+func resetDarkBackgroundCache() {
+	darkBackgroundOnce = sync.Once{}
+}
+
 // adaptiveColorToString converts a compat.AdaptiveColor to the appropriate
 // hex color string based on the current terminal background
 func adaptiveColorToString(c compat.AdaptiveColor) string {
 	var col color.Color
-	if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
+	if isDarkBackground() {
 		col = c.Dark
 	} else {
 		col = c.Light

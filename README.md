@@ -48,6 +48,8 @@ act                      # launches the TUI in the current directory
 act --project my-app     # for a specific project
 ```
 
+**Supported terminals:** [Ghostty](https://ghostty.org/) (recommended), [iTerm2](https://iterm2.com/), [Alacritty](https://alacritty.org/), [kitty](https://sw.kovidgoyal.net/kitty/). Apple Terminal.app is **not supported** — it lacks Synchronized Output (mode 2026) and the TUI render pipeline hangs after each prompt. See `docs/Vault/Agent Coordination Toolkit/nestty/KNOWN_ISSUES.md` (KI-14).
+
 The first time you run `act` for a new project, the Planner enters **INTAKE mode** — a five-question conversation (description, tech stack, constraints, success criteria, agents involved). It summarizes, you confirm, and only then does the swarm spin up and the first task batch get created. No yes/no wizard, no scanning empty directories looking for AGENT.md files that don't exist yet.
 
 ---
@@ -114,6 +116,8 @@ ACT/
 
 ## License
 
-MIT — see `LICENSE`.
+ACT is licensed under the **Apache License 2.0** — see `LICENSE` and `NOTICE`.
+
+The `act-agent/` subdirectory is a fork of [OpenCode](https://github.com/opencode-ai/opencode) and retains its upstream **MIT** license; see `act-agent/LICENSE`.
 
 Built by [ParadiseLabs](https://github.com/paradiselabs-ai).

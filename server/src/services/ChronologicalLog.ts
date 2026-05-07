@@ -466,6 +466,7 @@ export class ChronologicalLog {
             }
             case 'task_created': {
               if (d && d.id) {
+                coerceTaskDates(d);
                 tasks.set(d.id, d);
                 counts.taskCount++;
               }
@@ -571,7 +572,7 @@ export class ChronologicalLog {
                   name: d.name || d.agentId,
                   capabilities: d.capabilities || [],
                   status: 'offline',  // will re-register on connect
-                  lastSeen: event.timestamp,
+                  lastSeen: toDate(event.timestamp) ?? new Date(),
                   performanceScore: 1.0,
                   tasksCompleted: 0,
                   averageTaskTime: 0
@@ -597,12 +598,13 @@ export class ChronologicalLog {
             }
             case 'file_claim': {
               if (fileLocks && d && d.filePaths && d.agentId) {
+                const lockedAt = toDate(event.timestamp) ?? new Date();
                 for (const fp of d.filePaths) {
                   fileLocks.set(fp, {
                     filePath: fp,
                     agentId: d.agentId,
                     taskId: d.taskId || '',
-                    lockedAt: event.timestamp,
+                    lockedAt,
                   });
                   counts.fileLockCount++;
                 }
@@ -632,4 +634,20 @@ export class ChronologicalLog {
     return counts;
   }
 
+}
+
+// JSONL replay deserializes ISO timestamp strings as plain strings; downstream
+// callers expect Date instances and crash on .getTime(). Coerce at the boundary.
+function toDate(v: any): Date | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (v instanceof Date) return v;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
+function coerceTaskDates(t: any): void {
+  if (!t) return;
+  for (const k of ['createdAt', 'updatedAt', 'startedAt', 'completedAt', 'assignedAt'] as const) {
+    if (t[k] !== undefined) t[k] = toDate(t[k]);
+  }
 }

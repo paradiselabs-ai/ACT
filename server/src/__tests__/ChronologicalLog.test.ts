@@ -444,4 +444,97 @@ describe('ChronologicalLog', () => {
       expect(all.length).toBe(100);
     });
   });
+
+  describe('restoreFromLog (KI-13 regression)', () => {
+    it('rehydrates task date fields as Date instances, not strings', async () => {
+      const taskEvent: CoordinationMessage = {
+        timestamp: '2026-04-19T12:00:00.000Z',
+        agent: 'orchestrator',
+        message: 'task created',
+        type: 'task_created',
+        data: {
+          id: 'task-ki13',
+          description: 'regression task',
+          status: 'pending',
+          priority: 'medium',
+          requiredCapabilities: [],
+          progress: 0,
+          createdAt: '2026-04-19T12:00:00.000Z',
+          updatedAt: '2026-04-19T12:00:00.000Z',
+        },
+      };
+      const startedEvent: CoordinationMessage = {
+        timestamp: '2026-04-19T12:01:00.000Z',
+        agent: 'orchestrator',
+        message: 'task started',
+        type: 'task_assigned',
+        data: { taskId: 'task-ki13', agentId: 'dev-1' },
+      };
+      await log.batchAppend([taskEvent, startedEvent]);
+      await log.flush();
+
+      const projects = new Map<string, any>();
+      const tasks = new Map<string, any>();
+      const briefs = new Map<string, Map<string, string>>();
+      const agents = new Map<string, any>();
+      await log.restoreFromLog(projects, tasks, briefs, agents);
+
+      const t = tasks.get('task-ki13');
+      expect(t).toBeDefined();
+      expect(t.createdAt).toBeInstanceOf(Date);
+      expect(t.updatedAt).toBeInstanceOf(Date);
+      // simulate the call site that crashed pre-fix: TaskCoordinator.completeTask
+      // line 245 — task.completedAt.getTime() - task.startedAt.getTime()
+      t.startedAt = new Date('2026-04-19T12:01:00.000Z');
+      t.completedAt = new Date('2026-04-19T12:05:00.000Z');
+      expect(() => t.completedAt.getTime() - t.startedAt.getTime()).not.toThrow();
+    });
+
+    it('rehydrates agent lastSeen as a Date instance', async () => {
+      const agentEvent: CoordinationMessage = {
+        timestamp: '2026-04-19T12:00:00.000Z',
+        agent: 'system',
+        message: 'agent registered',
+        type: 'agent_registered',
+        data: { agentId: 'dev-1', name: 'dev-1', capabilities: ['go'] },
+      };
+      await log.batchAppend([agentEvent]);
+      await log.flush();
+
+      const projects = new Map<string, any>();
+      const tasks = new Map<string, any>();
+      const briefs = new Map<string, Map<string, string>>();
+      const agents = new Map<string, any>();
+      await log.restoreFromLog(projects, tasks, briefs, agents);
+
+      const a = agents.get('dev-1');
+      expect(a).toBeDefined();
+      expect(a.lastSeen).toBeInstanceOf(Date);
+      // matches AgentRegistry.ts:262 stale-check pattern
+      expect(() => Date.now() - a.lastSeen.getTime()).not.toThrow();
+    });
+
+    it('rehydrates file lock lockedAt as a Date instance', async () => {
+      const claimEvent: CoordinationMessage = {
+        timestamp: '2026-04-19T12:00:00.000Z',
+        agent: 'dev-1',
+        message: 'file claim',
+        type: 'file_claim',
+        data: { agentId: 'dev-1', taskId: 'task-1', filePaths: ['src/foo.ts'] },
+      };
+      await log.batchAppend([claimEvent]);
+      await log.flush();
+
+      const projects = new Map<string, any>();
+      const tasks = new Map<string, any>();
+      const briefs = new Map<string, Map<string, string>>();
+      const agents = new Map<string, any>();
+      const fileLocks = new Map<string, any>();
+      await log.restoreFromLog(projects, tasks, briefs, agents, fileLocks);
+
+      const lock = fileLocks.get('src/foo.ts');
+      expect(lock).toBeDefined();
+      expect(lock.lockedAt).toBeInstanceOf(Date);
+    });
+  });
 });

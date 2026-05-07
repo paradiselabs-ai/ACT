@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"io"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
+	tuistyles "github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
@@ -534,10 +534,12 @@ func SyntaxHighlight(w io.Writer, source, fileName, formatter string, bg color.C
 	return f.Format(w, s, it)
 }
 
-// getColor returns the appropriate hex color string based on terminal background
+// getColor returns the appropriate hex color string based on terminal background.
+// Uses the cached styles.IsDarkBackground to avoid per-call DCS round-trips
+// (see markdown.go — HasDarkBackground blocks ~200ms on Ghostty).
 func getColor(adaptiveColor compat.AdaptiveColor) string {
 	var col color.Color
-	if lipgloss.HasDarkBackground(os.Stdin, os.Stdout) {
+	if tuistyles.IsDarkBackground() {
 		col = adaptiveColor.Dark
 	} else {
 		col = adaptiveColor.Light

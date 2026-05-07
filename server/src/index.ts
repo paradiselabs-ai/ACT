@@ -94,31 +94,26 @@ app.get('/health', (req, res) => {
 // Planner view and trigger false "critical issues in other projects" replies.
 app.get('/api/status', (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '';
-  const allAgents = agentRegistry.getAllAgents();
+  let allAgents = agentRegistry.getAllAgents();
   let allTasks = Array.from(taskCoordinator.getAllTasks());
   if (project) {
     allTasks = allTasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+    // Agents have no projectName field; derive membership via currentTask → project task set.
+    const scopedTaskIds = new Set(allTasks.map(t => t.id));
+    allAgents = allAgents.filter(a => a.currentTask && scopedTaskIds.has(a.currentTask));
   }
 
-  // Task counts by status
   const tasksByStatus: Record<string, number> = {};
   for (const task of allTasks) {
     tasksByStatus[task.status] = (tasksByStatus[task.status] || 0) + 1;
   }
 
-  // Agent counts by status
   const agentsByStatus: Record<string, number> = {};
   for (const agent of allAgents) {
     agentsByStatus[agent.status] = (agentsByStatus[agent.status] || 0) + 1;
   }
 
-  // File locks
-  const lockCount = fileLocks.size;
-
-  // Projects
-  const projectCount = projects.size;
-
-  res.json({
+  const body: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
     tasks: {
       total: allTasks.length,
@@ -135,10 +130,17 @@ app.get('/api/status', (req, res) => {
         role: (a as any).role,
       })),
     },
-    fileLocks: lockCount,
-    projects: projectCount,
-    pvm: pvmIndexer.getStatus(),
-  });
+  };
+
+  if (!project) {
+    body.fileLocks = fileLocks.size;
+    body.projects = projects.size;
+    body.pvm = pvmIndexer.getStatus();
+  } else {
+    body.project = project;
+  }
+
+  res.json(body);
 });
 
 // Full reset — clears ALL state (projects, tasks, agents, locks, inboxes).

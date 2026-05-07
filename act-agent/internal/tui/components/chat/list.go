@@ -28,6 +28,21 @@ type cacheItem struct {
 	finished bool // tracks IsFinished() — flipping from false→true invalidates
 	content  []uiMessage
 }
+
+// markdownRenderedMsg is the async result from a Glamour render. The
+// rendering itself runs in a goroutine off the Bubbletea Update loop so the
+// seconds-long CommonMark parse + chroma highlight never blocks the UI.
+// When this msg arrives we install the rendered uiMessages into
+// cachedContent and trigger a rerender; the sync renderView path renders
+// plain text for the same msgID in the meantime.
+type markdownRenderedMsg struct {
+	sessionID string
+	msgID     string
+	width     int
+	role      string
+	rendered  []uiMessage
+}
+
 type messagesCmp struct {
 	app           *app.App
 	width, height int
@@ -37,8 +52,13 @@ type messagesCmp struct {
 	uiMessages    []uiMessage
 	currentMsgID  string
 	cachedContent map[string]cacheItem
-	spinner       spinner.Model
-	attachments   viewport.Model
+	// asyncGlamour marks msgIDs currently being rendered through Glamour in a
+	// background goroutine. While a msgID is in this map, renderView renders
+	// plain text for it (useMarkdown=false) so the sync path stays fast.
+	// Cleared when markdownRenderedMsg arrives.
+	asyncGlamour map[string]bool
+	spinner      spinner.Model
+	attachments  viewport.Model
 }
 
 type MessageKeys struct {
@@ -75,8 +95,12 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case dialog.ThemeChangedMsg:
+		// Theme change invalidates every Glamour-rendered body (chroma
+		// palette is theme-derived). Drop cache + any in-flight marks and
+		// re-queue off the Update loop.
+		m.asyncGlamour = make(map[string]bool)
 		m.rerender()
-		return m, nil
+		return m, m.queueAsyncGlamour()
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
 			cmd := m.SetSession(msg)
@@ -104,6 +128,24 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.renderView()
 			}
 		}
+	case markdownRenderedMsg:
+		// Stale result — session switched or window resized between kickoff
+		// and completion. Drop it and re-queue so the msg doesn't stay
+		// stuck in plain-text forever.
+		if msg.sessionID != m.session.ID || msg.width != m.width {
+			delete(m.asyncGlamour, msg.msgID)
+			return m, m.queueAsyncGlamour()
+		}
+		delete(m.asyncGlamour, msg.msgID)
+		m.cachedContent[msg.msgID] = cacheItem{
+			width:    msg.width,
+			role:     msg.role,
+			finished: true,
+			content:  msg.rendered,
+		}
+		m.renderView()
+		return m, nil
+
 	case pubsub.Event[message.Message]:
 		needsRerender := false
 		if msg.Type == pubsub.CreatedEvent {
@@ -163,6 +205,13 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if needsRerender {
+			// Queue async Glamour BEFORE renderView so asyncGlamour marks
+			// are set and renderView renders plain text for pending msgs.
+			// Without this the sync path would still run Glamour once
+			// before the async result lands.
+			if cmd := m.queueAsyncGlamour(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			m.renderView()
 			if len(m.messages) > 0 {
 				if (msg.Type == pubsub.CreatedEvent) ||
@@ -252,6 +301,15 @@ func (m *messagesCmp) renderView() {
 				}
 			}
 
+			// useMarkdown decouples Glamour from msg.IsFinished(). If an
+			// async Glamour cmd is in flight for this msgID (asyncGlamour
+			// marked), render plain text now; the async result will populate
+			// the cache when it lands. Otherwise render through Glamour as
+			// before. queueAsyncGlamour (called from Update before renderView
+			// runs) populates asyncGlamour so the first sync render after a
+			// finish-transition is already fast.
+			useMarkdown := finished && !m.asyncGlamour[msg.ID]
+
 			assistantMessages := renderAssistantMessage(
 				msg,
 				role,
@@ -262,14 +320,16 @@ func (m *messagesCmp) renderView() {
 				isSummary,
 				m.width,
 				pos,
+				useMarkdown,
 			)
 			for _, msg := range assistantMessages {
 				m.uiMessages = append(m.uiMessages, msg)
 				pos += msg.height + 1 // + 1 for spacing
 			}
-			// Only store when the message has settled — streaming cache entries
-			// would go stale immediately.
-			if finished {
+			// Cache only Glamour-rendered output. Plain-text output produced
+			// while the async Glamour cmd is in flight must NOT shadow the
+			// richer result that lands shortly after.
+			if finished && useMarkdown {
 				m.cachedContent[msg.ID] = cacheItem{
 					width:    m.width,
 					role:     role,
@@ -485,8 +545,12 @@ func (m *messagesCmp) SetSize(width, height int) tea.Cmd {
 	m.viewport.SetHeight(height - 2)
 	m.attachments.SetWidth(width + 40)
 	m.attachments.SetHeight(3)
+	// Width change invalidates every cached render (word-wrap is
+	// width-dependent). Clear in-flight async marks so queueAsyncGlamour
+	// re-dispatches at the new width.
+	m.asyncGlamour = make(map[string]bool)
 	m.rerender()
-	return nil
+	return m.queueAsyncGlamour()
 }
 
 func (m *messagesCmp) GetSize() (int, int) {
@@ -507,9 +571,78 @@ func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
 		m.currentMsgID = m.messages[len(m.messages)-1].ID
 	}
 	delete(m.cachedContent, m.currentMsgID)
+	// Queue async Glamour for any finished assistant msgs loaded from the
+	// DB. Without this a session with N finished assistant msgs would fire
+	// N synchronous Glamour renders inside renderView and hang the Update
+	// loop for tens of seconds on session switch.
+	cmd := m.queueAsyncGlamour()
 	m.renderView()
 	m.viewport.GotoBottom()
-	return nil
+	return cmd
+}
+
+// queueAsyncGlamour scans m.messages for finished assistant msgs that are
+// neither cached nor already being rendered, marks them as pending, and
+// returns a Cmd that dispatches one goroutine per msg to run Glamour off
+// the Update loop. Each goroutine posts markdownRenderedMsg back to Update
+// where the rendered uiMessages get installed into cachedContent.
+// Safe to call multiple times — already-pending msgs are skipped.
+func (m *messagesCmp) queueAsyncGlamour() tea.Cmd {
+	var cmds []tea.Cmd
+	for i, msg := range m.messages {
+		if msg.Role != message.Assistant || !msg.IsFinished() {
+			continue
+		}
+		if _, cached := m.cachedContent[msg.ID]; cached {
+			continue
+		}
+		if m.asyncGlamour[msg.ID] {
+			continue
+		}
+		m.asyncGlamour[msg.ID] = true
+		cmds = append(cmds, m.asyncGlamourCmd(msg, i))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// asyncGlamourCmd returns a Cmd that renders the given msg through Glamour
+// in a goroutine. All state read by the goroutine is snapshotted at cmd
+// construction so mutation of m.messages on the Update loop during the
+// render doesn't race. The result is posted back as markdownRenderedMsg;
+// the Update handler reconciles stale results (session switch, resize) by
+// dropping them.
+func (m *messagesCmp) asyncGlamourCmd(msg message.Message, msgIndex int) tea.Cmd {
+	width := m.width
+	role := m.app.Orchestrator.GetOwner(msg.ID)
+	sessionID := m.session.ID
+	allMessages := append([]message.Message(nil), m.messages...)
+	currentMsgID := m.currentMsgID
+	messagesService := m.app.Messages
+	isSummary := m.session.SummaryMessageID == msg.ID
+	return func() tea.Msg {
+		rendered := renderAssistantMessage(
+			msg,
+			role,
+			msgIndex,
+			allMessages,
+			messagesService,
+			currentMsgID,
+			isSummary,
+			width,
+			0, // position recomputed by renderView; cacheItem.content uses it as a no-op
+			true,
+		)
+		return markdownRenderedMsg{
+			sessionID: sessionID,
+			msgID:     msg.ID,
+			width:     width,
+			role:      role,
+			rendered:  rendered,
+		}
+	}
 }
 
 func (m *messagesCmp) BindingKeys() []key.Binding {
@@ -533,6 +666,7 @@ func NewMessagesCmp(app *app.App) tea.Model {
 	return &messagesCmp{
 		app:           app,
 		cachedContent: make(map[string]cacheItem),
+		asyncGlamour:  make(map[string]bool),
 		viewport:      vp,
 		spinner:       s,
 		attachments:   attachmets,
