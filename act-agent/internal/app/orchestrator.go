@@ -663,7 +663,7 @@ const directCommandOutputCap = 4096
 
 // RunDirectCommand executes a read-only act CLI subcommand and emits the
 // output as a single System message in the active session. Bypasses the
-// Planner — used by palette commands (act:status, act:log, etc.) for HITL
+// Planner — used by palette commands (act-agent:status, act-agent:log, etc.) for HITL
 // inspection of the deterministic state layer.
 func (o *Orchestrator) RunDirectCommand(parentCtx context.Context, sessionID, label string, argv []string) {
 	if sessionID == "" || len(argv) == 0 {

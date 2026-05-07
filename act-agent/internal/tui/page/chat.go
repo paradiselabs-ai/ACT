@@ -170,7 +170,7 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 	}
 
 	// Palette-ID intercept — if the user typed a palette command literally
-	// (e.g. "act:status"), dispatch the deterministic CLI handler instead of
+	// (e.g. "act-agent:status"), dispatch the deterministic CLI handler instead of
 	// routing to the Planner. Keep this argv map in sync with tui.go.
 	if argv, ok := paletteCmdArgv(trimmed); ok {
 		if p.session.ID == "" {
@@ -222,17 +222,17 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 
 func paletteCmdArgv(s string) ([]string, bool) {
 	switch s {
-	case "act:status":
+	case "act-agent:status":
 		return []string{"status"}, true
-	case "act:log":
+	case "act-agent:log":
 		return []string{"log", "--tail", "10"}, true
-	case "act:tasks":
+	case "act-agent:tasks":
 		return []string{"graph", "unverified"}, true
-	case "act:validation":
+	case "act-agent:validation":
 		return []string{"validation", "queue"}, true
-	case "act:conflicts":
+	case "act-agent:conflicts":
 		return []string{"graph", "conflicts"}, true
-	case "act:swarm":
+	case "act-agent:swarm":
 		return []string{"swarm"}, true
 	}
 	return nil, false

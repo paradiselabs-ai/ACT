@@ -971,40 +971,40 @@ If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-ins
 		}
 	}
 	model.RegisterCommand(dialog.Command{
-		ID:          "act:status",
+		ID:          "act-agent:status",
 		Title:       "ACT Status",
 		Description: "Server health, registered agents, projects",
-		Handler:     directCmd("act:status", "status"),
+		Handler:     directCmd("act-agent:status", "status"),
 	})
 	model.RegisterCommand(dialog.Command{
-		ID:          "act:log",
+		ID:          "act-agent:log",
 		Title:       "ACT Log",
 		Description: "Last 10 coordination log entries",
-		Handler:     directCmd("act:log", "log", "--tail", "10"),
+		Handler:     directCmd("act-agent:log", "log", "--tail", "10"),
 	})
 	model.RegisterCommand(dialog.Command{
-		ID:          "act:tasks",
+		ID:          "act-agent:tasks",
 		Title:       "ACT Tasks",
 		Description: "Tasks awaiting validation",
-		Handler:     directCmd("act:tasks", "graph", "unverified"),
+		Handler:     directCmd("act-agent:tasks", "graph", "unverified"),
 	})
 	model.RegisterCommand(dialog.Command{
-		ID:          "act:validation",
+		ID:          "act-agent:validation",
 		Title:       "ACT Validation Queue",
 		Description: "Assurance queue (tasks pending validation)",
-		Handler:     directCmd("act:validation", "validation", "queue"),
+		Handler:     directCmd("act-agent:validation", "validation", "queue"),
 	})
 	model.RegisterCommand(dialog.Command{
-		ID:          "act:conflicts",
+		ID:          "act-agent:conflicts",
 		Title:       "ACT File Conflicts",
 		Description: "File lock conflicts between agents",
-		Handler:     directCmd("act:conflicts", "graph", "conflicts"),
+		Handler:     directCmd("act-agent:conflicts", "graph", "conflicts"),
 	})
 	model.RegisterCommand(dialog.Command{
-		ID:          "act:swarm",
+		ID:          "act-agent:swarm",
 		Title:       "ACT Swarm",
 		Description: "Per-role backend selection (act-agent vs claude-code)",
-		Handler:     directCmd("act:swarm", "swarm"),
+		Handler:     directCmd("act-agent:swarm", "swarm"),
 	})
 
 	// Load custom commands
