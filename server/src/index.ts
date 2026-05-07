@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
@@ -1287,7 +1288,7 @@ import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 // __dirname equivalent for ESM: path.dirname(import.meta.url) isn't needed
 // because the server's data dir is always relative to the server root (one
 // level above src/). Use the same path the ChronologicalLog uses.
-const SERVER_DATA_DIR = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'data');
+const SERVER_DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const PID_FILE = path.join(SERVER_DATA_DIR, 'act-server.pid');
 
 function writePidFile() {

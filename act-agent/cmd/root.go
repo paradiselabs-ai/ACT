@@ -11,9 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
-	"unsafe"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -256,7 +254,7 @@ func runTUI(a *app.App, ctx context.Context) error {
 	// a normal Bubbletea quit so program.Run() returns and cleanup executes.
 	// SIGINT stays with Bubbletea's built-in handler (ctrl+c → quit).
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGHUP, syscall.SIGTERM)
+	notifyOSSignals(sigCh)
 	defer signal.Stop(sigCh)
 	go func() {
 		sig, ok := <-sigCh
@@ -334,22 +332,7 @@ func autoFitTerminal(cfg *config.Config) {
 	fmt.Fprintf(os.Stdout, "\x1b[8;%d;%dt", targetRows, targetCols)
 }
 
-// terminalSize returns (cols, rows) via TIOCGWINSZ. Returns 0,0 on failure.
-func terminalSize(f *os.File) (int, int) {
-	ws := struct {
-		Row, Col, Xpixel, Ypixel uint16
-	}{}
-	_, _, errno := syscall.Syscall(
-		syscall.SYS_IOCTL,
-		f.Fd(),
-		uintptr(syscall.TIOCGWINSZ),
-		uintptr(unsafe.Pointer(&ws)),
-	)
-	if errno != 0 {
-		return 0, 0
-	}
-	return int(ws.Col), int(ws.Row)
-}
+// terminalSize is defined in terminal_unix.go / terminal_windows.go.
 
 func isTerminal(f *os.File) bool {
 	fi, err := f.Stat()
@@ -543,7 +526,7 @@ func routeToCLI(args []string) error {
 	}
 
 	execArgs := append([]string{"npx", "tsx", cliScript}, args...)
-	return syscall.Exec(bin, execArgs, os.Environ())
+	return execCLIProc(bin, execArgs)
 }
 
 // findCLIScript locates act-cli.ts. Search order:
