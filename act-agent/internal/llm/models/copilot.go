@@ -19,6 +19,13 @@ const (
 	CopilotGemini25        ModelID = "copilot.gemini-2.5-pro"
 	CopilotGPT4            ModelID = "copilot.gpt-4"
 	CopilotClaude37Thought ModelID = "copilot.claude-3.7-sonnet-thought"
+
+	// Current generation (2026) — Sonnet 4 retired 2026-05-01
+	CopilotClaude46Sonnet ModelID = "copilot.claude-sonnet-4-6"
+	CopilotClaude45Haiku  ModelID = "copilot.claude-haiku-4-5"
+	CopilotClaude45Opus   ModelID = "copilot.claude-opus-4-5"
+	CopilotClaude46Opus   ModelID = "copilot.claude-opus-4-6"
+	CopilotClaude47Opus   ModelID = "copilot.claude-opus-4-7"
 )
 
 var CopilotAnthropicModels = []ModelID{
@@ -27,6 +34,12 @@ var CopilotAnthropicModels = []ModelID{
 	CopilotClaude37Thought,
 	CopilotClaude4,
 	CopilotClaude45,
+	// Current generation (2026)
+	CopilotClaude45Haiku,
+	CopilotClaude45Opus,
+	CopilotClaude46Sonnet,
+	CopilotClaude46Opus,
+	CopilotClaude47Opus,
 }
 
 // GitHub Copilot models available through GitHub's API
@@ -229,6 +242,72 @@ var CopilotModels = map[ModelID]Model{
 		ContextWindow:       200_000,
 		DefaultMaxTokens:    16384,
 		CanReason:           true,
+		SupportsAttachments: true,
+	},
+	// Current generation (2026) — Claude Sonnet 4 retired 2026-05-01
+	CopilotClaude46Sonnet: {
+		ID:                  CopilotClaude46Sonnet,
+		Name:                "GitHub Copilot Claude Sonnet 4.6",
+		Provider:            ProviderCopilot,
+		APIModel:            "claude-sonnet-4.6",
+		CostPer1MIn:         0.0,
+		CostPer1MInCached:   0.0,
+		CostPer1MOutCached:  0.0,
+		CostPer1MOut:        0.0,
+		ContextWindow:       200_000,
+		DefaultMaxTokens:    16000,
+		SupportsAttachments: true,
+	},
+	CopilotClaude45Haiku: {
+		ID:                  CopilotClaude45Haiku,
+		Name:                "GitHub Copilot Claude Haiku 4.5",
+		Provider:            ProviderCopilot,
+		APIModel:            "claude-haiku-4.5",
+		CostPer1MIn:         0.0,
+		CostPer1MInCached:   0.0,
+		CostPer1MOutCached:  0.0,
+		CostPer1MOut:        0.0,
+		ContextWindow:       200_000,
+		DefaultMaxTokens:    8192,
+		SupportsAttachments: true,
+	},
+	CopilotClaude45Opus: {
+		ID:                  CopilotClaude45Opus,
+		Name:                "GitHub Copilot Claude Opus 4.5",
+		Provider:            ProviderCopilot,
+		APIModel:            "claude-opus-4.5",
+		CostPer1MIn:         0.0,
+		CostPer1MInCached:   0.0,
+		CostPer1MOutCached:  0.0,
+		CostPer1MOut:        0.0,
+		ContextWindow:       200_000,
+		DefaultMaxTokens:    16000,
+		SupportsAttachments: true,
+	},
+	CopilotClaude46Opus: {
+		ID:                  CopilotClaude46Opus,
+		Name:                "GitHub Copilot Claude Opus 4.6",
+		Provider:            ProviderCopilot,
+		APIModel:            "claude-opus-4.6",
+		CostPer1MIn:         0.0,
+		CostPer1MInCached:   0.0,
+		CostPer1MOutCached:  0.0,
+		CostPer1MOut:        0.0,
+		ContextWindow:       200_000,
+		DefaultMaxTokens:    16000,
+		SupportsAttachments: true,
+	},
+	CopilotClaude47Opus: {
+		ID:                  CopilotClaude47Opus,
+		Name:                "GitHub Copilot Claude Opus 4.7",
+		Provider:            ProviderCopilot,
+		APIModel:            "claude-opus-4.7",
+		CostPer1MIn:         0.0,
+		CostPer1MInCached:   0.0,
+		CostPer1MOutCached:  0.0,
+		CostPer1MOut:        0.0,
+		ContextWindow:       200_000,
+		DefaultMaxTokens:    16000,
 		SupportsAttachments: true,
 	},
 }
