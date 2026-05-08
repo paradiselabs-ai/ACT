@@ -3,8 +3,8 @@ package dialog
 import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-	utilComponents "github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/util"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
@@ -17,33 +17,6 @@ type Command struct {
 	Title       string
 	Description string
 	Handler     func(cmd Command) tea.Cmd
-}
-
-func (ci Command) Render(selected bool, width int) string {
-	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	descStyle := baseStyle.Width(width).Foreground(t.TextMuted())
-	itemStyle := baseStyle.Width(width).
-		Foreground(t.Text()).
-		Background(t.Background())
-
-	if selected {
-		itemStyle = itemStyle.
-			Background(t.Primary()).
-			Foreground(t.Background()).
-			Bold(true)
-		descStyle = descStyle.
-			Background(t.Primary()).
-			Foreground(t.Background())
-	}
-
-	title := itemStyle.Padding(0, 1).Render(ci.Title)
-	if ci.Description != "" {
-		description := descStyle.Padding(0, 1).Render(ci.Description)
-		return lipgloss.JoinVertical(lipgloss.Left, title, description)
-	}
-	return title
 }
 
 // CommandSelectedMsg is sent when a command is selected
@@ -62,119 +35,87 @@ type CommandDialog interface {
 }
 
 type commandDialogCmp struct {
-	listView utilComponents.SimpleList[Command]
-	width    int
-	height   int
+	form        *huh.Form
+	commands    []Command
+	selectedIdx int
 }
 
-type commandKeyMap struct {
-	Enter  key.Binding
-	Escape key.Binding
-}
-
-var commandKeys = commandKeyMap{
-	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select command"),
-	),
-	Escape: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "close"),
-	),
+func (c *commandDialogCmp) buildForm() {
+	opts := make([]huh.Option[int], len(c.commands))
+	for i, cmd := range c.commands {
+		label := cmd.Title
+		if cmd.Description != "" {
+			label = cmd.Title + " — " + cmd.Description
+		}
+		opts[i] = huh.NewOption(label, i)
+	}
+	c.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[int]().
+			Title("Commands").
+			Filtering(true).
+			Height(12).
+			Options(opts...).
+			Value(&c.selectedIdx),
+	)).WithShowHelp(false)
+	_ = c.form.Init()
 }
 
 func (c *commandDialogCmp) Init() tea.Cmd {
-	return c.listView.Init()
+	return nil
 }
 
 func (c *commandDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, commandKeys.Enter):
-			selectedItem, idx := c.listView.GetSelectedItem()
-			if idx != -1 {
-				return c, util.CmdHandler(CommandSelectedMsg{
-					Command: selectedItem,
-				})
-			}
-		case key.Matches(msg, commandKeys.Escape):
-			return c, util.CmdHandler(CloseCommandDialogMsg{})
-		}
-	case tea.WindowSizeMsg:
-		c.width = msg.Width
-		c.height = msg.Height
+	if c.form == nil {
+		return c, nil
 	}
-
-	u, cmd := c.listView.Update(msg)
-	c.listView = u.(utilComponents.SimpleList[Command])
-	cmds = append(cmds, cmd)
-
-	return c, tea.Batch(cmds...)
+	m, cmd := c.form.Update(msg)
+	if f, ok := m.(*huh.Form); ok {
+		c.form = f
+	}
+	switch c.form.State {
+	case huh.StateCompleted:
+		if c.selectedIdx >= 0 && c.selectedIdx < len(c.commands) {
+			return c, util.CmdHandler(CommandSelectedMsg{Command: c.commands[c.selectedIdx]})
+		}
+		return c, util.CmdHandler(CloseCommandDialogMsg{})
+	case huh.StateAborted:
+		return c, util.CmdHandler(CloseCommandDialogMsg{})
+	}
+	return c, cmd
 }
 
 func (c *commandDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
-
-	maxWidth := 40
-
-	commands := c.listView.GetItems()
-
-	for _, cmd := range commands {
-		if len(cmd.Title) > maxWidth-4 {
-			maxWidth = len(cmd.Title) + 4
-		}
-		if cmd.Description != "" {
-			if len(cmd.Description) > maxWidth-4 {
-				maxWidth = len(cmd.Description) + 4
-			}
-		}
+	if c.form == nil || len(c.commands) == 0 {
+		return tea.NewView(baseStyle.Padding(1, 2).
+			Border(lipgloss.RoundedBorder()).
+			BorderBackground(t.Background()).
+			BorderForeground(t.TextMuted()).
+			Width(40).
+			Render("No commands available"))
 	}
-
-	c.listView.SetMaxWidth(maxWidth)
-
-	title := baseStyle.
-		Foreground(t.Primary()).
-		Bold(true).
-		Width(maxWidth).
-		Padding(0, 1).
-		Render("Commands")
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		baseStyle.Width(maxWidth).Render(""),
-		baseStyle.Width(maxWidth).Render(c.listView.View().Content),
-		baseStyle.Width(maxWidth).Render(""),
-	)
-
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
 		BorderForeground(t.TextMuted()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content))
+		Render(c.form.View()))
 }
 
 func (c *commandDialogCmp) BindingKeys() []key.Binding {
-	return layout.KeyMapToSlice(commandKeys)
+	if c.form == nil {
+		return nil
+	}
+	return c.form.KeyBinds()
 }
 
 func (c *commandDialogCmp) SetCommands(commands []Command) {
-	c.listView.SetItems(commands)
+	c.commands = commands
+	c.selectedIdx = 0
+	c.buildForm()
 }
 
 // NewCommandDialogCmp creates a new command selection dialog
 func NewCommandDialogCmp() CommandDialog {
-	listView := utilComponents.NewSimpleList[Command](
-		[]Command{},
-		10,
-		"No commands available",
-		true,
-	)
-	return &commandDialogCmp{
-		listView: listView,
-	}
+	return &commandDialogCmp{}
 }

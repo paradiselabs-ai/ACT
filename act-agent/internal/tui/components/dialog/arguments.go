@@ -1,41 +1,14 @@
 package dialog
 
 import (
-	"fmt"
-
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
-
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
-
-type argumentsDialogKeyMap struct {
-	Enter  key.Binding
-	Escape key.Binding
-}
-
-// ShortHelp implements key.Map.
-func (k argumentsDialogKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{
-		key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("enter", "confirm"),
-		),
-		key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "cancel"),
-		),
-	}
-}
-
-// FullHelp implements key.Map.
-func (k argumentsDialogKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{k.ShortHelp()}
-}
 
 // ShowMultiArgumentsDialogMsg is a message that is sent to show the multi-arguments dialog.
 type ShowMultiArgumentsDialogMsg struct {
@@ -55,9 +28,8 @@ type CloseMultiArgumentsDialogMsg struct {
 // MultiArgumentsDialogCmp is a component that asks the user for multiple command arguments.
 type MultiArgumentsDialogCmp struct {
 	width, height int
-	inputs        []textinput.Model
-	focusIndex    int
-	keys          argumentsDialogKeyMap
+	form          *huh.Form
+	values        []string
 	commandID     string
 	content       string
 	argNames      []string
@@ -65,220 +37,68 @@ type MultiArgumentsDialogCmp struct {
 
 // NewMultiArgumentsDialogCmp creates a new MultiArgumentsDialogCmp.
 func NewMultiArgumentsDialogCmp(commandID, content string, argNames []string) MultiArgumentsDialogCmp {
-	t := theme.CurrentTheme()
-	inputs := make([]textinput.Model, len(argNames))
-
+	values := make([]string, len(argNames))
+	fields := make([]huh.Field, len(argNames))
 	for i, name := range argNames {
-		ti := textinput.New()
-		ti.Placeholder = fmt.Sprintf("Enter value for %s...", name)
-		ti.SetWidth(40)
-		ti.Prompt = ""
-
-		baseStyleState := textinput.StyleState{
-			Text:        lipgloss.NewStyle().Background(t.Background()),
-			Placeholder: lipgloss.NewStyle().Background(t.Background()),
-			Prompt:      lipgloss.NewStyle().Background(t.Background()),
-		}
-		ti.SetStyles(textinput.Styles{Focused: baseStyleState, Blurred: baseStyleState})
-
-		// Only focus the first input initially
-		if i == 0 {
-			ti.Focus()
-			focusedStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Foreground(t.Primary()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Foreground(t.Primary()),
-			}
-			ti.SetStyles(textinput.Styles{Focused: focusedStyleState, Blurred: baseStyleState})
-		} else {
-			ti.Blur()
-		}
-
-		inputs[i] = ti
+		fields[i] = huh.NewInput().
+			Title(name).
+			Value(&values[i])
 	}
-
+	form := huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
 	return MultiArgumentsDialogCmp{
-		inputs:     inputs,
-		keys:       argumentsDialogKeyMap{},
-		commandID:  commandID,
-		content:    content,
-		argNames:   argNames,
-		focusIndex: 0,
+		form:      form,
+		values:    values,
+		commandID: commandID,
+		content:   content,
+		argNames:  argNames,
 	}
 }
 
 // Init implements tea.Model.
 func (m MultiArgumentsDialogCmp) Init() tea.Cmd {
-	// Make sure only the first input is focused
-	for i := range m.inputs {
-		if i == 0 {
-			m.inputs[i].Focus()
-		} else {
-			m.inputs[i].Blur()
-		}
-	}
-
-	return textinput.Blink
+	return m.form.Init()
 }
 
 // Update implements tea.Model.
 func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	t := theme.CurrentTheme()
-
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
-			return m, util.CmdHandler(CloseMultiArgumentsDialogMsg{
-				Submit:    false,
-				CommandID: m.commandID,
-				Content:   m.content,
-				Args:      nil,
-			})
-		case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
-			// If we're on the last input, submit the form
-			if m.focusIndex == len(m.inputs)-1 {
-				args := make(map[string]string)
-				for i, name := range m.argNames {
-					args[name] = m.inputs[i].Value()
-				}
-				return m, util.CmdHandler(CloseMultiArgumentsDialogMsg{
-					Submit:    true,
-					CommandID: m.commandID,
-					Content:   m.content,
-					Args:      args,
-				})
-			}
-			// Otherwise, move to the next input
-			m.inputs[m.focusIndex].Blur()
-			m.focusIndex++
-			m.inputs[m.focusIndex].Focus()
-			focusedStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Foreground(t.Primary()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Foreground(t.Primary()),
-			}
-			blurredStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Background(t.Background()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Background(t.Background()),
-			}
-			m.inputs[m.focusIndex].SetStyles(textinput.Styles{Focused: focusedStyleState, Blurred: blurredStyleState})
-		case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):
-			// Move to the next input
-			m.inputs[m.focusIndex].Blur()
-			m.focusIndex = (m.focusIndex + 1) % len(m.inputs)
-			m.inputs[m.focusIndex].Focus()
-			focusedStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Foreground(t.Primary()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Foreground(t.Primary()),
-			}
-			blurredStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Background(t.Background()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Background(t.Background()),
-			}
-			m.inputs[m.focusIndex].SetStyles(textinput.Styles{Focused: focusedStyleState, Blurred: blurredStyleState})
-		case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
-			// Move to the previous input
-			m.inputs[m.focusIndex].Blur()
-			m.focusIndex = (m.focusIndex - 1 + len(m.inputs)) % len(m.inputs)
-			m.inputs[m.focusIndex].Focus()
-			focusedStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Foreground(t.Primary()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Foreground(t.Primary()),
-			}
-			blurredStyleState := textinput.StyleState{
-				Text:        lipgloss.NewStyle().Background(t.Background()),
-				Placeholder: lipgloss.NewStyle().Background(t.Background()),
-				Prompt:      lipgloss.NewStyle().Background(t.Background()),
-			}
-			m.inputs[m.focusIndex].SetStyles(textinput.Styles{Focused: focusedStyleState, Blurred: blurredStyleState})
-		}
+	switch msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		m.width = msg.(tea.WindowSizeMsg).Width
+		m.height = msg.(tea.WindowSizeMsg).Height
 	}
-
-	// Update the focused input
-	var cmd tea.Cmd
-	m.inputs[m.focusIndex], cmd = m.inputs[m.focusIndex].Update(msg)
-	cmds = append(cmds, cmd)
-
-	return m, tea.Batch(cmds...)
+	_, cmd := m.form.Update(msg)
+	switch m.form.State {
+	case huh.StateCompleted:
+		args := make(map[string]string, len(m.argNames))
+		for i, name := range m.argNames {
+			args[name] = m.values[i]
+		}
+		return m, util.CmdHandler(CloseMultiArgumentsDialogMsg{
+			Submit:    true,
+			CommandID: m.commandID,
+			Content:   m.content,
+			Args:      args,
+		})
+	case huh.StateAborted:
+		return m, util.CmdHandler(CloseMultiArgumentsDialogMsg{
+			Submit:    false,
+			CommandID: m.commandID,
+			Content:   m.content,
+			Args:      nil,
+		})
+	}
+	return m, cmd
 }
 
 // View implements tea.Model.
 func (m MultiArgumentsDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
-
-	// Calculate width needed for content
-	maxWidth := 60 // Width for explanation text
-
-	title := lipgloss.NewStyle().
-		Foreground(t.Primary()).
-		Bold(true).
-		Width(maxWidth).
-		Padding(0, 1).
-		Background(t.Background()).
-		Render("Command Arguments")
-
-	explanation := lipgloss.NewStyle().
-		Foreground(t.Text()).
-		Width(maxWidth).
-		Padding(0, 1).
-		Background(t.Background()).
-		Render("This command requires multiple arguments. Please enter values for each:")
-
-	// Create input fields for each argument
-	inputFields := make([]string, len(m.inputs))
-	for i, input := range m.inputs {
-		// Highlight the label of the focused input
-		labelStyle := lipgloss.NewStyle().
-			Width(maxWidth).
-			Padding(1, 1, 0, 1).
-			Background(t.Background())
-
-		if i == m.focusIndex {
-			labelStyle = labelStyle.Foreground(t.Primary()).Bold(true)
-		} else {
-			labelStyle = labelStyle.Foreground(t.TextMuted())
-		}
-
-		label := labelStyle.Render(m.argNames[i] + ":")
-
-		field := lipgloss.NewStyle().
-			Foreground(t.Text()).
-			Width(maxWidth).
-			Padding(0, 1).
-			Background(t.Background()).
-			Render(input.View())
-
-		inputFields[i] = lipgloss.JoinVertical(lipgloss.Left, label, field)
-	}
-
-	maxWidth = min(maxWidth, m.width-10)
-
-	// Join all elements vertically
-	elements := []string{title, explanation}
-	elements = append(elements, inputFields...)
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		elements...,
-	)
-
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
 		BorderForeground(t.TextMuted()).
-		Background(t.Background()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content))
+		Render(m.form.View()))
 }
 
 // SetSize sets the size of the component.
@@ -287,7 +107,9 @@ func (m *MultiArgumentsDialogCmp) SetSize(width, height int) {
 	m.height = height
 }
 
-// Bindings implements layout.Bindings.
-func (m MultiArgumentsDialogCmp) Bindings() []key.Binding {
-	return m.keys.ShortHelp()
+// BindingKeys implements layout.Bindings.
+func (m MultiArgumentsDialogCmp) BindingKeys() []key.Binding {
+	return m.form.KeyBinds()
 }
+
+

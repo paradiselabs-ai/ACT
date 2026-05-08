@@ -3,10 +3,10 @@ package dialog
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
@@ -14,11 +14,6 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
-)
-
-const (
-	numVisibleModels = 10
-	maxDialogWidth   = 40
 )
 
 // ModelSelectedMsg is sent when a model is selected
@@ -36,250 +31,83 @@ type ModelDialog interface {
 }
 
 type modelDialogCmp struct {
-	models             []models.Model
-	provider           models.ModelProvider
-	availableProviders []models.ModelProvider
-
-	selectedIdx     int
-	width           int
-	height          int
-	scrollOffset    int
-	hScrollOffset   int
-	hScrollPossible bool
+	form     *huh.Form
+	selected models.Model
 }
 
-type modelKeyMap struct {
-	Up     key.Binding
-	Down   key.Binding
-	Left   key.Binding
-	Right  key.Binding
-	Enter  key.Binding
-	Escape key.Binding
-	J      key.Binding
-	K      key.Binding
-	H      key.Binding
-	L      key.Binding
-}
+func (m *modelDialogCmp) buildForm() tea.Cmd {
+	cfg := config.Get()
+	allModels := getAllModels(cfg)
+	current := GetSelectedModel(cfg)
 
-var modelKeys = modelKeyMap{
-	Up: key.NewBinding(
-		key.WithKeys("up"),
-		key.WithHelp("↑", "previous model"),
-	),
-	Down: key.NewBinding(
-		key.WithKeys("down"),
-		key.WithHelp("↓", "next model"),
-	),
-	Left: key.NewBinding(
-		key.WithKeys("left"),
-		key.WithHelp("←", "scroll left"),
-	),
-	Right: key.NewBinding(
-		key.WithKeys("right"),
-		key.WithHelp("→", "scroll right"),
-	),
-	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select model"),
-	),
-	Escape: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "close"),
-	),
-	J: key.NewBinding(
-		key.WithKeys("j"),
-		key.WithHelp("j", "next model"),
-	),
-	K: key.NewBinding(
-		key.WithKeys("k"),
-		key.WithHelp("k", "previous model"),
-	),
-	H: key.NewBinding(
-		key.WithKeys("h"),
-		key.WithHelp("h", "scroll left"),
-	),
-	L: key.NewBinding(
-		key.WithKeys("l"),
-		key.WithHelp("l", "scroll right"),
-	),
+	opts := make([]huh.Option[models.Model], len(allModels))
+	for i, model := range allModels {
+		label := fmt.Sprintf("%s (%s)", model.Name, model.Provider)
+		opts[i] = huh.NewOption(label, model)
+	}
+	m.selected = current
+	m.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[models.Model]().
+			Title("Select Model").
+			Filtering(true).
+			Options(opts...).
+			Value(&m.selected),
+	)).WithShowHelp(false)
+	return m.form.Init()
 }
 
 func (m *modelDialogCmp) Init() tea.Cmd {
-	m.setupModels()
-	return nil
+	return m.buildForm()
 }
 
 func (m *modelDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, modelKeys.Up) || key.Matches(msg, modelKeys.K):
-			m.moveSelectionUp()
-		case key.Matches(msg, modelKeys.Down) || key.Matches(msg, modelKeys.J):
-			m.moveSelectionDown()
-		case key.Matches(msg, modelKeys.Left) || key.Matches(msg, modelKeys.H):
-			if m.hScrollPossible {
-				m.switchProvider(-1)
-			}
-		case key.Matches(msg, modelKeys.Right) || key.Matches(msg, modelKeys.L):
-			if m.hScrollPossible {
-				m.switchProvider(1)
-			}
-		case key.Matches(msg, modelKeys.Enter):
-			util.ReportInfo(fmt.Sprintf("selected model: %s", m.models[m.selectedIdx].Name))
-			return m, util.CmdHandler(ModelSelectedMsg{Model: m.models[m.selectedIdx]})
-		case key.Matches(msg, modelKeys.Escape):
-			return m, util.CmdHandler(CloseModelDialogMsg{})
-		}
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+	// Reset the form if the dialog is being reopened after a previous use.
+	if m.form.State != huh.StateNormal {
+		return m, m.buildForm()
 	}
-
-	return m, nil
-}
-
-// moveSelectionUp moves the selection up or wraps to bottom
-func (m *modelDialogCmp) moveSelectionUp() {
-	if m.selectedIdx > 0 {
-		m.selectedIdx--
-	} else {
-		m.selectedIdx = len(m.models) - 1
-		m.scrollOffset = max(0, len(m.models)-numVisibleModels)
+	updated, cmd := m.form.Update(msg)
+	if f, ok := updated.(*huh.Form); ok {
+		m.form = f
 	}
-
-	// Keep selection visible
-	if m.selectedIdx < m.scrollOffset {
-		m.scrollOffset = m.selectedIdx
+	switch m.form.State {
+	case huh.StateCompleted:
+		return m, util.CmdHandler(ModelSelectedMsg{Model: m.selected})
+	case huh.StateAborted:
+		return m, util.CmdHandler(CloseModelDialogMsg{})
 	}
-}
-
-// moveSelectionDown moves the selection down or wraps to top
-func (m *modelDialogCmp) moveSelectionDown() {
-	if m.selectedIdx < len(m.models)-1 {
-		m.selectedIdx++
-	} else {
-		m.selectedIdx = 0
-		m.scrollOffset = 0
-	}
-
-	// Keep selection visible
-	if m.selectedIdx >= m.scrollOffset+numVisibleModels {
-		m.scrollOffset = m.selectedIdx - (numVisibleModels - 1)
-	}
-}
-
-func (m *modelDialogCmp) switchProvider(offset int) {
-	newOffset := m.hScrollOffset + offset
-
-	// Ensure we stay within bounds
-	if newOffset < 0 {
-		newOffset = len(m.availableProviders) - 1
-	}
-	if newOffset >= len(m.availableProviders) {
-		newOffset = 0
-	}
-
-	m.hScrollOffset = newOffset
-	m.provider = m.availableProviders[m.hScrollOffset]
-	m.setupModelsForProvider(m.provider)
+	return m, cmd
 }
 
 func (m *modelDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
-
-	// Capitalize first letter of provider name
-	providerName := strings.ToUpper(string(m.provider)[:1]) + string(m.provider[1:])
-	title := baseStyle.
-		Foreground(t.Primary()).
-		Bold(true).
-		Width(maxDialogWidth).
-		Padding(0, 0, 1).
-		Render(fmt.Sprintf("Select %s Model", providerName))
-
-	// Render visible models
-	endIdx := min(m.scrollOffset+numVisibleModels, len(m.models))
-	modelItems := make([]string, 0, endIdx-m.scrollOffset)
-
-	for i := m.scrollOffset; i < endIdx; i++ {
-		itemStyle := baseStyle.Width(maxDialogWidth)
-		if i == m.selectedIdx {
-			itemStyle = itemStyle.Background(t.Primary()).
-				Foreground(t.Background()).Bold(true)
-		}
-		modelItems = append(modelItems, itemStyle.Render(m.models[i].Name))
+	if m.form == nil {
+		return tea.NewView(baseStyle.Padding(1, 2).
+			Border(lipgloss.RoundedBorder()).
+			BorderBackground(t.Background()).
+			BorderForeground(t.TextMuted()).
+			Width(40).
+			Render("Loading models..."))
 	}
-
-	scrollIndicator := m.getScrollIndicators(maxDialogWidth)
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		baseStyle.Width(maxDialogWidth).Render(lipgloss.JoinVertical(lipgloss.Left, modelItems...)),
-		scrollIndicator,
-	)
-
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
 		BorderForeground(t.TextMuted()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content))
-}
-
-func (m *modelDialogCmp) getScrollIndicators(maxWidth int) string {
-	var indicator string
-
-	if len(m.models) > numVisibleModels {
-		if m.scrollOffset > 0 {
-			indicator += "↑ "
-		}
-		if m.scrollOffset+numVisibleModels < len(m.models) {
-			indicator += "↓ "
-		}
-	}
-
-	if m.hScrollPossible {
-		if m.hScrollOffset > 0 {
-			indicator = "← " + indicator
-		}
-		if m.hScrollOffset < len(m.availableProviders)-1 {
-			indicator += "→"
-		}
-	}
-
-	if indicator == "" {
-		return ""
-	}
-
-	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-
-	return baseStyle.
-		Foreground(t.Primary()).
-		Width(maxWidth).
-		Align(lipgloss.Right).
-		Bold(true).
-		Render(indicator)
+		Render(m.form.View()))
 }
 
 func (m *modelDialogCmp) BindingKeys() []key.Binding {
-	return layout.KeyMapToSlice(modelKeys)
+	if m.form == nil {
+		return nil
+	}
+	return m.form.KeyBinds()
 }
 
-func (m *modelDialogCmp) setupModels() {
-	cfg := config.Get()
-	modelInfo := GetSelectedModel(cfg)
-	m.availableProviders = getEnabledProviders(cfg)
-	m.hScrollPossible = len(m.availableProviders) > 1
-
-	m.provider = modelInfo.Provider
-	m.hScrollOffset = findProviderIndex(m.availableProviders, m.provider)
-
-	m.setupModelsForProvider(m.provider)
+func NewModelDialogCmp() ModelDialog {
+	return &modelDialogCmp{}
 }
 
+// GetSelectedModel returns the currently configured model for the Planner role.
 func GetSelectedModel(cfg *config.Config) models.Model {
 	// TODO Phase 3: this dialog should show a Tier 1 role picker first
 	// (Planner / Observer / Assurance / QA). For now we read the Planner
@@ -292,20 +120,53 @@ func GetSelectedModel(cfg *config.Config) models.Model {
 	return models.Model{}
 }
 
-func getEnabledProviders(cfg *config.Config) []models.ModelProvider {
-	var providers []models.ModelProvider
-	for providerId, provider := range cfg.Providers {
-		if !provider.Disabled {
-			providers = append(providers, providerId)
+// getAllModels returns all models from enabled providers, sorted by provider popularity then name.
+func getAllModels(cfg *config.Config) []models.Model {
+	enabledProviders := getEnabledProviders(cfg)
+	enabled := make(map[models.ModelProvider]bool, len(enabledProviders))
+	for _, p := range enabledProviders {
+		enabled[p] = true
+	}
+
+	var result []models.Model
+	for _, model := range models.SupportedModels {
+		if enabled[model.Provider] {
+			result = append(result, model)
 		}
 	}
 
-	// Sort by provider popularity
+	slices.SortFunc(result, func(a, b models.Model) int {
+		rA := models.ProviderPopularity[a.Provider]
+		rB := models.ProviderPopularity[b.Provider]
+		if rA == 0 {
+			rA = 999
+		}
+		if rB == 0 {
+			rB = 999
+		}
+		if rA != rB {
+			return rA - rB
+		}
+		if a.Name > b.Name {
+			return -1
+		} else if a.Name < b.Name {
+			return 1
+		}
+		return 0
+	})
+	return result
+}
+
+func getEnabledProviders(cfg *config.Config) []models.ModelProvider {
+	var providers []models.ModelProvider
+	for providerID, provider := range cfg.Providers {
+		if !provider.Disabled {
+			providers = append(providers, providerID)
+		}
+	}
 	slices.SortFunc(providers, func(a, b models.ModelProvider) int {
 		rA := models.ProviderPopularity[a]
 		rB := models.ProviderPopularity[b]
-
-		// models not included in popularity ranking default to last
 		if rA == 0 {
 			rA = 999
 		}
@@ -317,68 +178,6 @@ func getEnabledProviders(cfg *config.Config) []models.ModelProvider {
 	return providers
 }
 
-// findProviderIndex returns the index of the provider in the list, or -1 if not found
-func findProviderIndex(providers []models.ModelProvider, provider models.ModelProvider) int {
-	for i, p := range providers {
-		if p == provider {
-			return i
-		}
-	}
-	return -1
-}
 
-func (m *modelDialogCmp) setupModelsForProvider(provider models.ModelProvider) {
-	// TODO Phase 3: this dialog should show a Tier 1 role picker first
-	// (Planner / Observer / Assurance / QA). For now we use the Planner
-	// config since that's the agent the human is actively talking to.
-	cfg := config.Get()
-	var agentCfg config.Agent
-	if cfg != nil {
-		agentCfg = cfg.Agents[config.RolePlanner]
-	}
-	selectedModelId := agentCfg.Model
 
-	m.provider = provider
-	m.models = getModelsForProvider(provider)
-	m.selectedIdx = 0
-	m.scrollOffset = 0
 
-	// Try to select the current model if it belongs to this provider
-	if provider == models.SupportedModels[selectedModelId].Provider {
-		for i, model := range m.models {
-			if model.ID == selectedModelId {
-				m.selectedIdx = i
-				// Adjust scroll position to keep selected model visible
-				if m.selectedIdx >= numVisibleModels {
-					m.scrollOffset = m.selectedIdx - (numVisibleModels - 1)
-				}
-				break
-			}
-		}
-	}
-}
-
-func getModelsForProvider(provider models.ModelProvider) []models.Model {
-	var providerModels []models.Model
-	for _, model := range models.SupportedModels {
-		if model.Provider == provider {
-			providerModels = append(providerModels, model)
-		}
-	}
-
-	// reverse alphabetical order (if llm naming was consistent latest would appear first)
-	slices.SortFunc(providerModels, func(a, b models.Model) int {
-		if a.Name > b.Name {
-			return -1
-		} else if a.Name < b.Name {
-			return 1
-		}
-		return 0
-	})
-
-	return providerModels
-}
-
-func NewModelDialogCmp() ModelDialog {
-	return &modelDialogCmp{}
-}

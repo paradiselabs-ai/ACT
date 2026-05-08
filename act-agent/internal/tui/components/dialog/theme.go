@@ -3,6 +3,7 @@ package dialog
 import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
@@ -25,177 +26,82 @@ type ThemeDialog interface {
 }
 
 type themeDialogCmp struct {
-	themes       []string
-	selectedIdx  int
-	width        int
-	height       int
-	currentTheme string
+	form     *huh.Form
+	selected string
 }
 
-type themeKeyMap struct {
-	Up     key.Binding
-	Down   key.Binding
-	Enter  key.Binding
-	Escape key.Binding
-	J      key.Binding
-	K      key.Binding
-}
-
-var themeKeys = themeKeyMap{
-	Up: key.NewBinding(
-		key.WithKeys("up"),
-		key.WithHelp("↑", "previous theme"),
-	),
-	Down: key.NewBinding(
-		key.WithKeys("down"),
-		key.WithHelp("↓", "next theme"),
-	),
-	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select theme"),
-	),
-	Escape: key.NewBinding(
-		key.WithKeys("esc"),
-		key.WithHelp("esc", "close"),
-	),
-	J: key.NewBinding(
-		key.WithKeys("j"),
-		key.WithHelp("j", "next theme"),
-	),
-	K: key.NewBinding(
-		key.WithKeys("k"),
-		key.WithHelp("k", "previous theme"),
-	),
-}
-
-func (t *themeDialogCmp) Init() tea.Cmd {
-	// Load available themes and update selectedIdx based on current theme
-	t.themes = theme.AvailableThemes()
-	t.currentTheme = theme.CurrentThemeName()
-
-	// Find the current theme in the list
-	for i, name := range t.themes {
-		if name == t.currentTheme {
-			t.selectedIdx = i
-			break
+func (d *themeDialogCmp) buildForm() tea.Cmd {
+	themes := theme.AvailableThemes()
+	current := theme.CurrentThemeName()
+	opts := make([]huh.Option[string], len(themes))
+	for i, name := range themes {
+		label := name
+		if name == current {
+			label = "▶ " + label
 		}
+		opts[i] = huh.NewOption(label, name)
 	}
-
-	return nil
+	d.selected = current
+	d.form = huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("Select Theme").
+			Options(opts...).
+			Value(&d.selected),
+	)).WithShowHelp(false)
+	return d.form.Init()
 }
 
-func (t *themeDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, themeKeys.Up) || key.Matches(msg, themeKeys.K):
-			if t.selectedIdx > 0 {
-				t.selectedIdx--
-			}
-			return t, nil
-		case key.Matches(msg, themeKeys.Down) || key.Matches(msg, themeKeys.J):
-			if t.selectedIdx < len(t.themes)-1 {
-				t.selectedIdx++
-			}
-			return t, nil
-		case key.Matches(msg, themeKeys.Enter):
-			if len(t.themes) > 0 {
-				previousTheme := theme.CurrentThemeName()
-				selectedTheme := t.themes[t.selectedIdx]
-				if previousTheme == selectedTheme {
-					return t, util.CmdHandler(CloseThemeDialogMsg{})
-				}
-				if err := theme.SetTheme(selectedTheme); err != nil {
-					return t, util.ReportError(err)
-				}
-				// Glamour renderers are cached per width and capture the
-				// previous theme's style config. Drop the cache so the next
-				// GetMarkdownRenderer rebuilds with the new theme.
-				styles.InvalidateMarkdownRendererCache()
-				return t, util.CmdHandler(ThemeChangedMsg{
-					ThemeName: selectedTheme,
-				})
-			}
-		case key.Matches(msg, themeKeys.Escape):
-			return t, util.CmdHandler(CloseThemeDialogMsg{})
+func (d *themeDialogCmp) Init() tea.Cmd {
+	return d.buildForm()
+}
+
+func (d *themeDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if d.form == nil {
+		return d, nil
+	}
+	m, cmd := d.form.Update(msg)
+	if f, ok := m.(*huh.Form); ok {
+		d.form = f
+	}
+	switch d.form.State {
+	case huh.StateCompleted:
+		if err := theme.SetTheme(d.selected); err != nil {
+			return d, util.ReportError(err)
 		}
-	case tea.WindowSizeMsg:
-		t.width = msg.Width
-		t.height = msg.Height
+		styles.InvalidateMarkdownRendererCache()
+		return d, util.CmdHandler(ThemeChangedMsg{ThemeName: d.selected})
+	case huh.StateAborted:
+		return d, util.CmdHandler(CloseThemeDialogMsg{})
 	}
-	return t, nil
+	return d, cmd
 }
 
-func (t *themeDialogCmp) View() tea.View {
-	currentTheme := theme.CurrentTheme()
+func (d *themeDialogCmp) View() tea.View {
+	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
-
-	if len(t.themes) == 0 {
+	if d.form == nil {
 		return tea.NewView(baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
-			BorderBackground(currentTheme.Background()).
-			BorderForeground(currentTheme.TextMuted()).
+			BorderBackground(t.Background()).
+			BorderForeground(t.TextMuted()).
 			Width(40).
-			Render("No themes available"))
+			Render("Loading themes..."))
 	}
-
-	// Calculate max width needed for theme names
-	maxWidth := 40 // Minimum width
-	for _, themeName := range t.themes {
-		if len(themeName) > maxWidth-4 { // Account for padding
-			maxWidth = len(themeName) + 4
-		}
-	}
-
-	maxWidth = max(30, min(maxWidth, t.width-15)) // Limit width to avoid overflow
-
-	// Build the theme list
-	themeItems := make([]string, 0, len(t.themes))
-	for i, themeName := range t.themes {
-		itemStyle := baseStyle.Width(maxWidth)
-
-		if i == t.selectedIdx {
-			itemStyle = itemStyle.
-				Background(currentTheme.Primary()).
-				Foreground(currentTheme.Background()).
-				Bold(true)
-		}
-
-		themeItems = append(themeItems, itemStyle.Padding(0, 1).Render(themeName))
-	}
-
-	title := baseStyle.
-		Foreground(currentTheme.Primary()).
-		Bold(true).
-		Width(maxWidth).
-		Padding(0, 1).
-		Render("Select Theme")
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		baseStyle.Width(maxWidth).Render(""),
-		baseStyle.Width(maxWidth).Render(lipgloss.JoinVertical(lipgloss.Left, themeItems...)),
-		baseStyle.Width(maxWidth).Render(""),
-	)
-
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
-		BorderBackground(currentTheme.Background()).
-		BorderForeground(currentTheme.TextMuted()).
-		Width(lipgloss.Width(content) + 4).
-		Render(content))
+		BorderBackground(t.Background()).
+		BorderForeground(t.TextMuted()).
+		Render(d.form.View()))
 }
 
-func (t *themeDialogCmp) BindingKeys() []key.Binding {
-	return layout.KeyMapToSlice(themeKeys)
+func (d *themeDialogCmp) BindingKeys() []key.Binding {
+	if d.form == nil {
+		return nil
+	}
+	return d.form.KeyBinds()
 }
 
 // NewThemeDialogCmp creates a new theme switching dialog
 func NewThemeDialogCmp() ThemeDialog {
-	return &themeDialogCmp{
-		themes:       []string{},
-		selectedIdx:  0,
-		currentTheme: "",
-	}
+	return &themeDialogCmp{}
 }
