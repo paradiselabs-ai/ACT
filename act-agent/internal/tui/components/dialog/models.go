@@ -52,7 +52,7 @@ func (m *modelDialogCmp) buildForm() tea.Cmd {
 			Filtering(true).
 			Options(opts...).
 			Value(&m.selected),
-	)).WithShowHelp(false)
+	)).WithShowHelp(false).WithTheme(actHuhTheme())
 	return m.form.Init()
 }
 
@@ -85,14 +85,14 @@ func (m *modelDialogCmp) View() tea.View {
 		return tea.NewView(baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
 			BorderBackground(t.Background()).
-			BorderForeground(t.TextMuted()).
+			BorderForeground(t.BorderFocused()).
 			Width(40).
 			Render("Loading models..."))
 	}
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Render(m.form.View()))
 }
 

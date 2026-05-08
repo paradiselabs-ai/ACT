@@ -111,12 +111,10 @@ func (s *splitPaneLayout) View() tea.View {
 
 	if finalView != "" {
 		t := theme.CurrentTheme()
-
 		style := lipgloss.NewStyle().
 			Width(s.width).
 			Height(s.height).
 			Background(t.Background())
-
 		return tea.NewView(style.Render(finalView))
 	}
 

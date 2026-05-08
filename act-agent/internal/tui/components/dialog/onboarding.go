@@ -378,7 +378,7 @@ func (o *onboardingCmp) View() tea.View {
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Width(maxWidth + 4).
 		Render(content))
 }

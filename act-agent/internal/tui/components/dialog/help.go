@@ -222,7 +222,7 @@ func (h *helpCmp) View() tea.View {
 
 	return tea.NewView(baseStyle.Padding(1).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Width(h.width).
 		BorderBackground(t.Background()).
 		Render(

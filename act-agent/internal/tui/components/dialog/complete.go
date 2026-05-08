@@ -227,7 +227,7 @@ func (c *completionDialogCmp) View() tea.View {
 		BorderRight(false).
 		BorderLeft(false).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Width(c.width).
 		Render(c.listView.View().Content))
 }

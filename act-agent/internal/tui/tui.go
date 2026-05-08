@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/harmonica"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
@@ -15,6 +16,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/anim"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/chat"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/core"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
@@ -59,7 +61,7 @@ var keys = keyMap{
 		key.WithHelp("ctrl+c", "quit"),
 	),
 	Help: key.NewBinding(
-		key.WithKeys("ctrl+_", "ctrl+h"),
+		key.WithKeys("ctrl+_", "ctrl+h", "ctrl+?"),
 		key.WithHelp("ctrl+?", "toggle help"),
 	),
 
@@ -127,6 +129,11 @@ type appModel struct {
 	showCommandDialog bool
 	commandDialog     dialog.CommandDialog
 	commands          []dialog.Command
+	// slide-in spring for the command palette (positive offset = shifted right, off-screen)
+	cmdSlideOffset float64
+	cmdSlideVel    float64
+	cmdSlideSpring harmonica.Spring
+	cmdSliding     bool
 
 	showModelDialog bool
 	modelDialog     dialog.ModelDialog
@@ -310,6 +317,8 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialog.CloseCommandDialogMsg:
 		a.showCommandDialog = false
+		a.cmdSlideOffset = 0
+		a.cmdSliding = false
 		return a, nil
 
 	case startCompactSessionMsg:
@@ -503,9 +512,14 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(a.commands) == 0 {
 					return a, util.ReportWarn("No commands available")
 				}
-				a.commandDialog.SetCommands(a.commands)
+				animCmd := a.commandDialog.SetCommands(a.commands)
 				a.showCommandDialog = true
-				return a, nil
+				// Start slide-in from +40 cols to the right (stiffness=14, damping=0.6)
+				a.cmdSlideSpring = anim.NewSpring(14, 0.6)
+				a.cmdSlideOffset = 40
+				a.cmdSlideVel = 0
+				a.cmdSliding = true
+				return a, tea.Batch(animCmd, anim.Frame())
 			}
 			return a, nil
 		case key.Matches(msg, keys.Models):
@@ -577,6 +591,25 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.filepicker.ToggleFilepicker(a.showFilepicker)
 			return a, nil
 		}
+	case anim.FrameMsg:
+		// Advance the command palette slide-in spring.
+		if a.cmdSliding {
+			newOff, newVel := a.cmdSlideSpring.Update(a.cmdSlideOffset, a.cmdSlideVel, 0)
+			a.cmdSlideOffset = newOff
+			a.cmdSlideVel = newVel
+			if a.cmdSlideOffset <= 0.5 {
+				a.cmdSlideOffset = 0
+				a.cmdSlideVel = 0
+				a.cmdSliding = false
+				return a, nil
+			}
+			return a, anim.Frame()
+		}
+		// Pass other FrameMsgs (e.g. splash fade) through to child pages.
+		a.pages[a.currentPage], cmd = a.pages[a.currentPage].Update(msg)
+		cmds = append(cmds, cmd)
+		return a, tea.Batch(cmds...)
+
 	default:
 		f, filepickerCmd := a.filepicker.Update(msg)
 		a.filepicker = f.(dialog.FilepickerCmp)
@@ -860,8 +893,8 @@ func (a appModel) View() tea.View {
 		overlay := a.commandDialog.View()
 		row := lipgloss.Height(appView) / 2
 		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
+		col := lipgloss.Width(appView)/2 - lipgloss.Width(overlay.Content)/2
+		col += int(a.cmdSlideOffset)
 		appView = layout.PlaceOverlay(
 			col,
 			row,

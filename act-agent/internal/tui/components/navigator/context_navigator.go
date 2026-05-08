@@ -1,7 +1,7 @@
 package navigator
 
 import (
-	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -42,33 +42,43 @@ func (n *ContextNavigator) View() tea.View {
 	baseStyle := lipgloss.NewStyle().
 		Width(n.width).
 		Height(n.height).
+		Background(t.Background()).
 		Padding(1, 1).
 		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(t.BorderDim())
+		BorderForeground(t.BorderDim()).
+		BorderBackground(t.Background())
 
 	// Header
-	headerStyle := styles.Bold().Foreground(t.Primary())
-	content := headerStyle.Render("Context") + "\n\n"
+	b := styles.BaseStyle()
+	headerStyle := styles.Bold().Foreground(t.Primary()).Background(t.Background())
+	mutedStyle := b.Foreground(t.TextMuted())
+	textStyle := b.Foreground(t.Text())
+
+	var lines []string
+	lines = append(lines, headerStyle.Render("Context"), "")
 
 	// Active agent
-	content += lipgloss.NewStyle().Foreground(t.TextMuted()).Render("Active") + "\n"
+	lines = append(lines, mutedStyle.Render("Active"))
 	if n.app.Orchestrator != nil {
 		speaker := n.app.Orchestrator.CurrentSpeaker()
 		if speaker != "" {
-			content += fmt.Sprintf("• %s\n", speaker)
+			lines = append(lines, textStyle.Render("• "+speaker))
 		} else {
-			content += "• None\n"
+			lines = append(lines, textStyle.Render("• None"))
 		}
 	}
-	content += "\n"
+	lines = append(lines, "")
 
-	// Registered agents (placeholder for now)
-	content += lipgloss.NewStyle().Foreground(t.TextMuted()).Render("Agents") + "\n"
-	content += "• planner\n"
-	content += "• observer\n"
-	content += "• assurance\n"
-	content += "• qa\n"
+	// Registered agents
+	lines = append(lines, mutedStyle.Render("Agents"))
+	lines = append(lines,
+		textStyle.Render("• planner"),
+		textStyle.Render("• observer"),
+		textStyle.Render("• assurance"),
+		textStyle.Render("• qa"),
+	)
 
+	content := strings.Join(lines, "\n")
 	return tea.NewView(baseStyle.Render(content))
 }
 

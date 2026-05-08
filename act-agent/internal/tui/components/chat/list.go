@@ -12,7 +12,10 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/harmonica"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/anim"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
@@ -56,9 +59,16 @@ type messagesCmp struct {
 	// background goroutine. While a msgID is in this map, renderView renders
 	// plain text for it (useMarkdown=false) so the sync path stays fast.
 	// Cleared when markdownRenderedMsg arrives.
-	asyncGlamour map[string]bool
-	spinner      spinner.Model
-	attachments  viewport.Model
+	asyncGlamour  map[string]bool
+	spinner       spinner.Model
+	attachments   viewport.Model
+	scrollFocused bool // true = arrow keys scroll viewport, Tab/Esc exits
+
+	// Splash fade-in: alpha springs from 0→1 on first render.
+	splashAlpha    float64
+	splashVel      float64
+	splashSpring   harmonica.Spring
+	splashAnimating bool
 }
 
 type MessageKeys struct {
@@ -88,12 +98,32 @@ var messageKeys = MessageKeys{
 }
 
 func (m *messagesCmp) Init() tea.Cmd {
-	return tea.Batch(m.viewport.Init(), m.spinner.Tick)
+	// Start splash fade-in spring (stiffness=7, damping=0.6 — smooth, slight ease).
+	m.splashSpring = anim.NewSpring(7, 0.6)
+	m.splashAlpha = 0
+	m.splashVel = 0
+	m.splashAnimating = true
+	return tea.Batch(m.viewport.Init(), m.spinner.Tick, anim.Frame())
 }
 
 func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case anim.FrameMsg:
+		if m.splashAnimating && len(m.messages) == 0 {
+			_ = msg
+			newAlpha, newVel := m.splashSpring.Update(m.splashAlpha, m.splashVel, 1.0)
+			m.splashAlpha = newAlpha
+			m.splashVel = newVel
+			if m.splashAlpha >= 0.98 {
+				m.splashAlpha = 1.0
+			m.splashVel = 0
+				m.splashAnimating = false
+				return m, nil
+			}
+			cmds = append(cmds, anim.Frame())
+		}
+		return m, tea.Batch(cmds...)
 	case dialog.ThemeChangedMsg:
 		// Theme change invalidates every Glamour-rendered body (chroma
 		// palette is theme-derived). Drop cache + any in-flight marks and
@@ -113,6 +143,16 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentMsgID = ""
 		return m, nil
 
+	case ScrollFocusMsg:
+		m.scrollFocused = msg.On
+		return m, nil
+	case ScrollMsg:
+		if msg.Lines < 0 {
+			m.viewport.ScrollUp(-msg.Lines)
+		} else {
+			m.viewport.ScrollDown(msg.Lines)
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		if key.Matches(msg, messageKeys.PageUp) || key.Matches(msg, messageKeys.PageDown) ||
 			key.Matches(msg, messageKeys.HalfPageUp) || key.Matches(msg, messageKeys.HalfPageDown) {
@@ -120,6 +160,10 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = u
 			cmds = append(cmds, cmd)
 		}
+	case tea.MouseWheelMsg:
+		u, cmd := m.viewport.Update(msg)
+		m.viewport = u
+		cmds = append(cmds, cmd)
 	case pubsub.Event[session.Session]:
 		if msg.Type == pubsub.UpdatedEvent && msg.Payload.ID == m.session.ID {
 			m.session = msg.Payload
@@ -362,7 +406,6 @@ func (m *messagesCmp) renderView() {
 		messages = append(messages,
 			lipgloss.JoinVertical(lipgloss.Left, v.content),
 			spacer,
-			spacer, // extra line for breathing room between messages
 		)
 	}
 
@@ -382,12 +425,13 @@ func (m *messagesCmp) View() tea.View {
 	baseStyle := styles.BaseStyle()
 
 	if len(m.messages) == 0 {
-		// Hard-truncate the splash to fit in m.height-2 rows so the editor
+		// Hard-truncate the splash to fit in m.height-3 rows so the editor
 		// pane below it stays visible. lipgloss Height() pads up but does
 		// NOT clip content that's already taller — on windows shorter than
 		// the full splash (~42 rows), the overflow was pushing the editor
 		// off-screen entirely. Manual line-slice gives guaranteed fit.
-		splashHeight := m.height - 2
+		// -3: 2 help lines + 1 blank separator.
+		splashHeight := m.height - 3
 		if splashHeight < 1 {
 			splashHeight = 1
 		}
@@ -396,20 +440,16 @@ func (m *messagesCmp) View() tea.View {
 		if len(lines) > splashHeight {
 			lines = lines[:splashHeight]
 		}
-		content := baseStyle.
-			Width(m.width).
-			Render(strings.Join(lines, "\n"))
+		content := strings.Join(lines, "\n")
 
 		return tea.NewView(baseStyle.
 			Width(m.width).
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Top,
-					content,
-					"",
-					m.help(),
-				),
-			))
+			Render(lipgloss.JoinVertical(
+				lipgloss.Top,
+				content,
+				"",
+				m.help(),
+			)))
 	}
 
 	return tea.NewView(baseStyle.
@@ -488,43 +528,60 @@ func (m *messagesCmp) working() string {
 
 func (m *messagesCmp) help() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	plain := styles.BaseStyle()
 
-	text := ""
+	key := func(k string) string { return plain.Foreground(t.Text()).Bold(true).Render(k) }
+	dim := func(s string) string { return plain.Foreground(t.TextMuted()).Render(s) }
+	hi := func(k string) string { return plain.Foreground(t.Primary()).Bold(true).Render(k) }
 
+	if m.scrollFocused {
+		line1 := lipgloss.JoinHorizontal(lipgloss.Left,
+			hi("SCROLL MODE  "),
+			key("↑↓"), dim("  line  "),
+			key("pgup"), dim("/"), key("pgdn"), dim("  page  "),
+			key("ctrl+u"), dim("/"), key("ctrl+d"), dim("  half page"),
+		)
+		line2 := lipgloss.JoinHorizontal(lipgloss.Left,
+			dim("press "), key("tab"), dim(" or "), key("esc"), dim(" to return to chat"),
+		)
+		return plain.Width(m.width).Render(line1) + "\n" +
+			plain.Width(m.width).Render(line2)
+	}
+
+	var line1, line2 string
 	if m.app.Orchestrator.IsAnyBusy("") {
-		text += lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render("press "),
-			baseStyle.Foreground(t.Text()).Bold(true).Render("esc"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" to exit cancel"),
+		line1 = lipgloss.JoinHorizontal(lipgloss.Left,
+			dim("press "), key("esc"), dim(" to cancel"),
 		)
 	} else {
-		text += lipgloss.JoinHorizontal(
-			lipgloss.Left,
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render("press "),
-			baseStyle.Foreground(t.Text()).Bold(true).Render("enter"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" to send the message,"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" write"),
-			baseStyle.Foreground(t.Text()).Bold(true).Render(" \\"),
-			baseStyle.Foreground(t.TextMuted()).Bold(true).Render(" and enter to add a new line"),
+		line1 = lipgloss.JoinHorizontal(lipgloss.Left,
+			dim("press "), key("enter"), dim(" to send  "),
+			key(`\`), dim("+enter"), dim("  new line  "),
+			key("ctrl+k"), dim("  commands  "),
+			key("ctrl+s"), dim("  sessions"),
+		)
+		line2 = lipgloss.JoinHorizontal(lipgloss.Left,
+			dim("scroll  "), key("tab"), dim("  focus  "),
+			key("wheel"), dim("  or  "),
+			key("pgup"), dim("/"), key("pgdn"), dim("  •  "),
+			key("ctrl+u"), dim("/"), key("ctrl+d"), dim("  half page  •  "),
+			key("ctrl+?"), dim("  all keys"),
 		)
 	}
-	return baseStyle.
-		Width(m.width).
-		Render(text)
+
+	if line2 != "" {
+		return plain.Width(m.width).Render(line1) + "\n" +
+			plain.Render(ansi.Truncate(line2, m.width, ""))
+	}
+	return plain.Width(m.width).Render(line1)
 }
 
 func (m *messagesCmp) initialScreen() string {
-	baseStyle := styles.BaseStyle()
-
-	return baseStyle.Width(m.width).Render(
-		lipgloss.JoinVertical(
-			lipgloss.Top,
-			actBanner(m.width),
-			"",
-			welcomeGuide(m.width),
-		),
+	return lipgloss.JoinVertical(
+		lipgloss.Top,
+		actBanner(m.width, m.splashAlpha),
+		"",
+		welcomeGuide(m.width, m.splashAlpha),
 	)
 }
 
@@ -542,7 +599,7 @@ func (m *messagesCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
 	m.viewport.SetWidth(width)
-	m.viewport.SetHeight(height - 2)
+	m.viewport.SetHeight(height - 3)
 	m.attachments.SetWidth(width + 40)
 	m.attachments.SetHeight(3)
 	// Width change invalidates every cached render (word-wrap is

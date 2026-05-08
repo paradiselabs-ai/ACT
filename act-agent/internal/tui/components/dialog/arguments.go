@@ -44,7 +44,7 @@ func NewMultiArgumentsDialogCmp(commandID, content string, argNames []string) Mu
 			Title(name).
 			Value(&values[i])
 	}
-	form := huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false)
+	form := huh.NewForm(huh.NewGroup(fields...)).WithShowHelp(false).WithTheme(actHuhTheme())
 	return MultiArgumentsDialogCmp{
 		form:      form,
 		values:    values,
@@ -97,7 +97,7 @@ func (m MultiArgumentsDialogCmp) View() tea.View {
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Render(m.form.View()))
 }
 

@@ -264,7 +264,7 @@ func (p *permissionDialogCmp) renderHeader() string {
 		headerParts = append(headerParts, baseStyle.Foreground(t.TextMuted()).Width(p.width).Bold(true).Render("URL"))
 	}
 
-	return lipgloss.NewStyle().Background(t.Background()).Render(lipgloss.JoinVertical(lipgloss.Left, headerParts...))
+	return styles.BaseStyle().Width(p.width).Render(lipgloss.JoinVertical(lipgloss.Left, headerParts...))
 }
 
 func (p *permissionDialogCmp) renderBashContent() string {
@@ -432,7 +432,7 @@ func (p *permissionDialogCmp) render() string {
 		Padding(1, 0, 0, 1).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Width(p.width).
 		Height(p.height).
 		Render(

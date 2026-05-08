@@ -322,7 +322,7 @@ func (f *filepickerCmp) View() tea.View {
 		Width(f.viewport.Width()).
 		Background(t.Background()).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		BorderBackground(t.Background()).
 		Padding(2).
 		Render(f.viewport.View())
@@ -346,7 +346,7 @@ func (f *filepickerCmp) View() tea.View {
 	contentStyle := styles.BaseStyle().Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Width(lipgloss.Width(content) + 4)
 
 	return tea.NewView(lipgloss.JoinHorizontal(lipgloss.Center, contentStyle.Render(content), viewportstyle))

@@ -41,6 +41,7 @@ type chatPage struct {
 	showCompletionDialog bool
 	showNavigator        bool
 	firstSendDone        bool
+	scrollFocused        bool
 }
 
 type ChatKeyMap struct {
@@ -114,6 +115,35 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chat.SessionSelectedMsg:
 		p.session = msg
 	case tea.KeyPressMsg:
+		// Tab toggles scroll-focus mode — gives arrow keys to the viewport.
+		if msg.String() == "tab" && !p.app.Orchestrator.IsAnyBusy(p.session.ID) {
+			p.scrollFocused = !p.scrollFocused
+			return p, util.CmdHandler(chat.ScrollFocusMsg{On: p.scrollFocused})
+		}
+		// When scroll-focused, intercept directional keys and esc so the
+		// editor never sees them. Emit ScrollMsg so messagesCmp can move the
+		// viewport without needing a key event.
+		if p.scrollFocused {
+			switch msg.String() {
+			case "esc", "tab":
+				p.scrollFocused = false
+				return p, util.CmdHandler(chat.ScrollFocusMsg{On: false})
+			case "up":
+				return p, util.CmdHandler(chat.ScrollMsg{Lines: -1})
+			case "down":
+				return p, util.CmdHandler(chat.ScrollMsg{Lines: 1})
+			case "pgup":
+				return p, util.CmdHandler(chat.ScrollMsg{Lines: -20})
+			case "pgdown":
+				return p, util.CmdHandler(chat.ScrollMsg{Lines: 20})
+			case "ctrl+u":
+				return p, util.CmdHandler(chat.ScrollMsg{Lines: -10})
+			case "ctrl+d":
+				return p, util.CmdHandler(chat.ScrollMsg{Lines: 10})
+			}
+			// Swallow all other keys while scroll-focused.
+			return p, nil
+		}
 		switch {
 		case key.Matches(msg, keyMap.ShowCompletionDialog):
 			p.showCompletionDialog = true
@@ -285,7 +315,6 @@ func NewChatPage(app *app.App) tea.Model {
 	)
 	editorContainer := layout.NewContainer(
 		chat.NewEditorCmp(app),
-		layout.WithBorder(true, false, false, false),
 	)
 	navigatorContainer := layout.NewContainer(
 		navigator.NewContextNavigator(app),

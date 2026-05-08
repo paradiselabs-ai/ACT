@@ -109,7 +109,7 @@ func renderMessageBody(msg string, isUser bool, isFocused bool, width int, role 
 	t := theme.CurrentTheme()
 
 	style := styles.BaseStyle().
-		Width(width - 1).
+		Width(width).
 		BorderLeft(true).
 		Foreground(t.TextMuted()).
 		BorderForeground(t.Primary()).
@@ -185,6 +185,13 @@ func renderSystemMessage(msg message.Message, width int, position int) uiMessage
 	text := msg.Content().String()
 	if text == "" {
 		text = "(empty system message)"
+	}
+	const maxSystemLines = 5
+	lines := strings.Split(text, "\n")
+	if len(lines) > maxSystemLines {
+		lines = lines[:maxSystemLines]
+		lines[maxSystemLines-1] = ansi.Truncate(lines[maxSystemLines-1], width-6, "") + " …"
+		text = strings.Join(lines, "\n")
 	}
 	rendered := styles.BaseStyle().
 		Foreground(t.TextMuted()).
@@ -623,7 +630,7 @@ func renderToolMessage(
 	baseStyle := styles.BaseStyle()
 
 	style := baseStyle.
-		Width(width - 1).
+		Width(width).
 		BorderLeft(true).
 		BorderStyle(lipgloss.ThickBorder()).
 		PaddingLeft(1).

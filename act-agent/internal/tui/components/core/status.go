@@ -106,16 +106,21 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 		formattedTokens = strings.Replace(formattedTokens, ".0M", "M", 1)
 	}
 
-	// Format cost with $ symbol and 2 decimal places
 	formattedCost := fmt.Sprintf("$%.2f", cost)
 
 	percentage := (float64(tokens) / float64(contextWindow)) * 100
+
+	// 6-char fill bar: instant at-a-glance context consumption indicator.
+	// Uses Unicode block characters that work in any modern terminal.
+	const barWidth = 6
+	filled := barWidth * int(min(percentage, 100.0)) / 100
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+
 	if percentage > 80 {
-		// add the warning icon and percentage
 		formattedTokens = fmt.Sprintf("%s(%d%%)", styles.WarningIcon, int(percentage))
 	}
 
-	return fmt.Sprintf("Context: %s, Cost: %s", formattedTokens, formattedCost)
+	return fmt.Sprintf("%s %s %s", bar, formattedTokens, formattedCost)
 }
 
 func (m statusCmp) View() tea.View {

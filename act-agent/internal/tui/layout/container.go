@@ -47,29 +47,18 @@ func (c *container) View() tea.View {
 	width := c.width
 	height := c.height
 
-	style = style.Background(t.Background())
-
-	// Apply border if any side is enabled
+	// Apply border if any side is enabled.
+	// Do NOT manually subtract border size from width/height — lipgloss v2
+	// treats Width/Height as the total outer block size (borders included),
+	// so it already subtracts border columns/rows internally in Render().
 	if c.borderTop || c.borderRight || c.borderBottom || c.borderLeft {
-		// Adjust width and height for borders
-		if c.borderTop {
-			height--
-		}
-		if c.borderBottom {
-			height--
-		}
-		if c.borderLeft {
-			width--
-		}
-		if c.borderRight {
-			width--
-		}
 		style = style.Border(c.borderStyle, c.borderTop, c.borderRight, c.borderBottom, c.borderLeft)
 		style = style.BorderBackground(t.Background()).BorderForeground(t.BorderNormal())
 	}
 	style = style.
 		Width(width).
 		Height(height).
+		Background(t.Background()).
 		PaddingTop(c.paddingTop).
 		PaddingRight(c.paddingRight).
 		PaddingBottom(c.paddingBottom).

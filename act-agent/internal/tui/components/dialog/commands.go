@@ -5,6 +5,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/anim"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
@@ -31,7 +32,9 @@ type CloseCommandDialogMsg struct{}
 type CommandDialog interface {
 	tea.Model
 	layout.Bindings
-	SetCommands(commands []Command)
+	// SetCommands loads commands and starts the open animation.
+	// Returns the first frame Cmd so the caller can batch it.
+	SetCommands(commands []Command) tea.Cmd
 }
 
 type commandDialogCmp struct {
@@ -56,7 +59,7 @@ func (c *commandDialogCmp) buildForm() {
 			Height(12).
 			Options(opts...).
 			Value(&c.selectedIdx),
-	)).WithShowHelp(false)
+	)).WithShowHelp(false).WithTheme(actHuhTheme()).WithWidth(48)
 	_ = c.form.Init()
 }
 
@@ -91,14 +94,15 @@ func (c *commandDialogCmp) View() tea.View {
 		return tea.NewView(baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
 			BorderBackground(t.Background()).
-			BorderForeground(t.TextMuted()).
+			BorderForeground(t.BorderFocused()).
 			Width(40).
 			Render("No commands available"))
 	}
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
+		Width(54).
 		Render(c.form.View()))
 }
 
@@ -109,10 +113,11 @@ func (c *commandDialogCmp) BindingKeys() []key.Binding {
 	return c.form.KeyBinds()
 }
 
-func (c *commandDialogCmp) SetCommands(commands []Command) {
+func (c *commandDialogCmp) SetCommands(commands []Command) tea.Cmd {
 	c.commands = commands
 	c.selectedIdx = 0
 	c.buildForm()
+	return anim.Frame()
 }
 
 // NewCommandDialogCmp creates a new command selection dialog

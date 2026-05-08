@@ -50,7 +50,7 @@ func (s *sessionDialogCmp) buildForm() {
 			Height(10).
 			Options(opts...).
 			Value(&s.selected),
-	)).WithShowHelp(false)
+	)).WithShowHelp(false).WithTheme(actHuhTheme()).WithWidth(48)
 	_ = s.form.Init()
 }
 
@@ -82,14 +82,15 @@ func (s *sessionDialogCmp) View() tea.View {
 		return tea.NewView(baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
 			BorderBackground(t.Background()).
-			BorderForeground(t.TextMuted()).
+			BorderForeground(t.BorderFocused()).
 			Width(40).
 			Render("No sessions available"))
 	}
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
+		Width(54).
 		Render(s.form.View()))
 }
 

@@ -47,7 +47,7 @@ func (d *themeDialogCmp) buildForm() tea.Cmd {
 			Title("Select Theme").
 			Options(opts...).
 			Value(&d.selected),
-	)).WithShowHelp(false)
+	)).WithShowHelp(false).WithTheme(actHuhTheme())
 	return d.form.Init()
 }
 
@@ -83,14 +83,14 @@ func (d *themeDialogCmp) View() tea.View {
 		return tea.NewView(baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
 			BorderBackground(t.Background()).
-			BorderForeground(t.TextMuted()).
+			BorderForeground(t.BorderFocused()).
 			Width(40).
 			Render("Loading themes..."))
 	}
 	return tea.NewView(baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.TextMuted()).
+		BorderForeground(t.BorderFocused()).
 		Render(d.form.View()))
 }
 
