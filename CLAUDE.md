@@ -293,7 +293,7 @@ Each role can use a different LLM model. Configure in `.opencode.json` (see `.op
 }
 ```
 
-**Supported providers:** Anthropic, OpenAI, Gemini, Groq (free tier), OpenRouter (free models), Bedrock, Azure, VertexAI, xAI, Copilot, Local (Ollama/LM Studio).
+**Supported providers:** Anthropic, OpenAI, Gemini, Groq (free tier), OpenRouter (free models), Bedrock, Azure, VertexAI, xAI, Local (Ollama / LM Studio / vLLM).
 
 **Cost strategy:** Don't skimp on Planner (use strongest model). Swarm agents can use cheaper/local models. Groq free tier (Llama 3.3 70B) works for routine coding tasks.
 

@@ -602,7 +602,6 @@ func detectProviders() []detectedProvider {
 		{EnvVar: "GROQ_API_KEY", Provider: "groq", Detail: "Free tier (Llama 3.3 70B)"},
 		{EnvVar: "OPENROUTER_API_KEY", Provider: "openrouter", Detail: "OpenRouter models available"},
 		{EnvVar: "XAI_API_KEY", Provider: "xai", Detail: "xAI models available"},
-		{EnvVar: "GITHUB_TOKEN", Provider: "github", Detail: "Copilot available"},
 	}
 
 	for i := range checks {

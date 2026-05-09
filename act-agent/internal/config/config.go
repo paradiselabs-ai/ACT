@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
@@ -399,12 +397,6 @@ func setProviderDefaults() {
 		// api-key may be empty when using Entra ID credentials – that's okay
 		viper.SetDefault("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
 	}
-	if apiKey, err := LoadGitHubToken(); err == nil && apiKey != "" {
-		viper.SetDefault("providers.copilot.apiKey", apiKey)
-		if viper.GetString("providers.copilot.apiKey") == "" {
-			viper.Set("providers.copilot.apiKey", apiKey)
-		}
-	}
 
 	// NesTTY uses its own four Tier 1 agents (planner/observer/assurance/
 	// qa_synthesizer) plus a configurable Tier 2 swarm. OpenCode-inherited
@@ -448,14 +440,6 @@ func hasVertexAICredentials() bool {
 	}
 	// Check for Google Cloud project and location
 	if os.Getenv("GOOGLE_CLOUD_PROJECT") != "" && (os.Getenv("GOOGLE_CLOUD_REGION") != "" || os.Getenv("GOOGLE_CLOUD_LOCATION") != "") {
-		return true
-	}
-	return false
-}
-
-func hasCopilotCredentials() bool {
-	// Check for explicit Copilot parameters
-	if token, _ := LoadGitHubToken(); token != "" {
 		return true
 	}
 	return false
@@ -545,9 +529,6 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 	}
 
 	// Check if model exists
-	// TODO:	If a copilot model is specified, but model is not found,
-	// 		 	it might be new model. The https://api.githubcopilot.com/models
-	// 		 	endpoint should be queried to validate if the model is supported.
 	model, modelExists := models.SupportedModels[agent.Model]
 	if !modelExists {
 		logging.Warn("unsupported model configured, reverting to default",
@@ -759,18 +740,6 @@ func getProviderAPIKey(provider models.ModelProvider) string {
 
 // setDefaultModelForAgent sets a default model for an agent based on available providers
 func setDefaultModelForAgent(agent AgentName) bool {
-	if hasCopilotCredentials() {
-		maxTokens := int64(5000)
-		if agent == AgentTitle {
-			maxTokens = 80
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:     models.CopilotGPT4o,
-			MaxTokens: maxTokens,
-		}
-		return true
-	}
 	// Check providers in order of preference
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
 		maxTokens := int64(5000)
@@ -1019,64 +988,3 @@ func UpdateTheme(themeName string) error {
 	})
 }
 
-// Tries to load Github token from all possible locations
-func LoadGitHubToken() (string, error) {
-	// First check environment variable
-	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		return token, nil
-	}
-
-	// Get config directory
-	var configDir string
-	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		configDir = xdgConfig
-	} else if runtime.GOOS == "windows" {
-		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
-			configDir = localAppData
-		} else {
-			configDir = filepath.Join(os.Getenv("HOME"), "AppData", "Local")
-		}
-	} else {
-		configDir = filepath.Join(os.Getenv("HOME"), ".config")
-	}
-
-	// Try gh CLI first — returns the fresh active token from the keyring.
-	// gho_ tokens with 'copilot' scope work as direct bearers; ghu_ tokens
-	// require exchange but may be expired. gh auth token always gives the
-	// freshest credential.
-	if out, err := exec.Command("gh", "auth", "token").Output(); err == nil {
-		if token := strings.TrimSpace(string(out)); token != "" {
-			return token, nil
-		}
-	}
-
-	// Try both hosts.json and apps.json files
-	filePaths := []string{
-		filepath.Join(configDir, "github-copilot", "hosts.json"),
-		filepath.Join(configDir, "github-copilot", "apps.json"),
-	}
-
-	for _, filePath := range filePaths {
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			continue
-		}
-
-		var config map[string]map[string]interface{}
-		if err := json.Unmarshal(data, &config); err != nil {
-			continue
-		}
-
-		for key, value := range config {
-			if strings.Contains(key, "github.com") {
-				if oauthToken, ok := value["oauth_token"].(string); ok {
-					return oauthToken, nil
-				}
-			}
-		}
-	}
-
-
-
-	return "", fmt.Errorf("GitHub token not found in standard locations")
-}
