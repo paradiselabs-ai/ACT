@@ -57,7 +57,7 @@ If PowerShell rejects the script: `Set-ExecutionPolicy -Scope CurrentUser -Execu
 
 ### After install
 
-The installer copies `.act.example.json` to `~/.act.json` and `.env.example` to `.env` if they don't exist yet. Edit `~/.act.json` to add your API keys (Anthropic, Groq, OpenRouter, etc.) — that file is the canonical place for per-role model + provider config.
+The installer copies `.act.example.json` to `~/.act.json` and `.env.example` to `.env` if they don't exist yet. Edit `~/.act.json` to add your API keys — that file is the canonical place for per-role model + provider config.
 
 ```bash
 act-agent                      # launches the TUI in the current directory
@@ -65,6 +65,49 @@ act-agent --project my-app     # for a specific project
 ```
 
 > **Why `act-agent` and not `act`?** [`nektos/act`](https://github.com/nektos/act) is the popular GitHub Actions local runner — it owns the `act` command name in dev environments. To avoid collision, ACT's CLI is `act-agent`. If you previously had an `act` symlink from an older install, the installer removes it.
+
+### Run on cloud or local — equal first-class paths
+
+ACT supports two onramps for Tier 1 and the swarm. Pick whichever matches your hardware and constraints:
+
+#### ☁ Cloud (zero hardware requirements)
+
+Free-tier cloud models cover both Tier 1 and the swarm with no credit card.
+
+```json
+"providers": {
+  "groq":       { "apiKey": "<your-groq-key>",       "disabled": false },
+  "openrouter": { "apiKey": "<your-openrouter-key>", "disabled": false }
+}
+```
+
+- **[Groq](https://console.groq.com/)** — free tier, sub-second latency, Llama 3.3 70B. 30-second signup, no credit card.
+- **[OpenRouter](https://openrouter.ai/)** — aggregator, many free models (GLM-4.5, gpt-oss-120b, MiniMax-M2.5). 2-minute signup.
+- **[Anthropic](https://console.anthropic.com/) / [OpenAI](https://platform.openai.com/) / [xAI](https://x.ai/)** — paid API keys for premium models.
+
+#### 💻 Local (zero cloud calls, your hardware)
+
+All 9 agents (4 Tier 1 + 5 swarm) run on local models via [LM Studio](https://lmstudio.ai/) (free for personal AND commercial use as of July 2025) or [Ollama](https://ollama.com/). Your code never leaves your machine.
+
+Recommended stack on RTX 5090 (32GB) or M3/M4 Max (≥64GB):
+
+| Role | Model | VRAM (Q4_K_M) |
+|------|-------|---------------|
+| Planner | Qwen3-30B-A3B (MoE, 3B active) | ~17 GB |
+| Assurance + QA + 5 swarm roles | Qwen2.5-14B | ~10 GB (shared) |
+| Observer | Qwen3-8B | ~5 GB |
+
+Lighter setup on RTX 4090 (24GB) or 32GB Apple Silicon: drop Planner to Qwen2.5-14B, share 8B across the rest.
+
+Quick path:
+
+1. Install LM Studio, download the models above
+2. Pre-load each with `lms load <model> --ttl 0`, disable **Auto-Evict** in Developer → Server Settings
+3. Enable LM Studio's OpenAI server (port 1234)
+4. In `~/.act.json`, set per-role models with `"provider": "local"` and the loaded model ID
+5. Set `LOCAL_ENDPOINT=http://localhost:1234/v1` in `.env`
+
+Full local config example in `.act.example.json`.
 
 **Supported terminals:** [Ghostty](https://ghostty.org/) (recommended), [iTerm2](https://iterm2.com/), [Alacritty](https://alacritty.org/), [kitty](https://sw.kovidgoyal.net/kitty/). Apple Terminal.app is **not supported** — it lacks Synchronized Output (mode 2026) and the TUI render pipeline hangs after each prompt. See `docs/Vault/Agent Coordination Toolkit/nestty/KNOWN_ISSUES.md` (KI-14).
 

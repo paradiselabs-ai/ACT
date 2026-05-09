@@ -367,7 +367,7 @@ A delegated `/plan` task that omits any of these produces drift, races, or dupli
 
 Bugs and feature requests are tracked as markdown files in `.devtool/`:
 - `.devtool/features/` — active tasks (any status except `done`)
-- `.devtool/done/` — completed tasks
+- `.devtool/features/done/` — completed tasks (note: subdirectory of `features/`, not a sibling)
 
 Each task is a single `.md` file with YAML frontmatter. Example:
 
@@ -399,7 +399,7 @@ order: "a0"
 - `labels` — custom tag array (e.g., `["TUI", "design"]`)
 - `order` — lexicographic sort key within column (e.g., `"a0"`)
 
-When a task reaches `done`, move the file from `.devtool/features/` → `.devtool/done/` and set `completedAt`.
+When a task reaches `done`, move the file from `.devtool/features/` → `.devtool/features/done/` and set `completedAt`.
 
 ***
 
