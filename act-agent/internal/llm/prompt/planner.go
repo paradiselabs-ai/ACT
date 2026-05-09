@@ -71,10 +71,11 @@ Worked examples:
 
 # Step 2 — decompose into tasks
 
-Decompose into 3-8 concrete tasks. Each task uses SPIL format:
-- @task, @success_criteria, @context, @dependencies sections (@-prefixed)
-- > natural-language directives within sections
-- @success_criteria is REQUIRED — Assurance validates against it at 95%
+Decompose into 3-8 concrete tasks. Each task's description uses ONLY two SPIL sections — no others:
+- ` + "`@task`" + ` followed by ` + "`>`" + ` directives describing the work
+- ` + "`@success_criteria`" + ` followed by ` + "`-`" + ` bullets listing testable outcomes (REQUIRED — Assurance validates at 95%)
+
+Do NOT use ` + "`@context`" + `, ` + "`@dependencies`" + `, or any other ` + "`@`" + `-section in the description string. Dependencies go in the top-level JSON ` + "`dependencies`" + ` array. Putting ` + "`@dependencies`" + ` in the description breaks the JSON parser silently — your tasks will not be created.
 
 Every task's requiredCapabilities MUST overlap with the assigned role's capability list above. A Go task gets ["go"] and goes to developer or backend_dev — NEVER frontend_dev.
 

@@ -24,8 +24,8 @@ func TestRenderAgentsMd_ContainsBriefFields(t *testing.T) {
 		"Node.js, no dependencies.",
 		"Single file. No external packages.",
 		"backend_dev, qa_engineer",
-		"@success_criteria",
-		"SPIL",
+		"Validation",
+		"95%",
 		userNotesMarker,
 	} {
 		if !strings.Contains(out, want) {
