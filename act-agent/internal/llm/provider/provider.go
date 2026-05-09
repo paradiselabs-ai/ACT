@@ -9,6 +9,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
+	"github.com/spf13/viper"
 )
 
 type EventType string
@@ -148,8 +149,21 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 			client:  newOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderLocal:
+		// Resolution order for the local OpenAI-compatible endpoint:
+		//   1. providers.local.baseURL in ~/.act.json (canonical, like every
+		//      other provider's config)
+		//   2. LOCAL_ENDPOINT env var (legacy fallback)
+		//   3. http://localhost:1234/v1 (LM Studio default — most common
+		//      local setup; users can override either of the above)
+		baseURL := viper.GetString("providers.local.baseURL")
+		if baseURL == "" {
+			baseURL = os.Getenv("LOCAL_ENDPOINT")
+		}
+		if baseURL == "" {
+			baseURL = "http://localhost:1234/v1"
+		}
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
-			WithOpenAIBaseURL(os.Getenv("LOCAL_ENDPOINT")),
+			WithOpenAIBaseURL(baseURL),
 		)
 		return &baseProvider[OpenAIClient]{
 			options: clientOptions,
