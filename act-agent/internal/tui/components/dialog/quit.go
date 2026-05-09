@@ -86,7 +86,12 @@ func (q *quitDialogCmp) View() tea.View {
 	return tea.NewView(dialog)
 }
 
-func (q *quitDialogCmp) BindingKeys() []key.Binding { return nil }
+func (q *quitDialogCmp) BindingKeys() []key.Binding {
+	return []key.Binding{
+		key.NewBinding(key.WithKeys("y", "Y"), key.WithHelp("y", "confirm quit")),
+		key.NewBinding(key.WithKeys("n", "N", "esc"), key.WithHelp("n / esc", "cancel")),
+	}
+}
 
 func NewQuitCmp() QuitDialog {
 	return &quitDialogCmp{}
