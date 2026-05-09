@@ -19,24 +19,26 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
 
-// firstPromptFlushMsg nudges the bubbletea event loop after the first prompt
-// of a fresh session. On a fresh `.act/` directory the splash→chat transition
-// can sit in the synchronized-output buffer until a second tea.Msg arrives —
-// previously the user had to press Enter twice. Update doesn't switch on this
-// type; the act of dispatch is enough to trigger a render frame.
+// flushTickMsg nudges the bubbletea event loop while a Tier 1 agent is
+// streaming a response. The synchronized-output buffer can hold mid-stream
+// frames until a tea.Msg arrives to flush — manifests as the response
+// pausing mid-sentence until the user hits a key.
 //
-// Tick schedule covers two distinct hang windows:
-//   1. The original cold-start hang at 50–400ms (synchronized-output buffer
-//      not flushing on the first frame).
-//   2. The post-splash gap (1s–8s) where the harmonica FrameMsg loop has
-//      stopped (splash settled → no more anim.Frame()) but the Planner LLM
-//      response hasn't arrived yet. Without ticks during this window, the
-//      first response sits in the buffer until the user keypresses again.
+// Mechanism: on every chat send, dispatch a flushTickMsg. The Update handler
+// for flushTickMsg checks whether any Tier 1 role is still busy. If yes,
+// schedule another flushTickMsg in 250ms. If no, stop. Each dispatch forces
+// Update→View→render → BSU/ESU emission → terminal commits.
 //
-// Schedule chosen to over-cover both windows without burning CPU: ticks at
-// 50ms, 150ms, 400ms, 1s, 2s, 3.5s, 5s, 8s. Eight no-op dispatches over the
-// first 8 seconds is negligible.
-type firstPromptFlushMsg struct{}
+// Why this is needed: the harmonica anim.Frame() loop in messagesCmp only
+// runs while splashAnimating is true (~1s after launch). After splash
+// settles, no continuous tick exists. Without one, mid-stream frames buffer
+// indefinitely on slow LLM streams.
+//
+// Safety cap: flushTickCap (240 = 60s @ 250ms) prevents an infinite loop if
+// IsAnyBusy ever fails to transition to false.
+type flushTickMsg struct{}
+
+const flushTickCap = 240 // 60 seconds @ 250ms intervals
 
 var ChatPage PageID = "chat"
 
@@ -52,6 +54,7 @@ type chatPage struct {
 	showNavigator        bool
 	firstSendDone        bool
 	scrollFocused        bool
+	flushTickCount       int
 }
 
 type ChatKeyMap struct {
@@ -96,6 +99,22 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	case dialog.CompletionDialogCloseMsg:
 		p.showCompletionDialog = false
+	case flushTickMsg:
+		// While any Tier 1 role is busy, keep nudging the event loop so the
+		// synchronized-output buffer flushes mid-stream. Stops when all roles
+		// idle or after flushTickCap iterations (safety).
+		if p.flushTickCount >= flushTickCap {
+			p.flushTickCount = 0
+			return p, nil
+		}
+		if p.app.Orchestrator != nil && !p.app.Orchestrator.IsAnyBusy(p.session.ID) {
+			p.flushTickCount = 0
+			return p, nil
+		}
+		p.flushTickCount++
+		return p, tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg {
+			return flushTickMsg{}
+		})
 	case chat.SendMsg:
 		cmd := p.sendMessage(msg.Text, msg.Attachments)
 		if cmd != nil {
@@ -126,7 +145,9 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.session = msg
 	case tea.KeyPressMsg:
 		// Tab toggles scroll-focus mode — gives arrow keys to the viewport.
-		if msg.String() == "tab" && !p.app.Orchestrator.IsAnyBusy(p.session.ID) {
+		// Available even while Tier 1 agents are busy so the user can scroll
+		// back through history during long Planner responses.
+		if msg.String() == "tab" {
 			p.scrollFocused = !p.scrollFocused
 			return p, util.CmdHandler(chat.ScrollFocusMsg{On: p.scrollFocused})
 		}
@@ -243,24 +264,22 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 
 	go p.app.Orchestrator.HandleHumanInput(context.Background(), p.session.ID, text, attachments...)
 
-	// First-prompt flush nudge — see firstPromptFlushMsg comment. Without these
-	// the user had to press Enter twice on the very first prompt of a fresh
-	// `.act/` to see the response. The schedule covers both the original cold-
-	// start window (50–400ms) and the post-splash gap (1–8s) where harmonica
-	// FrameMsgs have stopped but the Planner LLM response hasn't arrived yet.
+	// Flush nudge — see flushTickMsg comment. Kicks off a self-extending tick
+	// loop that runs while any Tier 1 role is busy, flushing the synchronized-
+	// output buffer mid-stream so the response renders incrementally instead
+	// of in one block when the user happens to keypress.
+	//
+	// Two early ticks (50ms, 250ms) catch the cold-start window before the
+	// orchestrator has marked the agent busy. Subsequent ticks self-extend
+	// from the flushTickMsg handler in Update.
+	p.flushTickCount = 0
+	flushKick := func(time.Time) tea.Msg { return flushTickMsg{} }
+	cmds = append(cmds,
+		tea.Tick(50*time.Millisecond, flushKick),
+		tea.Tick(250*time.Millisecond, flushKick),
+	)
 	if !p.firstSendDone {
 		p.firstSendDone = true
-		flush := func(time.Time) tea.Msg { return firstPromptFlushMsg{} }
-		cmds = append(cmds,
-			tea.Tick(50*time.Millisecond, flush),
-			tea.Tick(150*time.Millisecond, flush),
-			tea.Tick(400*time.Millisecond, flush),
-			tea.Tick(1000*time.Millisecond, flush),
-			tea.Tick(2000*time.Millisecond, flush),
-			tea.Tick(3500*time.Millisecond, flush),
-			tea.Tick(5000*time.Millisecond, flush),
-			tea.Tick(8000*time.Millisecond, flush),
-		)
 	}
 
 	return tea.Batch(cmds...)

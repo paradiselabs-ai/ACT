@@ -186,14 +186,26 @@ func (h *helpCmp) View() tea.View {
 	)
 
 	actCLI := lipgloss.JoinVertical(lipgloss.Left,
-		sectionTitleStyle.Render("ACT CLI Commands (use in terminal)"),
-		sectionBodyStyle.Render("  act register       Register with ACT server"),
-		sectionBodyStyle.Render("  act context        Get brief + task + agents"),
-		sectionBodyStyle.Render("  act task complete  Mark task done"),
-		sectionBodyStyle.Render("  act task progress  Report progress %"),
-		sectionBodyStyle.Render("  act status         System overview"),
-		sectionBodyStyle.Render("  act message        Send/read messages"),
-		sectionBodyStyle.Render("  act pvm search     Search coordination memory"),
+		sectionTitleStyle.Render("ACT CLI Commands (run in your shell — outside this window)"),
+		sectionBodyStyle.Render("  act-agent register       Register with ACT server"),
+		sectionBodyStyle.Render("  act-agent context        Get brief + task + agents"),
+		sectionBodyStyle.Render("  act-agent task complete  Mark task done"),
+		sectionBodyStyle.Render("  act-agent task progress  Report progress %"),
+		sectionBodyStyle.Render("  act-agent status         System overview"),
+		sectionBodyStyle.Render("  act-agent message        Send/read messages"),
+		sectionBodyStyle.Render("  act-agent pvm search     Search coordination memory"),
+	)
+
+	palette := lipgloss.JoinVertical(lipgloss.Left,
+		sectionTitleStyle.Render("Palette Commands (type inside this window — `:` bypasses Planner)"),
+		sectionBodyStyle.Render("  act-agent:status       System overview without consulting Planner"),
+		sectionBodyStyle.Render("  act-agent:log          Recent ChronLog entries"),
+		sectionBodyStyle.Render("  act-agent:tasks        Unverified task graph"),
+		sectionBodyStyle.Render("  act-agent:validation   Pending validation queue"),
+		sectionBodyStyle.Render("  act-agent:conflicts    File-lock conflicts"),
+		sectionBodyStyle.Render("  act-agent:swarm        Swarm role + backend overview"),
+		"",
+		sectionBodyStyle.Render("  Without the colon, your text becomes a Planner prompt."),
 	)
 
 	architecture := lipgloss.JoinVertical(lipgloss.Left,
@@ -216,6 +228,8 @@ func (h *helpCmp) View() tea.View {
 		actModes,
 		"",
 		actCLI,
+		"",
+		palette,
 		"",
 		architecture,
 	)

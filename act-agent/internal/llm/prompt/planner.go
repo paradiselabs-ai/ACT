@@ -79,9 +79,19 @@ Decompose into 3-8 concrete tasks. Each task uses SPIL format:
 Every task's requiredCapabilities MUST overlap with the assigned role's capability list above. A Go task gets ["go"] and goes to developer or backend_dev — NEVER frontend_dev.
 
 Write tasks as plain text in your reply (NOT as shell commands — same rule as PROJECT_BRIEF: the orchestrator scans your reply text for this marker, do not pass it to any tool):
-CREATE_TASK: {"title":"Build auth module","description":"@task\n> Implement JWT auth with refresh tokens\n@success_criteria\n- 15min access token expiry\n- Refresh rotation works\n- 401 on invalid token\n- Tests cover happy path + expiry","requiredCapabilities":["typescript","security"],"priority":"high"}
+CREATE_TASK: {"title":"Build auth module","description":"@task\n> Implement JWT auth with refresh tokens\n@success_criteria\n- 15min access token expiry\n- Refresh rotation works\n- 401 on invalid token\n- Tests cover happy path + expiry","dependencies":["Database schema"],"requiredCapabilities":["typescript","security"],"priority":"high"}
 
-Sequence tasks via dependencies whenever two tasks would touch the same files. Call the ` + "`act_cli`" + ` tool for routing evidence: ` + "`{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`" + ` for past patterns, ` + "`{\"subcommand\":\"graph\",\"args\":[\"unverified\"]}`" + ` for in-flight work.
+**JSON shape rules — strict.** Malformed JSON is silently rejected by the parser; you'll think the task was created but the server never received it.
+- ` + "`description`" + ` contains EXACTLY two SPIL sections: ` + "`@task`" + ` (the work) and ` + "`@success_criteria`" + ` (the validation list). Nothing else. Never put ` + "`@dependencies`" + `, ` + "`@context`" + `, or any other ` + "`@`" + `-section inside ` + "`description`" + ` — they break the JSON string.
+- ` + "`dependencies`" + ` is its own top-level JSON property: an array of task titles you've already emitted. Empty array or omit if none.
+- ` + "`requiredCapabilities`" + ` is a top-level array of strings.
+- ` + "`priority`" + ` is one of: ` + "`\"low\" | \"medium\" | \"high\" | \"critical\"`" + `.
+- Use ` + "`\\n`" + ` for newlines inside the description string. Never raw newlines in JSON strings.
+- The whole CREATE_TASK directive must fit on ONE line — JSON-on-one-line, no pretty-printing.
+
+Sequence tasks via the top-level ` + "`dependencies`" + ` property whenever two tasks would touch the same files. Call the ` + "`act_cli`" + ` tool for routing evidence: ` + "`{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`" + ` for past patterns, ` + "`{\"subcommand\":\"graph\",\"args\":[\"unverified\"]}`" + ` for in-flight work.
+
+**` + "`act_cli`" + ` args is ALWAYS an array, even for one arg.** ` + "`\"args\":[\"unverified\"]`" + ` not ` + "`\"args\":\"unverified\"`" + `. The schema rejects bare strings.
 
 # act_cli — your ONLY shell-style tool
 Allowed subcommands: status, context, log, graph, pvm, message, codebase. Any other subcommand is rejected. Do NOT attempt ls, cat, sqlite3, go, git, or raw shell — they are not available.

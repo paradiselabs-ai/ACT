@@ -40,10 +40,43 @@ var actCLIMutatingSubcommands = map[string]bool{
 }
 
 // ActCLIParams is the JSON input shape the LLM sends.
+//
+// Args uses a permissive type that accepts either an array of strings (the
+// documented shape) or a bare string (frequent model adherence error: model
+// emits args:"foo" instead of args:["foo"] when there's only one arg).
+// Both shapes coerce to []string downstream — saves a round-trip on a
+// known LLM behavior pattern without weakening validation elsewhere.
 type ActCLIParams struct {
-	Subcommand string   `json:"subcommand"`
-	Args       []string `json:"args,omitempty"`
-	Timeout    int      `json:"timeout,omitempty"`
+	Subcommand string     `json:"subcommand"`
+	Args       stringList `json:"args,omitempty"`
+	Timeout    int        `json:"timeout,omitempty"`
+}
+
+// stringList unmarshals either ["a","b"] (canonical) or "a" (lenient).
+type stringList []string
+
+func (s *stringList) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*s = nil
+		return nil
+	}
+	// Try array first — documented shape.
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*s = arr
+		return nil
+	}
+	// Fall back to single string → wrap in single-element slice.
+	var single string
+	if err := json.Unmarshal(data, &single); err != nil {
+		return err
+	}
+	if single == "" {
+		*s = nil
+		return nil
+	}
+	*s = []string{single}
+	return nil
 }
 
 type actCLIPermissionsParams struct {

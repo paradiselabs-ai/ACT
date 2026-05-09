@@ -514,17 +514,32 @@ func runReset() error {
 }
 
 // routeToCLI finds and execs into the TypeScript act CLI.
+//
+// Strategy: prefer the local node_modules/.bin/tsx next to act-cli.ts. Falls
+// back to `npx tsx` only if the local binary is missing. Direct local invoke
+// avoids npm/npx initialization, which on macOS hits Keychain (SecItem) for
+// credential lookups — that path can fail silently in environments without
+// Keychain access (CI, fresh user accounts, certain corp setups), causing the
+// CLI to exit before producing any output.
 func routeToCLI(args []string) error {
 	cliScript := findCLIScript()
 	if cliScript == "" {
 		return fmt.Errorf("act CLI not found — expected cli/act-cli.ts or act-agent/cli/act-cli.ts")
 	}
 
-	bin, err := exec.LookPath("npx")
-	if err != nil {
-		return fmt.Errorf("npx not found: %w", err)
+	// Prefer local tsx (node_modules/.bin/tsx beside act-cli.ts).
+	cliDir := filepath.Dir(cliScript)
+	localTsx := filepath.Join(cliDir, "node_modules", ".bin", "tsx")
+	if st, err := os.Stat(localTsx); err == nil && !st.IsDir() {
+		execArgs := append([]string{localTsx, cliScript}, args...)
+		return execCLIProc(localTsx, execArgs)
 	}
 
+	// Fallback: npx (slower, hits npm init path that can fail on macOS Keychain).
+	bin, err := exec.LookPath("npx")
+	if err != nil {
+		return fmt.Errorf("npx not found and local tsx not installed at %s — run `cd %s && npm install`", localTsx, cliDir)
+	}
 	execArgs := append([]string{"npx", "tsx", cliScript}, args...)
 	return execCLIProc(bin, execArgs)
 }

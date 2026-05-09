@@ -35,9 +35,12 @@ func EnsureServerRunning(serverURL string) error {
 		}
 	}
 
-	// Check if already running
+	// Check if already running. Debug-level (not Info) so it doesn't pollute
+	// captured subprocess output when act-agent is invoked as a CLI subcommand
+	// from RunDirectCommand or palette intercepts. The "server already running"
+	// state is the no-op happy path — silent is correct.
 	if isHealthy(serverURL) {
-		logging.Info("ACT server already running", "url", serverURL)
+		logging.Debug("ACT server already running", "url", serverURL)
 		return nil
 	}
 

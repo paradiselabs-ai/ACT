@@ -936,6 +936,12 @@ func (a appModel) View() tea.View {
 
 	v := tea.NewView(appView)
 	v.AltScreen = true
+	// Enable mouse cell-motion mode so MouseWheelMsg events reach
+	// messagesCmp.Update for chat-history scroll. Without this the wheel-
+	// scroll handler at list.go is dead code; the terminal handles wheel
+	// events natively (which alt-screen blocks). Cell-motion is enough for
+	// click + wheel; AllMotion is overkill.
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
