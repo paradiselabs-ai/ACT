@@ -22,10 +22,20 @@ import (
 // firstPromptFlushMsg nudges the bubbletea event loop after the first prompt
 // of a fresh session. On a fresh `.act/` directory the splash→chat transition
 // can sit in the synchronized-output buffer until a second tea.Msg arrives —
-// previously the user had to press Enter twice. Three staggered ticks (50ms,
-// 150ms, 400ms) cover the timing window across slow/fast LLM first-token
-// arrivals. Update doesn't switch on this type; the act of dispatch is enough
-// to trigger a render frame.
+// previously the user had to press Enter twice. Update doesn't switch on this
+// type; the act of dispatch is enough to trigger a render frame.
+//
+// Tick schedule covers two distinct hang windows:
+//   1. The original cold-start hang at 50–400ms (synchronized-output buffer
+//      not flushing on the first frame).
+//   2. The post-splash gap (1s–8s) where the harmonica FrameMsg loop has
+//      stopped (splash settled → no more anim.Frame()) but the Planner LLM
+//      response hasn't arrived yet. Without ticks during this window, the
+//      first response sits in the buffer until the user keypresses again.
+//
+// Schedule chosen to over-cover both windows without burning CPU: ticks at
+// 50ms, 150ms, 400ms, 1s, 2s, 3.5s, 5s, 8s. Eight no-op dispatches over the
+// first 8 seconds is negligible.
 type firstPromptFlushMsg struct{}
 
 var ChatPage PageID = "chat"
@@ -235,8 +245,9 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 
 	// First-prompt flush nudge — see firstPromptFlushMsg comment. Without these
 	// the user had to press Enter twice on the very first prompt of a fresh
-	// `.act/` to see the response. Three staggered ticks cover the LLM-first-
-	// token timing variance.
+	// `.act/` to see the response. The schedule covers both the original cold-
+	// start window (50–400ms) and the post-splash gap (1–8s) where harmonica
+	// FrameMsgs have stopped but the Planner LLM response hasn't arrived yet.
 	if !p.firstSendDone {
 		p.firstSendDone = true
 		flush := func(time.Time) tea.Msg { return firstPromptFlushMsg{} }
@@ -244,6 +255,11 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 			tea.Tick(50*time.Millisecond, flush),
 			tea.Tick(150*time.Millisecond, flush),
 			tea.Tick(400*time.Millisecond, flush),
+			tea.Tick(1000*time.Millisecond, flush),
+			tea.Tick(2000*time.Millisecond, flush),
+			tea.Tick(3500*time.Millisecond, flush),
+			tea.Tick(5000*time.Millisecond, flush),
+			tea.Tick(8000*time.Millisecond, flush),
 		)
 	}
 
