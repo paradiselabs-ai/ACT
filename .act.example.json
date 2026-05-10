@@ -1,8 +1,12 @@
 {
-  "_comment": "ACT per-role model + provider config. Move to ~/.act.json (NOT repo root) and fill in your own API keys. Provider IDs reference the model strings the provider expects; ACT writes these raw.",
+  "_comment": "ACT per-role config. Move to ~/.act.json (NOT repo root). Each agent specifies a provider (key under \"providers\") and a model string passed verbatim to the upstream API. ACT does not maintain a list of supported models — type the upstream identifier as-is.",
   "data": {},
   "providers": {
     "anthropic": {
+      "apiKey": "",
+      "disabled": true
+    },
+    "openai": {
       "apiKey": "",
       "disabled": true
     },
@@ -11,62 +15,65 @@
       "apiKey": "",
       "disabled": true
     },
-    "openai": {
-      "apiKey": "",
-      "disabled": true
-    },
     "openrouter": {
       "_comment": "Aggregator with many free models. Get a key at https://openrouter.ai",
       "apiKey": "",
       "disabled": true
+    },
+    "gemini": {
+      "apiKey": "",
+      "disabled": true
+    },
+    "xai": {
+      "apiKey": "",
+      "disabled": true
+    },
+    "local": {
+      "_comment": "OpenAI-compatible local endpoint. baseURL points at LM Studio (default), Ollama (http://localhost:11434/v1), vLLM, etc. apiKey is usually empty for local.",
+      "baseURL": "http://localhost:1234/v1",
+      "apiKey": ""
     }
   },
   "agents": {
-    "_comment": "Tier 1 = Planner / Observer / Assurance / QA. Tier 2 = swarm developer / frontend / backend / qa / researcher.",
+    "_comment": "Tier 1 = Planner / Observer / Assurance / QA. Tier 2 = swarm developer / frontend_dev / backend_dev / qa_engineer / researcher.",
     "planner": {
       "_comment": "STRONGEST model. Decision-maker. Don't skimp.",
+      "provider": "openrouter",
       "model": "z-ai/glm-4.5-air:free",
       "maxTokens": 8000
     },
     "observer": {
       "_comment": "Mid-tier. Watchdog, only fires on anomalies.",
+      "provider": "openrouter",
       "model": "openai/gpt-oss-120b:free",
       "maxTokens": 2000
     },
     "assurance": {
       "_comment": "Mid-tier. Validates @success_criteria with tools.",
+      "provider": "openrouter",
       "model": "minimax/minimax-m2.5:free",
       "maxTokens": 5000
     },
     "qa_synthesizer": {
       "_comment": "Mid-tier. Assembles validated work.",
+      "provider": "openrouter",
       "model": "openai/gpt-oss-120b:free",
       "maxTokens": 5000
     },
     "developer": {
       "_comment": "Default swarm. backend=claude-code uses your Claude Code subscription instead of API tokens.",
-      "model": "",
-      "maxTokens": 5000,
       "backend": "claude-code"
     },
     "frontend_dev": {
-      "model": "",
-      "maxTokens": 5000,
       "backend": "claude-code"
     },
     "backend_dev": {
-      "model": "",
-      "maxTokens": 5000,
       "backend": "claude-code"
     },
     "qa_engineer": {
-      "model": "",
-      "maxTokens": 5000,
       "backend": "claude-code"
     },
     "researcher": {
-      "model": "",
-      "maxTokens": 5000,
       "backend": "claude-code"
     }
   },

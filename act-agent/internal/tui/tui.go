@@ -352,12 +352,11 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.isCompacting = false
 			return a, util.ReportInfo("Session summarization complete")
 		} else if payload.Done && payload.Type == agent.AgentEventTypeResponse && a.selectedSession.ID != "" {
-			model := a.app.Agents["planner"].Model()
-			contextWindow := model.ContextWindow
-			tokens := a.selectedSession.CompletionTokens + a.selectedSession.PromptTokens
-			if (tokens >= int64(float64(contextWindow)*0.95)) && config.Get().AutoCompact {
-				return a, util.CmdHandler(startCompactSessionMsg{})
-			}
+			// Auto-compaction by context-window threshold removed alongside
+			// the model registry — ACT no longer knows model context windows.
+			// Compaction is now user-triggered via /compact (or auto-triggered
+			// by an explicit token-count threshold once we wire that up).
+			_ = a.app.Agents["planner"].Model()
 		}
 		// Continue listening for events
 		return a, nil
@@ -378,12 +377,13 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
 
-		model, err := a.app.Agents["planner"].Update(config.RolePlanner, msg.Model.ID)
-		if err != nil {
+		if err := config.UpdateAgentProvider(config.RolePlanner, msg.Model.Provider, msg.Model.ID); err != nil {
 			return a, util.ReportError(err)
 		}
-
-		return a, util.ReportInfo(fmt.Sprintf("Model changed to %s", model.Name))
+		if _, err := a.app.Agents["planner"].Update(config.RolePlanner, msg.Model.ID); err != nil {
+			return a, util.ReportError(err)
+		}
+		return a, util.ReportInfo(fmt.Sprintf("Planner model changed to %s (%s)", msg.Model.ID, msg.Model.Provider))
 
 	case dialog.ShowOnboardingDialogMsg:
 		a.showOnboardingDialog = msg.Show

@@ -9,7 +9,6 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
-	"github.com/spf13/viper"
 )
 
 type EventType string
@@ -62,6 +61,7 @@ type Provider interface {
 
 type providerClientOptions struct {
 	apiKey        string
+	baseURL       string
 	model         models.Model
 	maxTokens     int64
 	systemMessage string
@@ -89,6 +89,17 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	for _, o := range opts {
 		o(&clientOptions)
 	}
+	// Per-provider default endpoints. The user can override any of these
+	// via providers.<name>.baseURL in ~/.act.json (clientOptions.baseURL).
+	// "local" has no real default; we fall back to LM Studio's port so the
+	// LM Studio quickstart is zero-config.
+	pickBase := func(defaultURL string) string {
+		if clientOptions.baseURL != "" {
+			return clientOptions.baseURL
+		}
+		return defaultURL
+	}
+
 	switch providerName {
 	case models.ProviderAnthropic:
 		return &baseProvider[AnthropicClient]{
@@ -96,6 +107,9 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 			client:  newAnthropicClient(clientOptions),
 		}, nil
 	case models.ProviderOpenAI:
+		if base := pickBase(""); base != "" {
+			clientOptions.openaiOptions = append(clientOptions.openaiOptions, WithOpenAIBaseURL(base))
+		}
 		return &baseProvider[OpenAIClient]{
 			options: clientOptions,
 			client:  newOpenAIClient(clientOptions),
@@ -112,7 +126,7 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 		}, nil
 	case models.ProviderGROQ:
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
-			WithOpenAIBaseURL("https://api.groq.com/openai/v1"),
+			WithOpenAIBaseURL(pickBase("https://api.groq.com/openai/v1")),
 		)
 		return &baseProvider[OpenAIClient]{
 			options: clientOptions,
@@ -130,7 +144,7 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 		}, nil
 	case models.ProviderOpenRouter:
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
-			WithOpenAIBaseURL("https://openrouter.ai/api/v1"),
+			WithOpenAIBaseURL(pickBase("https://openrouter.ai/api/v1")),
 			WithOpenAIExtraHeaders(map[string]string{
 				"HTTP-Referer": "github.com/paradiselabs-ai/ACT",
 				"X-Title":      "ACT Agent",
@@ -142,35 +156,32 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 		}, nil
 	case models.ProviderXAI:
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
-			WithOpenAIBaseURL("https://api.x.ai/v1"),
+			WithOpenAIBaseURL(pickBase("https://api.x.ai/v1")),
 		)
 		return &baseProvider[OpenAIClient]{
 			options: clientOptions,
 			client:  newOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderLocal:
-		// Resolution order for the local OpenAI-compatible endpoint:
-		//   1. providers.local.baseURL in ~/.act.json (canonical, like every
-		//      other provider's config)
-		//   2. LOCAL_ENDPOINT env var (legacy fallback)
-		//   3. http://localhost:1234/v1 (LM Studio default — most common
-		//      local setup; users can override either of the above)
-		baseURL := viper.GetString("providers.local.baseURL")
-		if baseURL == "" {
-			baseURL = os.Getenv("LOCAL_ENDPOINT")
+		// Resolution order:
+		//   1. providers.local.baseURL in ~/.act.json (clientOptions.baseURL)
+		//   2. LOCAL_ENDPOINT env var (legacy)
+		//   3. http://localhost:1234/v1 (LM Studio default)
+		base := clientOptions.baseURL
+		if base == "" {
+			base = os.Getenv("LOCAL_ENDPOINT")
 		}
-		if baseURL == "" {
-			baseURL = "http://localhost:1234/v1"
+		if base == "" {
+			base = "http://localhost:1234/v1"
 		}
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
-			WithOpenAIBaseURL(baseURL),
+			WithOpenAIBaseURL(base),
 		)
 		return &baseProvider[OpenAIClient]{
 			options: clientOptions,
 			client:  newOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderMock:
-		// TODO: implement mock client for test
 		panic("not implemented")
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)
@@ -245,6 +256,14 @@ func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message
 func WithAPIKey(apiKey string) ProviderClientOption {
 	return func(options *providerClientOptions) {
 		options.apiKey = apiKey
+	}
+}
+
+// WithBaseURL overrides the default upstream endpoint for a provider.
+// Set via providers.<name>.baseURL in ~/.act.json.
+func WithBaseURL(baseURL string) ProviderClientOption {
+	return func(options *providerClientOptions) {
+		options.baseURL = baseURL
 	}
 }
 

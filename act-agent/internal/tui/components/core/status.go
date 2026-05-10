@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp/protocol"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
@@ -126,15 +125,11 @@ func formatTokensAndCost(tokens, contextWindow int64, cost float64) string {
 func (m statusCmp) View() tea.View {
 	t := theme.CurrentTheme()
 
-	// For session token tracking, use the largest context window across all
-	// Tier 1 agents — the conversation as a whole is bounded by whichever
-	// agent has the most headroom.
+	// Context window is no longer tracked statically (model registry
+	// removed). The token-percentage bar would need a per-provider
+	// /v1/models lookup or user-supplied limit; until that lands, we
+	// just hide the bar.
 	var contextWindow int64
-	for _, cfg := range config.Tier1Configs() {
-		if w := models.SupportedModels[cfg.Model].ContextWindow; w > contextWindow {
-			contextWindow = w
-		}
-	}
 
 	// Initialize the help widget
 	status := getHelpWidget()
@@ -336,10 +331,7 @@ func (m statusCmp) tier1Models() string {
 			parts = append(parts, label+":-")
 			continue
 		}
-		modelName := models.SupportedModels[cfg.Model].Name
-		if modelName == "" {
-			modelName = string(cfg.Model)
-		}
+		modelName := string(cfg.Model)
 		// Trim long model names so the status bar doesn't blow out
 		if len(modelName) > 12 {
 			modelName = modelName[:12]

@@ -222,11 +222,9 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (f *filepickerCmp) addAttachmentToMessage() (tea.Model, tea.Cmd) {
-	modeInfo := GetSelectedModel(config.Get())
-	if !modeInfo.SupportsAttachments {
-		logging.ErrorPersist(fmt.Sprintf("Model %s doesn't support attachments", modeInfo.Name))
-		return f, nil
-	}
+	// Attachment support is no longer pre-classified — pass through and
+	// let the provider error if the model can't handle the attachment.
+	_ = GetSelectedModel(config.Get())
 
 	selectedFilePath := f.selectedFile
 	if !isExtSupported(selectedFilePath) {

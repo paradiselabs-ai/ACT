@@ -1,105 +1,44 @@
+// Package models contains LLM provider+model identifiers.
+//
+// ACT does NOT maintain a registry of "supported" models. The user writes
+// the upstream provider's model string verbatim in ~/.act.json under
+// agents.<role>.model, along with agents.<role>.provider. ACT routes by
+// provider name and passes the model string through to the upstream API.
+// New models become "supported" by writing the string in config — no code
+// change required.
 package models
 
-import "maps"
-
 type (
-	ModelID       string
+	// ModelID is the upstream model string passed verbatim to the provider
+	// (e.g. "claude-sonnet-4-20250514", "z-ai/glm-4.5-air:free",
+	// "qwen2.5-coder-14b-instruct").
+	ModelID string
+
+	// ModelProvider identifies which provider client routes the request.
 	ModelProvider string
 )
 
+// Model is a thin per-turn descriptor passed to provider clients. It
+// carries only the data the client needs to make a request: the upstream
+// model string, which provider, and the per-turn maxTokens budget.
 type Model struct {
-	ID                  ModelID       `json:"id"`
-	Name                string        `json:"name"`
-	Provider            ModelProvider `json:"provider"`
-	APIModel            string        `json:"api_model"`
-	CostPer1MIn         float64       `json:"cost_per_1m_in"`
-	CostPer1MOut        float64       `json:"cost_per_1m_out"`
-	CostPer1MInCached   float64       `json:"cost_per_1m_in_cached"`
-	CostPer1MOutCached  float64       `json:"cost_per_1m_out_cached"`
-	ContextWindow       int64         `json:"context_window"`
-	DefaultMaxTokens    int64         `json:"default_max_tokens"`
-	CanReason           bool          `json:"can_reason"`
-	SupportsAttachments bool          `json:"supports_attachments"`
-
-	// ToolsUnsupported marks a model whose available providers do NOT
-	// reliably support tool calling. The default zero-value is false
-	// (most models support tools), so this field is set true ONLY for
-	// known-broken cases — typically free OpenRouter providers serving
-	// large models without tool-call routing. The config validator
-	// refuses to assign a ToolsUnsupported model to a Tier 1 role
-	// because every Tier 1 agent needs the bash tool to call `act`.
-	ToolsUnsupported bool `json:"tools_unsupported,omitempty"`
+	ID        ModelID       `json:"id"`
+	Provider  ModelProvider `json:"provider"`
+	MaxTokens int64         `json:"maxTokens,omitempty"`
 }
 
-// Model IDs
-const ( // GEMINI
-	// Bedrock
-	BedrockClaude37Sonnet ModelID = "bedrock.claude-3.7-sonnet"
-)
-
+// Provider identifiers. Each value matches a key under "providers" in
+// ~/.act.json and a case in provider.NewProvider.
 const (
-	ProviderBedrock ModelProvider = "bedrock"
-	// ForTests
-	ProviderMock ModelProvider = "__mock"
+	ProviderAnthropic  ModelProvider = "anthropic"
+	ProviderOpenAI     ModelProvider = "openai"
+	ProviderGemini     ModelProvider = "gemini"
+	ProviderGROQ       ModelProvider = "groq"
+	ProviderOpenRouter ModelProvider = "openrouter"
+	ProviderXAI        ModelProvider = "xai"
+	ProviderAzure      ModelProvider = "azure"
+	ProviderVertexAI   ModelProvider = "vertexai"
+	ProviderBedrock    ModelProvider = "bedrock"
+	ProviderLocal      ModelProvider = "local"
+	ProviderMock       ModelProvider = "__mock"
 )
-
-// Providers in order of popularity
-var ProviderPopularity = map[ModelProvider]int{
-	ProviderAnthropic:  1,
-	ProviderOpenAI:     2,
-	ProviderGemini:     3,
-	ProviderGROQ:       4,
-	ProviderOpenRouter: 5,
-	ProviderBedrock:    6,
-	ProviderAzure:      7,
-	ProviderVertexAI:   8,
-}
-
-var SupportedModels = map[ModelID]Model{
-	//
-	// // GEMINI
-	// GEMINI25: {
-	// 	ID:                 GEMINI25,
-	// 	Name:               "Gemini 2.5 Pro",
-	// 	Provider:           ProviderGemini,
-	// 	APIModel:           "gemini-2.5-pro-exp-03-25",
-	// 	CostPer1MIn:        0,
-	// 	CostPer1MInCached:  0,
-	// 	CostPer1MOutCached: 0,
-	// 	CostPer1MOut:       0,
-	// },
-	//
-	// GRMINI20Flash: {
-	// 	ID:                 GRMINI20Flash,
-	// 	Name:               "Gemini 2.0 Flash",
-	// 	Provider:           ProviderGemini,
-	// 	APIModel:           "gemini-2.0-flash",
-	// 	CostPer1MIn:        0.1,
-	// 	CostPer1MInCached:  0,
-	// 	CostPer1MOutCached: 0.025,
-	// 	CostPer1MOut:       0.4,
-	// },
-	//
-	// // Bedrock
-	BedrockClaude37Sonnet: {
-		ID:                 BedrockClaude37Sonnet,
-		Name:               "Bedrock: Claude 3.7 Sonnet",
-		Provider:           ProviderBedrock,
-		APIModel:           "anthropic.claude-3-7-sonnet-20250219-v1:0",
-		CostPer1MIn:        3.0,
-		CostPer1MInCached:  3.75,
-		CostPer1MOutCached: 0.30,
-		CostPer1MOut:       15.0,
-	},
-}
-
-func init() {
-	maps.Copy(SupportedModels, AnthropicModels)
-	maps.Copy(SupportedModels, OpenAIModels)
-	maps.Copy(SupportedModels, GeminiModels)
-	maps.Copy(SupportedModels, GroqModels)
-	maps.Copy(SupportedModels, AzureModels)
-	maps.Copy(SupportedModels, OpenRouterModels)
-	maps.Copy(SupportedModels, XAIModels)
-	maps.Copy(SupportedModels, VertexAIGeminiModels)
-}

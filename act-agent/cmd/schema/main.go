@@ -196,9 +196,11 @@ func generateSchema() map[string]any {
 		string(models.ProviderGemini),
 		string(models.ProviderGROQ),
 		string(models.ProviderOpenRouter),
+		string(models.ProviderXAI),
 		string(models.ProviderBedrock),
 		string(models.ProviderAzure),
 		string(models.ProviderVertexAI),
+		string(models.ProviderLocal),
 	}
 
 	providerSchema["additionalProperties"].(map[string]any)["properties"].(map[string]any)["provider"] = map[string]any{
@@ -209,7 +211,9 @@ func generateSchema() map[string]any {
 
 	schema["properties"].(map[string]any)["providers"] = providerSchema
 
-	// Add agents
+	// Add agents. The model field is a free-form string — ACT does not
+	// maintain a registry of "supported" models. The user writes the
+	// upstream provider's model identifier verbatim.
 	agentSchema := map[string]any{
 		"type":        "object",
 		"description": "Agent configurations",
@@ -217,9 +221,14 @@ func generateSchema() map[string]any {
 			"type":        "object",
 			"description": "Agent configuration",
 			"properties": map[string]any{
+				"provider": map[string]any{
+					"type":        "string",
+					"description": "Provider key (must match a key under \"providers\")",
+					"enum":        knownProviders,
+				},
 				"model": map[string]any{
 					"type":        "string",
-					"description": "Model ID for the agent",
+					"description": "Upstream model string, passed verbatim to the provider API",
 				},
 				"maxTokens": map[string]any{
 					"type":        "integer",
@@ -228,20 +237,18 @@ func generateSchema() map[string]any {
 				},
 				"reasoningEffort": map[string]any{
 					"type":        "string",
-					"description": "Reasoning effort for models that support it (OpenAI, Anthropic)",
+					"description": "Reasoning effort for models that support it (low|medium|high)",
 					"enum":        []string{"low", "medium", "high"},
 				},
+				"backend": map[string]any{
+					"type":        "string",
+					"description": "Tier 2 backend selector (act-agent | claude-code)",
+					"enum":        []string{"act-agent", "claude-code"},
+				},
 			},
-			"required": []string{"model"},
+			"required": []string{"provider", "model"},
 		},
 	}
-
-	// Add model enum
-	modelEnum := []string{}
-	for modelID := range models.SupportedModels {
-		modelEnum = append(modelEnum, string(modelID))
-	}
-	agentSchema["additionalProperties"].(map[string]any)["properties"].(map[string]any)["model"].(map[string]any)["enum"] = modelEnum
 
 	// Add specific agent properties — ACT roles plus auxiliary helpers
 	// (title/task/summarizer). There is no generic catch-all role.
