@@ -352,11 +352,23 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.isCompacting = false
 			return a, util.ReportInfo("Session summarization complete")
 		} else if payload.Done && payload.Type == agent.AgentEventTypeResponse && a.selectedSession.ID != "" {
-			// Auto-compaction by context-window threshold removed alongside
-			// the model registry — ACT no longer knows model context windows.
-			// Compaction is now user-triggered via /compact (or auto-triggered
-			// by an explicit token-count threshold once we wire that up).
-			_ = a.app.Agents["planner"].Model()
+			// Auto-compaction is ACT hygiene, not model arithmetic. Whatever
+			// the conversation accumulates still gets sent to whichever model
+			// is current; compaction exists to keep system prompts + project
+			// context + recent turns coherent and prevent drift. The trigger
+			// is an ACT-defined token total, configurable via autoCompactTokens
+			// in ~/.act.json.
+			cfg := config.Get()
+			if cfg != nil && cfg.AutoCompact {
+				threshold := cfg.AutoCompactTokens
+				if threshold <= 0 {
+					threshold = config.DefaultAutoCompactTokens
+				}
+				tokens := a.selectedSession.CompletionTokens + a.selectedSession.PromptTokens
+				if tokens >= threshold {
+					return a, util.CmdHandler(startCompactSessionMsg{})
+				}
+			}
 		}
 		// Continue listening for events
 		return a, nil

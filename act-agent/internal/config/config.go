@@ -208,6 +208,14 @@ type Config struct {
 	TUI          TUIConfig                         `json:"tui"`
 	Shell        ShellConfig                       `json:"shell,omitempty"`
 	AutoCompact  bool                              `json:"autoCompact,omitempty"`
+	// AutoCompactTokens is the conversation token total at which Tier 1
+	// auto-compaction fires (when AutoCompact is true). This is ACT's own
+	// hygiene threshold, NOT the model's context window — compaction in
+	// ACT exists to keep context engineering / system prompts / project
+	// data effective and prevent drift, regardless of which model is in
+	// use. Whatever the conversation has accumulated still gets sent to
+	// whichever model is current. Default: 120000 tokens.
+	AutoCompactTokens int64 `json:"autoCompactTokens,omitempty"`
 }
 
 // Application constants
@@ -217,6 +225,13 @@ const (
 	appName              = "act"
 
 	MaxTokensFallbackDefault = 4096
+
+	// DefaultAutoCompactTokens is the conversation total above which
+	// auto-compaction fires when AutoCompact is enabled. Picked to keep
+	// Tier 1 prompts focused — system prompts + AGENTS.md + recent
+	// turns rarely exceed this in healthy operation, so crossing it
+	// signals drift worth summarizing.
+	DefaultAutoCompactTokens int64 = 120000
 )
 
 // defaultContextPaths are files auto-loaded into every agent's system prompt
