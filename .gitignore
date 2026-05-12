@@ -50,6 +50,7 @@ taskade agentics.md
 !nestty/*.md
 !tests/*.md
 !.windsurf/**/*.md
+!.devtool/**/*.md
 
 # ── Python environment ───────────────────────
 __pycache__/
