@@ -1,4 +1,5 @@
 # ACT — Agent Coordination Toolkit
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/paradiselabs-ai/ACT)
 
 **Four specialized AI roles run a swarm of coding agents on your project, with hard validation between work and delivery. One terminal. One chat view.**
 
