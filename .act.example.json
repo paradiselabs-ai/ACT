@@ -37,31 +37,32 @@
   "agents": {
     "_comment": "Tier 1 = Planner / Observer / Assurance / QA. Tier 2 = swarm developer / frontend_dev / backend_dev / qa_engineer / researcher.",
     "planner": {
-      "_comment": "STRONGEST model. Decision-maker. Don't skimp.",
+      "_comment": "Most important model. Project decomposition + task creation + context engineering for swarm agents. Don't skimp.",
       "provider": "openrouter",
       "model": "z-ai/glm-4.5-air:free",
       "maxTokens": 8000
     },
     "observer": {
-      "_comment": "Mid-tier. Watchdog, only fires on anomalies.",
+      "_comment": "Watchdog. Monitors swarm and Tier 1 agent activity. Identifies anomalies, conflicts, bottlenecks, hung agents, etc.",
       "provider": "openrouter",
       "model": "openai/gpt-oss-120b:free",
       "maxTokens": 2000
     },
     "assurance": {
-      "_comment": "Mid-tier. Validates @success_criteria with tools.",
+      "_comment": "Validates that swarm-completed tasks meet @success_criteria + @constraints with tools. Passes only when all criteria are >=95% met.",
       "provider": "openrouter",
       "model": "minimax/minimax-m2.5:free",
       "maxTokens": 5000
     },
     "qa_synthesizer": {
-      "_comment": "Mid-tier. Assembles validated work.",
+      "_comment": "Only accepts tasks that pass assurance. Assembles validated work into the final deliverable.",
       "provider": "openrouter",
       "model": "openai/gpt-oss-120b:free",
       "maxTokens": 5000
     },
     "developer": {
-      "_comment": "Default swarm. backend=claude-code uses your Claude Code subscription instead of API tokens.",
+      "_comment": "Default swarm role. Multiple instances each retain their own context — all handled by ACT.",
+      "_comment_backend": "If backend is set to claude-code, leave provider+model empty and ACT uses your Claude Code subscription (no API tokens spent, no token spoofing).",
       "backend": "claude-code"
     },
     "frontend_dev": {
