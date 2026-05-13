@@ -161,12 +161,15 @@ func (o *openaiClient) finishReason(reason string) message.FinishReason {
 
 func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(o.providerOptions.model.APIModel),
+		Model:    openai.ChatModel(string(o.providerOptions.model.ID)),
 		Messages: messages,
 		Tools:    tools,
 	}
 
-	if o.providerOptions.model.CanReason == true {
+	// Reasoning effort is opt-in: pass it through if the user set it; the
+	// upstream API will reject it for non-reasoning models. ACT does not
+	// pre-classify which models can reason — that was registry behavior.
+	if o.options.reasoningEffort != "" {
 		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
 		switch o.options.reasoningEffort {
 		case "low":

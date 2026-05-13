@@ -352,11 +352,22 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.isCompacting = false
 			return a, util.ReportInfo("Session summarization complete")
 		} else if payload.Done && payload.Type == agent.AgentEventTypeResponse && a.selectedSession.ID != "" {
-			model := a.app.Agents["planner"].Model()
-			contextWindow := model.ContextWindow
-			tokens := a.selectedSession.CompletionTokens + a.selectedSession.PromptTokens
-			if (tokens >= int64(float64(contextWindow)*0.95)) && config.Get().AutoCompact {
-				return a, util.CmdHandler(startCompactSessionMsg{})
+			// Auto-compaction is ACT hygiene, not model arithmetic. Whatever
+			// the conversation accumulates still gets sent to whichever model
+			// is current; compaction exists to keep system prompts + project
+			// context + recent turns coherent and prevent drift. The trigger
+			// is an ACT-defined token total, configurable via autoCompactTokens
+			// in ~/.act.json.
+			cfg := config.Get()
+			if cfg != nil && cfg.AutoCompact {
+				threshold := cfg.AutoCompactTokens
+				if threshold <= 0 {
+					threshold = config.DefaultAutoCompactTokens
+				}
+				tokens := a.selectedSession.CompletionTokens + a.selectedSession.PromptTokens
+				if tokens >= threshold {
+					return a, util.CmdHandler(startCompactSessionMsg{})
+				}
 			}
 		}
 		// Continue listening for events
@@ -378,12 +389,13 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
 
-		model, err := a.app.Agents["planner"].Update(config.RolePlanner, msg.Model.ID)
-		if err != nil {
+		if err := config.UpdateAgentProvider(config.RolePlanner, msg.Model.Provider, msg.Model.ID); err != nil {
 			return a, util.ReportError(err)
 		}
-
-		return a, util.ReportInfo(fmt.Sprintf("Model changed to %s", model.Name))
+		if _, err := a.app.Agents["planner"].Update(config.RolePlanner, msg.Model.ID); err != nil {
+			return a, util.ReportError(err)
+		}
+		return a, util.ReportInfo(fmt.Sprintf("Planner model changed to %s (%s)", msg.Model.ID, msg.Model.Provider))
 
 	case dialog.ShowOnboardingDialogMsg:
 		a.showOnboardingDialog = msg.Show

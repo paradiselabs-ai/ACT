@@ -81,16 +81,23 @@ const (
 // backend_dev, qa_engineer, researcher). Tier 1 agents (planner, observer,
 // assurance, qa_synthesizer) run as in-process goroutines and ignore this field.
 type Agent struct {
-	Model           models.ModelID `json:"model"`
-	MaxTokens       int64          `json:"maxTokens"`
-	ReasoningEffort string         `json:"reasoningEffort,omitempty"` // For openai models low,medium,heigh
-	Backend         string         `json:"backend,omitempty"`         // Tier 2 only: "act-agent" | "claude-code"
+	Provider        models.ModelProvider `json:"provider"`                  // routes to providers.<name> in ~/.act.json
+	Model           models.ModelID       `json:"model"`                     // upstream model string, passed verbatim
+	MaxTokens       int64                `json:"maxTokens"`
+	ReasoningEffort string               `json:"reasoningEffort,omitempty"` // low|medium|high — passed through if set
+	Backend         string               `json:"backend,omitempty"`         // Tier 2 only: "act-agent" | "claude-code"
 }
 
-// Provider defines configuration for an LLM provider.
+// Provider defines configuration for an LLM provider. BaseURL overrides
+// the hardcoded provider URL in provider.NewProvider — useful for
+// self-hosted endpoints, custom proxies, and local OpenAI-compatible
+// servers (LM Studio, Ollama, vLLM). For "local", BaseURL replaces the
+// LM Studio default (http://localhost:1234/v1) and is the canonical place
+// to point at Ollama's "http://localhost:11434/v1".
 type Provider struct {
 	APIKey   string `json:"apiKey"`
-	Disabled bool   `json:"disabled"`
+	BaseURL  string `json:"baseURL,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
 }
 
 // AgentConfigForRole returns the agent config for an ACT role. Looks up
@@ -112,17 +119,6 @@ func AgentConfigForRole(role string) AgentName {
 // these four all share the conversation and each has its own LLM model.
 func Tier1AgentNames() []AgentName {
 	return []AgentName{RolePlanner, RoleObserver, RoleAssurance, RoleQASynthesizer}
-}
-
-// isTier1Agent reports whether the given role is one of the four Tier 1
-// NesTTY roles. Used by the validator to apply Tier-1-specific constraints
-// (e.g. tool-call support requirement) without depending on a slice scan.
-func isTier1Agent(name AgentName) bool {
-	switch name {
-	case RolePlanner, RoleObserver, RoleAssurance, RoleQASynthesizer:
-		return true
-	}
-	return false
 }
 
 // Tier1Configs returns the configured Agent struct for each Tier 1 role.
@@ -212,6 +208,14 @@ type Config struct {
 	TUI          TUIConfig                         `json:"tui"`
 	Shell        ShellConfig                       `json:"shell,omitempty"`
 	AutoCompact  bool                              `json:"autoCompact,omitempty"`
+	// AutoCompactTokens is the conversation token total at which Tier 1
+	// auto-compaction fires (when AutoCompact is true). This is ACT's own
+	// hygiene threshold, NOT the model's context window — compaction in
+	// ACT exists to keep context engineering / system prompts / project
+	// data effective and prevent drift, regardless of which model is in
+	// use. Whatever the conversation has accumulated still gets sent to
+	// whichever model is current. Default: 120000 tokens.
+	AutoCompactTokens int64 `json:"autoCompactTokens,omitempty"`
 }
 
 // Application constants
@@ -221,6 +225,13 @@ const (
 	appName              = "act"
 
 	MaxTokensFallbackDefault = 4096
+
+	// DefaultAutoCompactTokens is the conversation total above which
+	// auto-compaction fires when AutoCompact is enabled. Picked to keep
+	// Tier 1 prompts focused — system prompts + AGENTS.md + recent
+	// turns rarely exceed this in healthy operation, so crossing it
+	// signals drift worth summarizing.
+	DefaultAutoCompactTokens int64 = 120000
 )
 
 // defaultContextPaths are files auto-loaded into every agent's system prompt
@@ -406,45 +417,6 @@ func setProviderDefaults() {
 	// launch, so we don't set any agent defaults here anymore.
 }
 
-// hasAWSCredentials checks if AWS credentials are available in the environment.
-func hasAWSCredentials() bool {
-	// Check for explicit AWS credentials
-	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
-		return true
-	}
-
-	// Check for AWS profile
-	if os.Getenv("AWS_PROFILE") != "" || os.Getenv("AWS_DEFAULT_PROFILE") != "" {
-		return true
-	}
-
-	// Check for AWS region
-	if os.Getenv("AWS_REGION") != "" || os.Getenv("AWS_DEFAULT_REGION") != "" {
-		return true
-	}
-
-	// Check if running on EC2 with instance profile
-	if os.Getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" ||
-		os.Getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
-		return true
-	}
-
-	return false
-}
-
-// hasVertexAICredentials checks if VertexAI credentials are available in the environment.
-func hasVertexAICredentials() bool {
-	// Check for explicit VertexAI parameters
-	if os.Getenv("VERTEXAI_PROJECT") != "" && os.Getenv("VERTEXAI_LOCATION") != "" {
-		return true
-	}
-	// Check for Google Cloud project and location
-	if os.Getenv("GOOGLE_CLOUD_PROJECT") != "" && (os.Getenv("GOOGLE_CLOUD_REGION") != "" || os.Getenv("GOOGLE_CLOUD_LOCATION") != "") {
-		return true
-	}
-	return false
-}
-
 // readConfig handles the result of reading a configuration file.
 func readConfig(err error) error {
 	if err == nil {
@@ -483,196 +455,47 @@ func applyDefaultValues() {
 	}
 }
 
-// resolveModelAlias accepts either a synthetic ModelID (e.g.
-// "openrouter.deepseek-v3-free") OR a real upstream API ID (e.g.
-// "nvidia/nemotron-3-super-120b-a12b:free") and returns the synthetic ID if
-// either form resolves to a registered model. Returns empty string if no
-// match. Lets users write the actual provider model string in .act.json
-// instead of memorizing ACT's internal aliases.
-func resolveModelAlias(input string) models.ModelID {
-	if input == "" {
-		return ""
-	}
-	id := models.ModelID(input)
-	if _, ok := models.SupportedModels[id]; ok {
-		return id
-	}
-	// Reverse lookup by APIModel (the actual upstream string).
-	for mid, m := range models.SupportedModels {
-		if m.APIModel == input {
-			return mid
-		}
-	}
-	return ""
-}
-
-// It validates model IDs and providers, ensuring they are supported.
+// validateAgent performs lightweight, declarative checks on an agent's
+// config block. There is NO model registry — ACT does not know or care
+// which model strings are "supported". The upstream provider validates
+// the model name when the first request is made. We only verify that
+// the agent points at a configured, enabled provider with credentials.
 func validateAgent(cfg *Config, name AgentName, agent Agent) error {
-	// Tier 2 swarm agents using the claude-code backend don't have an
-	// act-agent-side model — Claude Code's own config picks the model. Skip
-	// model/provider validation entirely for these. The model field is
-	// expected to be empty in this case.
+	// Tier 2 swarm agents using the claude-code backend run an external
+	// CLI; their model is configured by Claude Code itself.
 	if agent.Backend == "claude-code" {
 		return nil
 	}
-
-	// Resolve real-API-ID aliases to synthetic IDs so users can write either
-	// in .act.json. After this, agent.Model is always a synthetic ModelID
-	// that downstream code can look up directly.
-	if resolved := resolveModelAlias(string(agent.Model)); resolved != "" {
-		if resolved != agent.Model {
-			updated := cfg.Agents[name]
-			updated.Model = resolved
-			cfg.Agents[name] = updated
-			agent.Model = resolved
+	if agent.Provider == "" {
+		return fmt.Errorf("agent %s missing required field 'provider' — set it to one of: anthropic, openai, gemini, groq, openrouter, xai, azure, vertexai, bedrock, local", name)
+	}
+	if agent.Model == "" {
+		return fmt.Errorf("agent %s missing required field 'model' — write the upstream model string verbatim (e.g. \"claude-sonnet-4-20250514\", \"z-ai/glm-4.5-air:free\")", name)
+	}
+	providerCfg, ok := cfg.Providers[agent.Provider]
+	if !ok {
+		return fmt.Errorf("agent %s configured for provider %q which is not present under \"providers\" in ~/.act.json", name, agent.Provider)
+	}
+	if providerCfg.Disabled {
+		return fmt.Errorf("agent %s configured for provider %q which is disabled in ~/.act.json", name, agent.Provider)
+	}
+	// Local provider needs only a baseURL (or the LM Studio default);
+	// every other provider needs an API key. Bedrock/VertexAI surface
+	// their own credential errors at request time when the provider
+	// SDK probes the environment.
+	switch agent.Provider {
+	case models.ProviderLocal, models.ProviderBedrock, models.ProviderVertexAI:
+		// no apiKey requirement at config-load time
+	default:
+		if providerCfg.APIKey == "" {
+			return fmt.Errorf("provider %q has no apiKey set in ~/.act.json (used by agent %s)", agent.Provider, name)
 		}
 	}
-
-	// Check if model exists
-	model, modelExists := models.SupportedModels[agent.Model]
-	if !modelExists {
-		logging.Warn("unsupported model configured, reverting to default",
-			"agent", name,
-			"configured_model", agent.Model)
-
-		// Set default model based on available providers
-		if setDefaultModelForAgent(name) {
-			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-		} else {
-			return fmt.Errorf("no valid provider available for agent %s", name)
-		}
-		return nil
-	}
-
-	// Refuse to assign a known-tool-broken model to a Tier 1 role. Every
-	// Tier 1 agent (Planner/Observer/Assurance/QA) needs the bash tool to
-	// invoke `act` CLI commands; if the model's available providers don't
-	// support tool calls, every request will 404 and the run will hang on
-	// the per-turn timeout. We catch this at config-load time and revert
-	// to a default rather than letting the user discover the failure mid-run.
-	if model.ToolsUnsupported && isTier1Agent(name) {
-		logging.Warn("tier-1 role assigned a model with unsupported tool calling — reverting to default",
-			"agent", name,
-			"configured_model", agent.Model,
-			"reason", "model.ToolsUnsupported=true; Tier 1 needs bash tool")
-		if setDefaultModelForAgent(name) {
-			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-		} else {
-			return fmt.Errorf("agent %s is configured with %s, which does not support tool calls, and no default replacement is available — change the model in ~/.act.json", name, agent.Model)
-		}
-		return nil
-	}
-
-	// Check if provider for the model is configured
-	provider := model.Provider
-	providerCfg, providerExists := cfg.Providers[provider]
-
-	if !providerExists {
-		// Provider not configured, check if we have environment variables
-		apiKey := getProviderAPIKey(provider)
-		if apiKey == "" {
-			logging.Warn("provider not configured for model, reverting to default",
-				"agent", name,
-				"model", agent.Model,
-				"provider", provider)
-
-			// Set default model based on available providers
-			if setDefaultModelForAgent(name) {
-				logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-			} else {
-				return fmt.Errorf("no valid provider available for agent %s", name)
-			}
-		} else {
-			// Add provider with API key from environment
-			cfg.Providers[provider] = Provider{
-				APIKey: apiKey,
-			}
-			logging.Info("added provider from environment", "provider", provider)
-		}
-	} else if providerCfg.Disabled || providerCfg.APIKey == "" {
-		// Provider is disabled or has no API key
-		logging.Warn("provider is disabled or has no API key, reverting to default",
-			"agent", name,
-			"model", agent.Model,
-			"provider", provider)
-
-		// Set default model based on available providers
-		if setDefaultModelForAgent(name) {
-			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-		} else {
-			return fmt.Errorf("no valid provider available for agent %s", name)
-		}
-	}
-
-	// Validate max tokens
 	if agent.MaxTokens <= 0 {
-		logging.Warn("invalid max tokens, setting to default",
-			"agent", name,
-			"model", agent.Model,
-			"max_tokens", agent.MaxTokens)
-
-		// Update the agent with default max tokens
-		updatedAgent := cfg.Agents[name]
-		if model.DefaultMaxTokens > 0 {
-			updatedAgent.MaxTokens = model.DefaultMaxTokens
-		} else {
-			updatedAgent.MaxTokens = MaxTokensFallbackDefault
-		}
-		cfg.Agents[name] = updatedAgent
-	} else if model.ContextWindow > 0 && agent.MaxTokens > model.ContextWindow/2 {
-		// Ensure max tokens doesn't exceed half the context window (reasonable limit)
-		logging.Warn("max tokens exceeds half the context window, adjusting",
-			"agent", name,
-			"model", agent.Model,
-			"max_tokens", agent.MaxTokens,
-			"context_window", model.ContextWindow)
-
-		// Update the agent with adjusted max tokens
-		updatedAgent := cfg.Agents[name]
-		updatedAgent.MaxTokens = model.ContextWindow / 2
-		cfg.Agents[name] = updatedAgent
+		updated := cfg.Agents[name]
+		updated.MaxTokens = MaxTokensFallbackDefault
+		cfg.Agents[name] = updated
 	}
-
-	// Validate reasoning effort for models that support reasoning
-	if model.CanReason && provider == models.ProviderOpenAI || provider == models.ProviderLocal {
-		if agent.ReasoningEffort == "" {
-			// Set default reasoning effort for models that support it
-			logging.Info("setting default reasoning effort for model that supports reasoning",
-				"agent", name,
-				"model", agent.Model)
-
-			// Update the agent with default reasoning effort
-			updatedAgent := cfg.Agents[name]
-			updatedAgent.ReasoningEffort = "medium"
-			cfg.Agents[name] = updatedAgent
-		} else {
-			// Check if reasoning effort is valid (low, medium, high)
-			effort := strings.ToLower(agent.ReasoningEffort)
-			if effort != "low" && effort != "medium" && effort != "high" {
-				logging.Warn("invalid reasoning effort, setting to medium",
-					"agent", name,
-					"model", agent.Model,
-					"reasoning_effort", agent.ReasoningEffort)
-
-				// Update the agent with valid reasoning effort
-				updatedAgent := cfg.Agents[name]
-				updatedAgent.ReasoningEffort = "medium"
-				cfg.Agents[name] = updatedAgent
-			}
-		}
-	} else if !model.CanReason && agent.ReasoningEffort != "" {
-		// Model doesn't support reasoning but reasoning effort is set
-		logging.Warn("model doesn't support reasoning but reasoning effort is set, ignoring",
-			"agent", name,
-			"model", agent.Model,
-			"reasoning_effort", agent.ReasoningEffort)
-
-		// Update the agent to remove reasoning effort
-		updatedAgent := cfg.Agents[name]
-		updatedAgent.ReasoningEffort = ""
-		cfg.Agents[name] = updatedAgent
-	}
-
 	return nil
 }
 
@@ -711,169 +534,9 @@ func Validate() error {
 	return nil
 }
 
-// getProviderAPIKey gets the API key for a provider from environment variables
-func getProviderAPIKey(provider models.ModelProvider) string {
-	switch provider {
-	case models.ProviderAnthropic:
-		return os.Getenv("ANTHROPIC_API_KEY")
-	case models.ProviderOpenAI:
-		return os.Getenv("OPENAI_API_KEY")
-	case models.ProviderGemini:
-		return os.Getenv("GEMINI_API_KEY")
-	case models.ProviderGROQ:
-		return os.Getenv("GROQ_API_KEY")
-	case models.ProviderAzure:
-		return os.Getenv("AZURE_OPENAI_API_KEY")
-	case models.ProviderOpenRouter:
-		return os.Getenv("OPENROUTER_API_KEY")
-	case models.ProviderBedrock:
-		if hasAWSCredentials() {
-			return "aws-credentials-available"
-		}
-	case models.ProviderVertexAI:
-		if hasVertexAICredentials() {
-			return "vertex-ai-credentials-available"
-		}
-	}
-	return ""
-}
-
-// setDefaultModelForAgent sets a default model for an agent based on available providers
-func setDefaultModelForAgent(agent AgentName) bool {
-	// Check providers in order of preference
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		maxTokens := int64(5000)
-		if agent == AgentTitle {
-			maxTokens = 80
-		}
-		cfg.Agents[agent] = Agent{
-			Model:     models.Claude37Sonnet,
-			MaxTokens: maxTokens,
-		}
-		return true
-	}
-
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		var model models.ModelID
-		maxTokens := int64(5000)
-		reasoningEffort := ""
-
-		switch agent {
-		case AgentTitle:
-			model = models.GPT41Mini
-			maxTokens = 80
-		case AgentTask:
-			model = models.GPT41Mini
-		default:
-			model = models.GPT41
-		}
-
-		// Check if model supports reasoning
-		if modelInfo, ok := models.SupportedModels[model]; ok && modelInfo.CanReason {
-			reasoningEffort = "medium"
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:           model,
-			MaxTokens:       maxTokens,
-			ReasoningEffort: reasoningEffort,
-		}
-		return true
-	}
-
-	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-		var model models.ModelID
-		maxTokens := int64(5000)
-		reasoningEffort := ""
-
-		switch agent {
-		case AgentTitle:
-			model = models.OpenRouterClaude35Haiku
-			maxTokens = 80
-		case AgentTask:
-			model = models.OpenRouterClaude37Sonnet
-		default:
-			model = models.OpenRouterClaude37Sonnet
-		}
-
-		// Check if model supports reasoning
-		if modelInfo, ok := models.SupportedModels[model]; ok && modelInfo.CanReason {
-			reasoningEffort = "medium"
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:           model,
-			MaxTokens:       maxTokens,
-			ReasoningEffort: reasoningEffort,
-		}
-		return true
-	}
-
-	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
-		var model models.ModelID
-		maxTokens := int64(5000)
-
-		if agent == AgentTitle {
-			model = models.Gemini25Flash
-			maxTokens = 80
-		} else {
-			model = models.Gemini25
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:     model,
-			MaxTokens: maxTokens,
-		}
-		return true
-	}
-
-	if apiKey := os.Getenv("GROQ_API_KEY"); apiKey != "" {
-		maxTokens := int64(5000)
-		if agent == AgentTitle {
-			maxTokens = 80
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:     models.QWENQwq,
-			MaxTokens: maxTokens,
-		}
-		return true
-	}
-
-	if hasAWSCredentials() {
-		maxTokens := int64(5000)
-		if agent == AgentTitle {
-			maxTokens = 80
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:           models.BedrockClaude37Sonnet,
-			MaxTokens:       maxTokens,
-			ReasoningEffort: "medium", // Claude models support reasoning
-		}
-		return true
-	}
-
-	if hasVertexAICredentials() {
-		var model models.ModelID
-		maxTokens := int64(5000)
-
-		if agent == AgentTitle {
-			model = models.VertexAIGemini25Flash
-			maxTokens = 80
-		} else {
-			model = models.VertexAIGemini25
-		}
-
-		cfg.Agents[agent] = Agent{
-			Model:     model,
-			MaxTokens: maxTokens,
-		}
-		return true
-	}
-
-	return false
-}
+// (removed: getProviderAPIKey, setDefaultModelForAgent, isTier1Agent.
+// The model registry they propped up is gone — validateAgent fails
+// loudly with an actionable error instead of silently reverting.)
 
 func updateCfgFile(updateCfg func(config *Config)) error {
 	if cfg == nil {
@@ -935,6 +598,10 @@ func WorkingDirectory() string {
 	return cfg.WorkingDir
 }
 
+// UpdateAgentModel changes the model string for a configured agent. The
+// provider stays as-is; only the upstream model identifier changes. The
+// upstream API validates the model on the next request — ACT does not
+// pre-check it against any registry.
 func UpdateAgentModel(agentName AgentName, modelID models.ModelID) error {
 	if cfg == nil {
 		panic("config not loaded")
@@ -942,25 +609,21 @@ func UpdateAgentModel(agentName AgentName, modelID models.ModelID) error {
 
 	existingAgentCfg := cfg.Agents[agentName]
 
-	model, ok := models.SupportedModels[modelID]
-	if !ok {
-		return fmt.Errorf("model %s not supported", modelID)
-	}
-
 	maxTokens := existingAgentCfg.MaxTokens
-	if model.DefaultMaxTokens > 0 {
-		maxTokens = model.DefaultMaxTokens
+	if maxTokens <= 0 {
+		maxTokens = MaxTokensFallbackDefault
 	}
 
 	newAgentCfg := Agent{
+		Provider:        existingAgentCfg.Provider,
 		Model:           modelID,
 		MaxTokens:       maxTokens,
 		ReasoningEffort: existingAgentCfg.ReasoningEffort,
+		Backend:         existingAgentCfg.Backend,
 	}
 	cfg.Agents[agentName] = newAgentCfg
 
 	if err := validateAgent(cfg, agentName, newAgentCfg); err != nil {
-		// revert config update on failure
 		cfg.Agents[agentName] = existingAgentCfg
 		return fmt.Errorf("failed to update agent model: %w", err)
 	}
@@ -970,6 +633,37 @@ func UpdateAgentModel(agentName AgentName, modelID models.ModelID) error {
 			config.Agents = make(map[AgentName]Agent)
 		}
 		config.Agents[agentName] = newAgentCfg
+	})
+}
+
+// UpdateAgentProvider changes the provider for an agent. Used by the
+// model dialog when switching providers.
+func UpdateAgentProvider(agentName AgentName, providerID models.ModelProvider, modelID models.ModelID) error {
+	if cfg == nil {
+		panic("config not loaded")
+	}
+	existing := cfg.Agents[agentName]
+	maxTokens := existing.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = MaxTokensFallbackDefault
+	}
+	newCfg := Agent{
+		Provider:        providerID,
+		Model:           modelID,
+		MaxTokens:       maxTokens,
+		ReasoningEffort: existing.ReasoningEffort,
+		Backend:         existing.Backend,
+	}
+	cfg.Agents[agentName] = newCfg
+	if err := validateAgent(cfg, agentName, newCfg); err != nil {
+		cfg.Agents[agentName] = existing
+		return fmt.Errorf("failed to update agent provider/model: %w", err)
+	}
+	return updateCfgFile(func(c *Config) {
+		if c.Agents == nil {
+			c.Agents = make(map[AgentName]Agent)
+		}
+		c.Agents[agentName] = newCfg
 	})
 }
 

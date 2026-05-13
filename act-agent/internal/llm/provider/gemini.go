@@ -186,7 +186,7 @@ func (g *geminiClient) send(ctx context.Context, messages []message.Message, too
 	if len(tools) > 0 {
 		config.Tools = g.convertTools(tools)
 	}
-	chat, _ := g.client.Chats.Create(ctx, g.providerOptions.model.APIModel, config, history)
+	chat, _ := g.client.Chats.Create(ctx, string(g.providerOptions.model.ID), config, history)
 
 	attempts := 0
 	for {
@@ -274,7 +274,7 @@ func (g *geminiClient) stream(ctx context.Context, messages []message.Message, t
 	if len(tools) > 0 {
 		config.Tools = g.convertTools(tools)
 	}
-	chat, _ := g.client.Chats.Create(ctx, g.providerOptions.model.APIModel, config, history)
+	chat, _ := g.client.Chats.Create(ctx, string(g.providerOptions.model.ID), config, history)
 
 	attempts := 0
 	eventChan := make(chan ProviderEvent)

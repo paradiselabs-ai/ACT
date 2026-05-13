@@ -178,7 +178,7 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 	}
 
 	return anthropic.MessageNewParams{
-		Model:       anthropic.Model(a.providerOptions.model.APIModel),
+		Model:       anthropic.Model(string(a.providerOptions.model.ID)),
 		MaxTokens:   a.providerOptions.maxTokens,
 		Temperature: temperature,
 		Messages:    messages,

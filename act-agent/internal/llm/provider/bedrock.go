@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 )
@@ -48,11 +49,11 @@ func newBedrockClient(opts providerClientOptions) BedrockClient {
 
 	// Prefix the model name with region
 	regionPrefix := region[:2]
-	modelName := opts.model.APIModel
-	opts.model.APIModel = fmt.Sprintf("%s.%s", regionPrefix, modelName)
+	modelName := string(opts.model.ID)
+	opts.model.ID = models.ModelID(fmt.Sprintf("%s.%s", regionPrefix, modelName))
 
 	// Determine which provider to use based on the model
-	if strings.Contains(string(opts.model.APIModel), "anthropic") {
+	if strings.Contains(string(opts.model.ID), "anthropic") {
 		// Create Anthropic client with Bedrock configuration
 		anthropicOpts := opts
 		anthropicOpts.anthropicOptions = append(anthropicOpts.anthropicOptions,

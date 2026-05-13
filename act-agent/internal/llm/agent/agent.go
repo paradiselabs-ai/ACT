@@ -199,9 +199,10 @@ func (a *agent) err(err error) AgentEvent {
 }
 
 func (a *agent) Run(ctx context.Context, sessionID string, content string, attachments ...message.Attachment) (<-chan AgentEvent, error) {
-	if !a.provider.Model().SupportsAttachments && attachments != nil {
-		attachments = nil
-	}
+	// Attachment support is provider/model dependent. Without a registry
+	// to consult, we pass attachments through and let the upstream API
+	// return a clear error if the model rejects them.
+	_ = attachments
 	events := make(chan AgentEvent)
 	if a.IsSessionBusy(sessionID) {
 		return nil, ErrSessionBusy
@@ -497,12 +498,10 @@ func (a *agent) TrackUsage(ctx context.Context, sessionID string, model models.M
 		return fmt.Errorf("failed to get session: %w", err)
 	}
 
-	cost := model.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
-		model.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +
-		model.CostPer1MIn/1e6*float64(usage.InputTokens) +
-		model.CostPer1MOut/1e6*float64(usage.OutputTokens)
-
-	sess.Cost += cost
+	// Cost tracking from hardcoded per-model price tables was removed
+	// alongside the model registry. Real cost should be derived from the
+	// API response's billing fields per-provider — tracked as a follow-up.
+	_ = model
 	sess.CompletionTokens = usage.OutputTokens + usage.CacheReadTokens
 	sess.PromptTokens = usage.InputTokens + usage.CacheCreationTokens
 
@@ -673,13 +672,6 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		oldSession.SummaryMessageID = msg.ID
 		oldSession.CompletionTokens = response.Usage.OutputTokens
 		oldSession.PromptTokens = 0
-		model := a.summarizeProvider.Model()
-		usage := response.Usage
-		cost := model.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
-			model.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +
-			model.CostPer1MIn/1e6*float64(usage.InputTokens) +
-			model.CostPer1MOut/1e6*float64(usage.OutputTokens)
-		oldSession.Cost += cost
 		_, err = a.sessions.Save(summarizeCtx, oldSession)
 		if err != nil {
 			event = AgentEvent{
@@ -709,50 +701,51 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	if !ok {
 		return nil, fmt.Errorf("agent %s not found", agentName)
 	}
-	model, ok := models.SupportedModels[agentConfig.Model]
-	if !ok {
-		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
+	if agentConfig.Provider == "" {
+		return nil, fmt.Errorf("agent %s missing provider field in ~/.act.json", agentName)
 	}
-
-	providerCfg, ok := cfg.Providers[model.Provider]
+	if agentConfig.Model == "" {
+		return nil, fmt.Errorf("agent %s missing model field in ~/.act.json", agentName)
+	}
+	providerCfg, ok := cfg.Providers[agentConfig.Provider]
 	if !ok {
-		return nil, fmt.Errorf("provider %s not supported", model.Provider)
+		return nil, fmt.Errorf("provider %s not configured under \"providers\" in ~/.act.json", agentConfig.Provider)
 	}
 	if providerCfg.Disabled {
-		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
+		return nil, fmt.Errorf("provider %s is disabled in ~/.act.json", agentConfig.Provider)
 	}
-	maxTokens := model.DefaultMaxTokens
-	if agentConfig.MaxTokens > 0 {
-		maxTokens = agentConfig.MaxTokens
+
+	maxTokens := agentConfig.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = config.MaxTokensFallbackDefault
+	}
+	model := models.Model{
+		ID:        agentConfig.Model,
+		Provider:  agentConfig.Provider,
+		MaxTokens: maxTokens,
 	}
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithModel(model),
-		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, model.Provider)),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, agentConfig.Provider)),
 		provider.WithMaxTokens(maxTokens),
+		provider.WithBaseURL(providerCfg.BaseURL),
 	}
-	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
-		opts = append(
-			opts,
-			provider.WithOpenAIOptions(
+	if agentConfig.ReasoningEffort != "" {
+		switch agentConfig.Provider {
+		case models.ProviderOpenAI, models.ProviderLocal, models.ProviderGROQ, models.ProviderOpenRouter, models.ProviderXAI, models.ProviderAzure:
+			opts = append(opts, provider.WithOpenAIOptions(
 				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
-			),
-		)
-	} else if model.Provider == models.ProviderAnthropic && model.CanReason {
-		opts = append(
-			opts,
-			provider.WithAnthropicOptions(
+			))
+		case models.ProviderAnthropic:
+			opts = append(opts, provider.WithAnthropicOptions(
 				provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn),
-			),
-		)
+			))
+		}
 	}
-	agentProvider, err := provider.NewProvider(
-		model.Provider,
-		opts...,
-	)
+	agentProvider, err := provider.NewProvider(agentConfig.Provider, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("could not create provider: %v", err)
 	}
-
 	return agentProvider, nil
 }

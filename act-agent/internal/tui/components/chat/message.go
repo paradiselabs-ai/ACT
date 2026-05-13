@@ -15,7 +15,6 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
@@ -244,25 +243,25 @@ func renderAssistantMessage(
 			info = append(info, baseStyle.
 				Width(width-1).
 				Foreground(t.TextMuted()).
-				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, took)),
+				Render(fmt.Sprintf(" %s (%s)", string(msg.Model), took)),
 			)
 		case message.FinishReasonCanceled:
 			info = append(info, baseStyle.
 				Width(width-1).
 				Foreground(t.TextMuted()).
-				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "canceled")),
+				Render(fmt.Sprintf(" %s (%s)", string(msg.Model), "canceled")),
 			)
 		case message.FinishReasonError:
 			info = append(info, baseStyle.
 				Width(width-1).
 				Foreground(t.TextMuted()).
-				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "error")),
+				Render(fmt.Sprintf(" %s (%s)", string(msg.Model), "error")),
 			)
 		case message.FinishReasonPermissionDenied:
 			info = append(info, baseStyle.
 				Width(width-1).
 				Foreground(t.TextMuted()).
-				Render(fmt.Sprintf(" %s (%s)", models.SupportedModels[msg.Model].Name, "permission denied")),
+				Render(fmt.Sprintf(" %s (%s)", string(msg.Model), "permission denied")),
 			)
 		}
 	}
