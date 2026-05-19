@@ -1,0 +1,24 @@
+{
+  "id": "tool-02-update-package",
+  "type": "tool-use",
+  "description": "Multi-file task. Given a seed package.json missing a 'scripts.test' entry and no .gitignore, model must read package.json, add the test script preserving other fields, and create a .gitignore with node_modules + dist + .env. Tests read-then-write + multi-step + preservation of existing data.",
+  "system": "You are a swarm agent in the ACT (Agent Coordination Toolkit) system. You execute tasks described in SPIL (Structured Progressive Instruction Language) format.\n\nSPIL keywords you will see:\n- @task — what to do (one line)\n- @data — data structures, values, schemas to use\n- @context — what already exists; files to reference or not modify\n- @success_criteria — the validation checklist. Every item must be objectively satisfied before you mark the task complete. Read these carefully — they are graded literally.\n- @error_handling — failure conditions\n- > directives — natural-language constraints, placed where they apply\n\nYou have these tools:\n- read_file(path) — read a sandbox file\n- write_file(path, content) — write a sandbox file (overwrites)\n- list_dir(path) — list a sandbox directory\n- mark_complete(summary) — call EXACTLY ONCE when ALL @success_criteria are satisfied. After this, grading proceeds.\n\nRules:\n- Work only inside the sandbox. All paths are relative; the sandbox is your root.\n- When modifying an existing file, READ IT FIRST so you preserve its existing content.\n- Re-read your output with read_file before calling mark_complete to verify what was actually written.\n- Do not call mark_complete until every @success_criteria item is verifiable from the sandbox state.\n- Brief reasoning is fine; do not narrate every step.",
+  "seed": {
+    "package.json": "{\n  \"name\": \"my-app\",\n  \"version\": \"0.1.0\",\n  \"description\": \"A small API server\",\n  \"main\": \"src/index.js\",\n  \"scripts\": {\n    \"start\": \"node src/index.js\",\n    \"dev\": \"node --watch src/index.js\"\n  },\n  \"dependencies\": {\n    \"express\": \"^4.18.0\"\n  },\n  \"devDependencies\": {\n    \"vitest\": \"^1.0.0\"\n  }\n}\n",
+    "README.md": "# my-app\n\nA small API server.\n"
+  },
+  "user": "@task \"Add test script and gitignore to existing project\"\n@project \"my-app\"\n\n> \"The project has a package.json with start and dev scripts but no test script, and no .gitignore at all. CI is failing because npm test is missing.\"\n\n@data:\n  - test_script_command: \"vitest run\"\n  - gitignore_entries: [\"node_modules\", \"dist\", \".env\"]\n\n@context:\n  - package.json already exists with name, version, description, main, scripts (start + dev), dependencies, devDependencies. DO NOT DROP any of those fields.\n  - README.md exists; do not touch it.\n  - No .gitignore exists yet.\n\n@success_criteria:\n  - package.json still parses as valid JSON\n  - package.json scripts.test equals \"vitest run\"\n  - package.json scripts.start equals \"node src/index.js\" (preserved from original)\n  - package.json scripts.dev equals \"node --watch src/index.js\" (preserved from original)\n  - package.json devDependencies.vitest equals \"^1.0.0\" (preserved from original)\n  - .gitignore exists at the sandbox root\n  - .gitignore contains the line \"node_modules\"\n  - .gitignore contains the line \"dist\"\n  - .gitignore contains the line \".env\"\n\n> \"Preserve existing package.json fields exactly. Only add scripts.test, do not modify other entries.\"",
+  "assertions": [
+    { "type": "file_exists", "path": "package.json" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.test", "value": "vitest run" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.start", "value": "node src/index.js" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.dev", "value": "node --watch src/index.js" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "devDependencies.vitest", "value": "^1.0.0" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "name", "value": "my-app" },
+    { "type": "file_exists", "path": ".gitignore" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "node_modules" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "dist" },
+    { "type": "file_contains", "path": ".gitignore", "substring": ".env" }
+  ],
+  "opts": { "temperature": 0.2, "maxTokens": 2000 }
+}

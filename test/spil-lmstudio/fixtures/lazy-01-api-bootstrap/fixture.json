@@ -1,0 +1,48 @@
+{
+  "id": "lazy-01-api-bootstrap",
+  "type": "lazy-tool-use",
+  "description": "Bootstrap an Express user-management API. Multi-file, multi-section spec. Tests SPIL Phase 2 (lazy fetch) against full inject and plain prose.",
+  "specSpilPath": "spec.spil",
+  "specPlainPath": "spec.plain.md",
+  "manifestB1Path": "manifest.b1.json",
+  "manifestB2Path": "manifest.b2.json",
+  "assertions": [
+    { "type": "file_exists", "path": "package.json" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.start", "value": "node src/server.js" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.test", "value": "vitest run" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.dev", "value": "node --watch src/server.js" },
+    { "type": "json_has_keys", "path": "package.json", "keys": ["dependencies.express", "devDependencies.vitest", "devDependencies.supertest"] },
+
+    { "type": "file_exists", "path": ".gitignore" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "node_modules" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "dist" },
+    { "type": "file_contains", "path": ".gitignore", "substring": ".env" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "coverage" },
+
+    { "type": "file_exists", "path": "src/server.js" },
+    { "type": "file_contains", "path": "src/server.js", "substring": "require('express')" },
+    { "type": "file_contains", "path": "src/server.js", "substring": "/healthz" },
+    { "type": "file_contains", "path": "src/server.js", "substring": "/users" },
+    { "type": "file_contains", "path": "src/server.js", "substring": "module.exports" },
+    { "type": "file_contains", "path": "src/server.js", "substring": "require.main === module" },
+
+    { "type": "file_exists", "path": "src/routes/users.js" },
+    { "type": "file_contains", "path": "src/routes/users.js", "substring": "router" },
+    { "type": "file_contains", "path": "src/routes/users.js", "substring": "module.exports" },
+
+    { "type": "file_exists", "path": "src/routes/health.js" },
+    { "type": "file_contains", "path": "src/routes/health.js", "substring": "'ok'" },
+    { "type": "file_contains", "path": "src/routes/health.js", "substring": "module.exports" },
+
+    { "type": "file_exists", "path": "tests/server.test.js" },
+    { "type": "file_contains", "path": "tests/server.test.js", "substring": "supertest" },
+    { "type": "file_contains", "path": "tests/server.test.js", "substring": "../src/server" },
+
+    { "type": "file_exists", "path": "README.md" },
+    { "type": "file_contains", "path": "README.md", "substring": "# users-api" },
+    { "type": "file_contains", "path": "README.md", "substring": "Quickstart" },
+    { "type": "file_contains", "path": "README.md", "substring": "Endpoints" },
+    { "type": "file_contains", "path": "README.md", "substring": "Testing" }
+  ],
+  "opts": { "temperature": 0.2, "maxTokens": 4000, "maxIter": 24 }
+}

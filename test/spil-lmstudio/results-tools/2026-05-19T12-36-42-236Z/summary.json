@@ -1,0 +1,242 @@
+[
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "tool-01-write-config-plain",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 47403,
+    "usage": {
+      "prompt_tokens": 4151,
+      "completion_tokens": 224
+    },
+    "dumpFile": "google_gemma-3-12b__tool-01-write-config-plain.md"
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "tool-01-write-config",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 22526,
+    "usage": {
+      "prompt_tokens": 4454,
+      "completion_tokens": 161
+    },
+    "dumpFile": "google_gemma-3-12b__tool-01-write-config.md"
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "tool-02-update-package-plain",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 6,
+    "elapsedMs": 62914,
+    "usage": {
+      "prompt_tokens": 10899,
+      "completion_tokens": 631
+    },
+    "dumpFile": "google_gemma-3-12b__tool-02-update-package-plain.md"
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "tool-02-update-package",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 6,
+    "elapsedMs": 48081,
+    "usage": {
+      "prompt_tokens": 11336,
+      "completion_tokens": 409
+    },
+    "dumpFile": "google_gemma-3-12b__tool-02-update-package.md"
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "tool-01-write-config-plain",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 32737,
+    "usage": {
+      "prompt_tokens": 3530,
+      "completion_tokens": 145
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__tool-01-write-config-plain.md"
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "tool-01-write-config",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 18048,
+    "usage": {
+      "prompt_tokens": 3871,
+      "completion_tokens": 131
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__tool-01-write-config.md"
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "tool-02-update-package-plain",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 6,
+    "elapsedMs": 38850,
+    "usage": {
+      "prompt_tokens": 9069,
+      "completion_tokens": 361
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__tool-02-update-package-plain.md"
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "tool-02-update-package",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 6,
+    "elapsedMs": 36699,
+    "usage": {
+      "prompt_tokens": 9825,
+      "completion_tokens": 323
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__tool-02-update-package.md"
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "tool-01-write-config-plain",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 34844,
+    "usage": {
+      "prompt_tokens": 2648,
+      "completion_tokens": 121
+    },
+    "dumpFile": "qwen_qwen3-14b__tool-01-write-config-plain.md"
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "tool-01-write-config",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 2,
+    "elapsedMs": 23570,
+    "usage": {
+      "prompt_tokens": 1937,
+      "completion_tokens": 96
+    },
+    "dumpFile": "qwen_qwen3-14b__tool-01-write-config.md"
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "tool-02-update-package-plain",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 40256,
+    "usage": {
+      "prompt_tokens": 3293,
+      "completion_tokens": 256
+    },
+    "dumpFile": "qwen_qwen3-14b__tool-02-update-package-plain.md"
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "tool-02-update-package",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 4,
+    "elapsedMs": 37446,
+    "usage": {
+      "prompt_tokens": 4695,
+      "completion_tokens": 211
+    },
+    "dumpFile": "qwen_qwen3-14b__tool-02-update-package.md"
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "tool-01-write-config-plain",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 32533,
+    "usage": {
+      "prompt_tokens": 2151,
+      "completion_tokens": 140
+    },
+    "dumpFile": "openai_gpt-oss-20b__tool-01-write-config-plain.md"
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "tool-01-write-config",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 18125,
+    "usage": {
+      "prompt_tokens": 2529,
+      "completion_tokens": 160
+    },
+    "dumpFile": "openai_gpt-oss-20b__tool-01-write-config.md"
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "tool-02-update-package-plain",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "final-message",
+    "iter": 5,
+    "elapsedMs": 28998,
+    "usage": {
+      "prompt_tokens": 4930,
+      "completion_tokens": 345
+    },
+    "dumpFile": "openai_gpt-oss-20b__tool-02-update-package-plain.md"
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "tool-02-update-package",
+    "score": 100,
+    "passed": 10,
+    "total": 10,
+    "stop": "mark_complete",
+    "iter": 5,
+    "elapsedMs": 38832,
+    "usage": {
+      "prompt_tokens": 5580,
+      "completion_tokens": 343
+    },
+    "dumpFile": "openai_gpt-oss-20b__tool-02-update-package.md"
+  }
+]

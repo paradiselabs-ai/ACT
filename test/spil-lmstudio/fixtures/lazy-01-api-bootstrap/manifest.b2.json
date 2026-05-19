@@ -1,0 +1,16 @@
+{
+  "_comment": "Arm B2 manifest. Hints include workflow guidance: when in the task to fetch each section. Reflects what a Planner-tier authored manifest would ship.",
+  "hints": {
+    "meta": "Task title, project name, priority. Fetch first.",
+    "scope": "One-paragraph framing. Fetch first to ground yourself.",
+    "stack": "Runtime, framework, test deps, npm scripts. Fetch before writing package.json or src/server.js.",
+    "directory_layout": "File tree. Fetch early to know what to create.",
+    "data_models": "User shape and request/response shapes. Fetch before writing src/routes/users.js.",
+    "endpoints": "REST routes. Fetch before writing any src/routes/*.js or tests/server.test.js.",
+    "style": "Code conventions. Fetch before writing any .js source file.",
+    "testing": "vitest + supertest patterns and required test cases. Fetch ONLY before writing tests/server.test.js.",
+    "ignore_list": ".gitignore entries. Fetch ONLY before writing .gitignore.",
+    "readme_outline": "README section structure. Fetch ONLY before writing README.md.",
+    "success_criteria": "Graded checklist. Fetch before calling mark_complete to self-verify."
+  }
+}

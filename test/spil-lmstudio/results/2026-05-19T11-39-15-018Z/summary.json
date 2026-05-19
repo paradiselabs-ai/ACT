@@ -1,0 +1,23 @@
+[
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 0,
+    "reasons": [
+      "output contains no @sections — not SPIL"
+    ],
+    "elapsedMs": 67947,
+    "tokPerSec": "29.43",
+    "usage": {
+      "prompt_tokens": 401,
+      "completion_tokens": 2000,
+      "total_tokens": 2401,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1890
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__produce-01.md",
+    "ok": true
+  }
+]

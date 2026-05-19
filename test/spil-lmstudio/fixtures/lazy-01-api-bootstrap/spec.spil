@@ -1,0 +1,84 @@
+@meta:
+  - task: "Bootstrap a small Express user-management API"
+  - project: "users-api"
+  - priority: "medium"
+
+@scope:
+  > "Build a minimal user-management REST API on top of Express. The codebase will be extended later with auth and a database; for now keep users in an in-memory Map. Layout, conventions, and test coverage must be set up cleanly so future work doesn't have to refactor the foundation."
+
+@stack:
+  - runtime: "Node.js >= 20 (built-in fetch + node:test compatible)"
+  - framework: "Express 4 (express@^4.18.0)"
+  - testing: "vitest@^1.0.0 + supertest@^6.3.0 as devDependencies"
+  - module_system: "CommonJS (require/module.exports). No ESM, no .mjs files."
+  - scripts: "start runs node src/server.js. test runs vitest run. dev runs node --watch src/server.js."
+
+@directory_layout:
+  - "src/server.js — Express app bootstrap. Mounts routers, calls app.listen(). Exports the app for tests."
+  - "src/routes/users.js — Express router for /users. Mounted at /users in server.js."
+  - "src/routes/health.js — Express router for /healthz. Mounted at /healthz in server.js."
+  - "tests/server.test.js — vitest + supertest integration tests. Imports app from src/server.js."
+  - "package.json — at repo root."
+  - "README.md — at repo root."
+  - ".gitignore — at repo root."
+
+@data_models:
+  - "User shape: { id: string (uuid-like, generated at create time), name: string, email: string, createdAt: string (ISO 8601) }"
+  - "POST /users request body: { name: string, email: string }. Both required, both must be non-empty strings."
+  - "Validation rejects empty/missing name or email with 400 + { error: 'name and email are required' }."
+  - "GET /users response: { users: User[] }. Always an array, even if empty."
+  - "GET /users/:id response: the User object directly (not wrapped). 404 if not found with { error: 'user not found' }."
+  - "POST /users response: 201 + created User object directly."
+  - "In-memory storage: a Map keyed by user id, scoped to the users router module. No persistence across process restarts."
+
+@endpoints:
+  - "GET /healthz — returns 200 with { status: 'ok' }. No auth, no DB, must always succeed."
+  - "GET /users — returns 200 with { users: User[] }. Empty array if no users created yet."
+  - "GET /users/:id — returns 200 with the User object, or 404 with { error: 'user not found' }."
+  - "POST /users — accepts { name, email }, validates both are non-empty strings, creates a User with generated id and ISO createdAt, returns 201 with the User."
+  - "Unknown routes return 404 with { error: 'not found' } (catch-all handler at end of server.js, after all routers)."
+
+@style:
+  - "All handlers are async functions even when they don't await — uniform shape across the codebase."
+  - "Use express.json() middleware in server.js before mounting routers."
+  - "Generate ids with require('crypto').randomUUID() — no extra dependency needed."
+  - "Names: routers are camelCase variables (usersRouter, healthRouter). Files are kebab-case if multi-word, otherwise lowercase."
+  - "Do not introduce a separate UserService or model layer for this size of project — keep the in-memory Map inside src/routes/users.js."
+  > "Async/await throughout. No callbacks, no .then() chains."
+  > "Each route handler must return after sending its response — never write code after res.json() that could double-respond."
+
+@testing:
+  - "tests/server.test.js uses vitest's describe/it/expect from 'vitest' and request from 'supertest'."
+  - "Import the app: const app = require('../src/server')."
+  - "server.js must export the app object — assign module.exports = app; AFTER all routes are mounted."
+  - "Required test cases: GET /healthz returns 200 + status ok; GET /users initially returns empty array; POST /users with valid body creates user and returns 201; POST /users with missing email returns 400; GET /users/:id with bad id returns 404."
+  - "Tests do NOT need to listen on a real port — supertest handles that. server.js should only call app.listen() when require.main === module."
+
+@ignore_list:
+  - "node_modules"
+  - "dist"
+  - ".env"
+  - "coverage"
+
+@readme_outline:
+  - "Title: # users-api"
+  - "One-paragraph description: what it is, that it's an in-memory MVP."
+  - "## Quickstart section: npm install, npm start, with the resulting localhost URL"
+  - "## Endpoints section: bulleted list of the 4 routes with method + path + brief purpose"
+  - "## Testing section: how to run npm test"
+
+@success_criteria:
+  - "package.json exists at sandbox root and parses as JSON"
+  - "package.json scripts.start equals 'node src/server.js'"
+  - "package.json scripts.test equals 'vitest run'"
+  - "package.json scripts.dev equals 'node --watch src/server.js'"
+  - "package.json dependencies.express is present"
+  - "package.json devDependencies.vitest is present"
+  - "package.json devDependencies.supertest is present"
+  - ".gitignore exists at sandbox root and contains node_modules, dist, .env, coverage on separate lines"
+  - "src/server.js exists, requires express, mounts /healthz and /users routers, exports the app via module.exports, and gates app.listen() on require.main === module"
+  - "src/routes/users.js exists, defines GET /, GET /:id, POST / handlers, and exports an Express Router"
+  - "src/routes/health.js exists, defines GET / returning { status: 'ok' }, exports an Express Router"
+  - "tests/server.test.js exists, imports app from '../src/server', uses supertest's request(app), and has at least 5 it() calls"
+  - "README.md exists at sandbox root and contains '# users-api', 'Quickstart', 'Endpoints', and 'Testing' as section markers"
+  > "All file paths in the sandbox are relative. Do not invoke npm or run vitest — this is a static bootstrap. The test will only check file contents and structure."

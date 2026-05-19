@@ -1,0 +1,16 @@
+{
+  "_comment": "Arm B1 manifest. Minimal factual hints. Each entry describes ONLY what's in the section. No workflow guidance.",
+  "hints": {
+    "meta": "Task title, project name, priority",
+    "scope": "One-paragraph framing of what the project is and isn't",
+    "stack": "Runtime, framework, test deps, module system, npm scripts",
+    "directory_layout": "File tree with one-line purpose per file",
+    "data_models": "User shape and request/response shapes for the endpoints",
+    "endpoints": "REST routes with methods, paths, status codes, and response shapes",
+    "style": "Code conventions: async/await, middleware, id generation, naming",
+    "testing": "vitest + supertest patterns and required test cases",
+    "ignore_list": "Entries for .gitignore",
+    "readme_outline": "README section structure",
+    "success_criteria": "Graded checklist — what the assertion scorer checks"
+  }
+}

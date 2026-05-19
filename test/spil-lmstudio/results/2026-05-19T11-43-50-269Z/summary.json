@@ -1,0 +1,392 @@
+[
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 23348,
+    "tokPerSec": "3.30",
+    "usage": {
+      "prompt_tokens": 770,
+      "completion_tokens": 77,
+      "total_tokens": 847,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "google_gemma-3-12b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "ctd-02-valid",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 4726,
+    "tokPerSec": "4.65",
+    "usage": {
+      "prompt_tokens": 701,
+      "completion_tokens": 22,
+      "total_tokens": 723,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "google_gemma-3-12b__ctd-02-valid.md",
+    "ok": true
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "obey-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 11927,
+    "tokPerSec": "9.98",
+    "usage": {
+      "prompt_tokens": 295,
+      "completion_tokens": 119,
+      "total_tokens": 414,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "google_gemma-3-12b__obey-01.md",
+    "ok": true
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "parse-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 34272,
+    "tokPerSec": "11.55",
+    "usage": {
+      "prompt_tokens": 425,
+      "completion_tokens": 396,
+      "total_tokens": 821,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "google_gemma-3-12b__parse-01.md",
+    "ok": true
+  },
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 54929,
+    "tokPerSec": "12.03",
+    "usage": {
+      "prompt_tokens": 395,
+      "completion_tokens": 661,
+      "total_tokens": 1056,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "google_gemma-3-12b__produce-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 17617,
+    "tokPerSec": "3.24",
+    "usage": {
+      "prompt_tokens": 714,
+      "completion_tokens": 57,
+      "total_tokens": 771,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "ctd-02-valid",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 3191,
+    "tokPerSec": "4.70",
+    "usage": {
+      "prompt_tokens": 675,
+      "completion_tokens": 15,
+      "total_tokens": 690,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__ctd-02-valid.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "obey-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 9337,
+    "tokPerSec": "10.82",
+    "usage": {
+      "prompt_tokens": 268,
+      "completion_tokens": 101,
+      "total_tokens": 369,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__obey-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "parse-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 26819,
+    "tokPerSec": "12.16",
+    "usage": {
+      "prompt_tokens": 394,
+      "completion_tokens": 326,
+      "total_tokens": 720,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__parse-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 93,
+    "reasons": [
+      "success_criteria: 3 < 4"
+    ],
+    "elapsedMs": 19163,
+    "tokPerSec": "11.64",
+    "usage": {
+      "prompt_tokens": 389,
+      "completion_tokens": 223,
+      "total_tokens": 612,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__produce-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 0,
+    "reasons": [
+      "valid=true, expected false",
+      "violations count=0, expected [1,999]",
+      "expected violation in section(s) [error_handling], got []",
+      "reason did not reference expected concept (data|max_upload_bytes|allowed_mimes...)"
+    ],
+    "elapsedMs": 17838,
+    "tokPerSec": "1.07",
+    "usage": {
+      "prompt_tokens": 718,
+      "completion_tokens": 19,
+      "total_tokens": 737,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1
+      }
+    },
+    "dumpFile": "qwen_qwen3-14b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "ctd-02-valid",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 4802,
+    "tokPerSec": "3.96",
+    "usage": {
+      "prompt_tokens": 678,
+      "completion_tokens": 19,
+      "total_tokens": 697,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1
+      }
+    },
+    "dumpFile": "qwen_qwen3-14b__ctd-02-valid.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "obey-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 11590,
+    "tokPerSec": "8.71",
+    "usage": {
+      "prompt_tokens": 272,
+      "completion_tokens": 101,
+      "total_tokens": 373,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1
+      }
+    },
+    "dumpFile": "qwen_qwen3-14b__obey-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "parse-01",
+    "type": "parse",
+    "score": 37,
+    "reasons": [
+      "section keywords: 3/7 (missing: context,data,error_handling,success_criteria)",
+      "missing @success_criteria section"
+    ],
+    "elapsedMs": 31608,
+    "tokPerSec": "10.44",
+    "usage": {
+      "prompt_tokens": 397,
+      "completion_tokens": 330,
+      "total_tokens": 727,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1
+      }
+    },
+    "dumpFile": "qwen_qwen3-14b__parse-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 35145,
+    "tokPerSec": "10.70",
+    "usage": {
+      "prompt_tokens": 392,
+      "completion_tokens": 376,
+      "total_tokens": 768,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1
+      }
+    },
+    "dumpFile": "qwen_qwen3-14b__produce-01.md",
+    "ok": true
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 25621,
+    "tokPerSec": "9.87",
+    "usage": {
+      "prompt_tokens": 773,
+      "completion_tokens": 253,
+      "total_tokens": 1026,
+      "completion_tokens_details": {
+        "reasoning_tokens": 195
+      }
+    },
+    "dumpFile": "openai_gpt-oss-20b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "ctd-02-valid",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 6689,
+    "tokPerSec": "19.73",
+    "usage": {
+      "prompt_tokens": 731,
+      "completion_tokens": 132,
+      "total_tokens": 863,
+      "completion_tokens_details": {
+        "reasoning_tokens": 110
+      }
+    },
+    "dumpFile": "openai_gpt-oss-20b__ctd-02-valid.md",
+    "ok": true
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "obey-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 4473,
+    "tokPerSec": "22.80",
+    "usage": {
+      "prompt_tokens": 341,
+      "completion_tokens": 102,
+      "total_tokens": 443,
+      "completion_tokens_details": {
+        "reasoning_tokens": 15
+      }
+    },
+    "dumpFile": "openai_gpt-oss-20b__obey-01.md",
+    "ok": true
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "parse-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 20681,
+    "tokPerSec": "31.33",
+    "usage": {
+      "prompt_tokens": 459,
+      "completion_tokens": 648,
+      "total_tokens": 1107,
+      "completion_tokens_details": {
+        "reasoning_tokens": 383
+      }
+    },
+    "dumpFile": "openai_gpt-oss-20b__parse-01.md",
+    "ok": true
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 17759,
+    "tokPerSec": "29.56",
+    "usage": {
+      "prompt_tokens": 452,
+      "completion_tokens": 525,
+      "total_tokens": 977,
+      "completion_tokens_details": {
+        "reasoning_tokens": 54
+      }
+    },
+    "dumpFile": "openai_gpt-oss-20b__produce-01.md",
+    "ok": true
+  }
+]

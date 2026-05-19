@@ -1,0 +1,103 @@
+[
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 0,
+    "reasons": [
+      "No JSON object extractable from response"
+    ],
+    "elapsedMs": 53056,
+    "tokPerSec": "28.27",
+    "usage": {
+      "prompt_tokens": 741,
+      "completion_tokens": 1500,
+      "total_tokens": 2241,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1458
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "ctd-02-valid",
+    "type": "ctd",
+    "score": 0,
+    "reasons": [
+      "No JSON object extractable from response"
+    ],
+    "elapsedMs": 52100,
+    "tokPerSec": "28.79",
+    "usage": {
+      "prompt_tokens": 701,
+      "completion_tokens": 1500,
+      "total_tokens": 2201,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1442
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__ctd-02-valid.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "obey-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 45253,
+    "tokPerSec": "29.70",
+    "usage": {
+      "prompt_tokens": 282,
+      "completion_tokens": 1344,
+      "total_tokens": 1626,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1200
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__obey-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "parse-01",
+    "type": "parse",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 85947,
+    "tokPerSec": "30.26",
+    "usage": {
+      "prompt_tokens": 415,
+      "completion_tokens": 2601,
+      "total_tokens": 3016,
+      "completion_tokens_details": {
+        "reasoning_tokens": 2068
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__parse-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 0,
+    "reasons": [
+      "output contains no @sections — not SPIL"
+    ],
+    "elapsedMs": 65884,
+    "tokPerSec": "30.36",
+    "usage": {
+      "prompt_tokens": 397,
+      "completion_tokens": 2000,
+      "total_tokens": 2397,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1897
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__produce-01.md",
+    "ok": true
+  }
+]

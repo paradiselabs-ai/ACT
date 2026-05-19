@@ -1,0 +1,16 @@
+{
+  "id": "tool-01-write-config-plain",
+  "type": "tool-use",
+  "description": "A/B control for tool-01-write-config. SAME task and assertions, but expressed in plain prose, no SPIL syntax in user prompt, no SPIL primer in system prompt. Measures whether SPIL framing helps tool-use task completion vs. neutral prose.",
+  "system": "You are a coding assistant. You complete tasks by using the available tools to read and write files in a sandbox.\n\nYou have these tools:\n- read_file(path) — read a sandbox file\n- write_file(path, content) — write a sandbox file (overwrites)\n- list_dir(path) — list a sandbox directory\n- mark_complete(summary) — call EXACTLY ONCE when ALL requirements are satisfied. After this, grading proceeds.\n\nRules:\n- Work only inside the sandbox. All paths are relative; the sandbox is your root.\n- Re-read your output with read_file before calling mark_complete to verify what was actually written.\n- Do not call mark_complete until every requirement is verifiable from the sandbox state.\n- Brief reasoning is fine; do not narrate every step.",
+  "user": "Task: Create the project's runtime config file.\n\nThe application reads runtime config from config.json at startup. Defaults must be defined for production deployment.\n\nDetails:\n- File path: config.json\n- Required fields with types: port (number), host (string), environment (string), log_level (string)\n- Default values:\n  - port: 8080\n  - host: \"0.0.0.0\"\n  - environment: \"production\"\n  - log_level: \"info\"\n\nContext:\n- The sandbox is empty. No existing config to preserve or migrate.\n\nRequirements (all must hold before you mark complete):\n- File config.json exists at the sandbox root\n- config.json parses as valid JSON\n- config.json contains key 'port' with value 8080\n- config.json contains key 'host' with value \"0.0.0.0\"\n- config.json contains key 'environment' with value \"production\"\n- config.json contains key 'log_level' with value \"info\"\n\nMatch the default values exactly. Do not invent additional fields.",
+  "assertions": [
+    { "type": "file_exists", "path": "config.json" },
+    { "type": "json_has_keys", "path": "config.json", "keys": ["port", "host", "environment", "log_level"] },
+    { "type": "json_equals", "path": "config.json", "path_in_json": "port", "value": 8080 },
+    { "type": "json_equals", "path": "config.json", "path_in_json": "host", "value": "0.0.0.0" },
+    { "type": "json_equals", "path": "config.json", "path_in_json": "environment", "value": "production" },
+    { "type": "json_equals", "path": "config.json", "path_in_json": "log_level", "value": "info" }
+  ],
+  "opts": { "temperature": 0.2, "maxTokens": 1500 }
+}

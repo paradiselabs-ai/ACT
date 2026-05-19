@@ -1,0 +1,58 @@
+{
+  "endpoint": "http://localhost:1234/v1/chat/completions",
+  "models": [
+    {
+      "id": "microsoft/phi-4-mini-reasoning",
+      "class": "swarm-light",
+      "approxRamGb": 4,
+      "tier": "smoke"
+    },
+    {
+      "id": "google/gemma-3-12b",
+      "class": "swarm-default",
+      "approxRamGb": 7,
+      "tier": "swarm"
+    },
+    {
+      "id": "qwen/qwen2.5-coder-14b",
+      "class": "swarm-coder",
+      "approxRamGb": 8,
+      "tier": "swarm"
+    },
+    {
+      "id": "qwen/qwen3-14b",
+      "class": "swarm-default",
+      "approxRamGb": 8,
+      "tier": "swarm",
+      "chatTemplateKwargs": { "enable_thinking": false },
+      "userSuffix": "/no_think"
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "class": "swarm-strong",
+      "approxRamGb": 12,
+      "tier": "swarm"
+    },
+    {
+      "id": "zai-org/glm-4.7-flash",
+      "class": "planner-tier",
+      "approxRamGb": 22,
+      "tier": "planner",
+      "ramBound": true
+    },
+    {
+      "id": "qwen/qwen3.6-35b-a3b",
+      "class": "planner-tier",
+      "approxRamGb": 21,
+      "tier": "planner",
+      "ramBound": true,
+      "chatTemplateKwargs": { "enable_thinking": false },
+      "userSuffix": "/no_think"
+    }
+  ],
+  "defaults": {
+    "temperature": 0.2,
+    "maxTokens": 2048,
+    "timeoutMs": 180000
+  }
+}

@@ -1,0 +1,47 @@
+[
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "obey-01",
+    "type": "parse",
+    "score": 0,
+    "reasons": [
+      "No JSON object extractable from response"
+    ],
+    "elapsedMs": 59582,
+    "tokPerSec": "25.18",
+    "usage": {
+      "prompt_tokens": 282,
+      "completion_tokens": 1500,
+      "total_tokens": 1782,
+      "completion_tokens_details": {
+        "reasoning_tokens": 1433
+      }
+    },
+    "dumpFile": "qwen_qwen3.6-35b-a3b__obey-01.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "parse-01",
+    "type": "parse",
+    "score": 0,
+    "reasons": [
+      "API error: This operation was aborted"
+    ],
+    "elapsedMs": 196752,
+    "dumpFile": "qwen_qwen3.6-35b-a3b__parse-01.md",
+    "ok": false
+  },
+  {
+    "model": "qwen/qwen3.6-35b-a3b",
+    "fixture": "produce-01",
+    "type": "produce",
+    "score": 0,
+    "reasons": [
+      "API error: This operation was aborted"
+    ],
+    "elapsedMs": 191615,
+    "dumpFile": "qwen_qwen3.6-35b-a3b__produce-01.md",
+    "ok": false
+  }
+]

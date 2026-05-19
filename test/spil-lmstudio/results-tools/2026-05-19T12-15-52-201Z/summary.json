@@ -1,0 +1,17 @@
+[
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "tool-01-write-config",
+    "score": 100,
+    "passed": 6,
+    "total": 6,
+    "stop": "mark_complete",
+    "iter": 3,
+    "elapsedMs": 18887,
+    "usage": {
+      "prompt_tokens": 2529,
+      "completion_tokens": 164
+    },
+    "dumpFile": "openai_gpt-oss-20b__tool-01-write-config.md"
+  }
+]

@@ -1,0 +1,2 @@
+model,arm,trial,score,passed,total,iter,stop,elapsed_ms,prompt_tokens,completion_tokens,total_tokens,fetch_count,fetch_unique,sections_fetched
+openai/gpt-oss-20b,A,1,53,16,30,4,final-message,62866,8892,707,9599,0,0,""

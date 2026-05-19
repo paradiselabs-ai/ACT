@@ -1,0 +1,64 @@
+[
+  {
+    "model": "google/gemma-3-12b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 25349,
+    "tokPerSec": "3.04",
+    "usage": {
+      "prompt_tokens": 770,
+      "completion_tokens": 77,
+      "total_tokens": 847,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "google_gemma-3-12b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen2.5-coder-14b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 100,
+    "reasons": [],
+    "elapsedMs": 17299,
+    "tokPerSec": "3.29",
+    "usage": {
+      "prompt_tokens": 714,
+      "completion_tokens": 57,
+      "total_tokens": 771,
+      "completion_tokens_details": {
+        "reasoning_tokens": 0
+      }
+    },
+    "dumpFile": "qwen_qwen2.5-coder-14b__ctd-01-violation.md",
+    "ok": true
+  },
+  {
+    "model": "qwen/qwen3-14b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 0,
+    "reasons": [
+      "API error: fetch failed"
+    ],
+    "elapsedMs": 242,
+    "dumpFile": "qwen_qwen3-14b__ctd-01-violation.md",
+    "ok": false
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "fixture": "ctd-01-violation",
+    "type": "ctd",
+    "score": 0,
+    "reasons": [
+      "API error: fetch failed"
+    ],
+    "elapsedMs": 3,
+    "dumpFile": "openai_gpt-oss-20b__ctd-01-violation.md",
+    "ok": false
+  }
+]

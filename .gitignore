@@ -193,4 +193,5 @@ AGENTS.md
 .codex/
 .qodo/
 .story/
-.agents/
+.agents/test/spil-lmstudio/sandbox/
+!test/spil-lmstudio/**/*.md

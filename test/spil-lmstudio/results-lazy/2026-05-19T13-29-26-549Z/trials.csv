@@ -1,0 +1,2 @@
+model,arm,trial,score,passed,total,iter,stop,elapsed_ms,prompt_tokens,completion_tokens,total_tokens,fetch_count,fetch_unique,sections_fetched
+openai/gpt-oss-20b,B1,1,73,22,30,19,mark_complete,270729,54757,1988,56745,11,7,"meta|stack|directory_layout|endpoints|data_models|style|testing"

@@ -1,0 +1,24 @@
+{
+  "id": "tool-02-update-package-plain",
+  "type": "tool-use",
+  "description": "A/B control for tool-02-update-package. SAME task and assertions, but expressed in plain prose, no SPIL syntax in user prompt, no SPIL primer in system prompt. Measures preservation correctness + iteration cost in neutral framing.",
+  "system": "You are a coding assistant. You complete tasks by using the available tools to read and write files in a sandbox.\n\nYou have these tools:\n- read_file(path) — read a sandbox file\n- write_file(path, content) — write a sandbox file (overwrites)\n- list_dir(path) — list a sandbox directory\n- mark_complete(summary) — call EXACTLY ONCE when ALL requirements are satisfied. After this, grading proceeds.\n\nRules:\n- Work only inside the sandbox. All paths are relative; the sandbox is your root.\n- When modifying an existing file, READ IT FIRST so you preserve its existing content.\n- Re-read your output with read_file before calling mark_complete to verify what was actually written.\n- Do not call mark_complete until every requirement is verifiable from the sandbox state.\n- Brief reasoning is fine; do not narrate every step.",
+  "seed": {
+    "package.json": "{\n  \"name\": \"my-app\",\n  \"version\": \"0.1.0\",\n  \"description\": \"A small API server\",\n  \"main\": \"src/index.js\",\n  \"scripts\": {\n    \"start\": \"node src/index.js\",\n    \"dev\": \"node --watch src/index.js\"\n  },\n  \"dependencies\": {\n    \"express\": \"^4.18.0\"\n  },\n  \"devDependencies\": {\n    \"vitest\": \"^1.0.0\"\n  }\n}\n",
+    "README.md": "# my-app\n\nA small API server.\n"
+  },
+  "user": "Task: Add a test script and a gitignore file to the existing project.\n\nThe project has a package.json with start and dev scripts but no test script, and no .gitignore at all. CI is failing because npm test is missing.\n\nDetails:\n- Test script command: \"vitest run\"\n- .gitignore entries to add: node_modules, dist, .env\n\nContext:\n- package.json already exists with: name, version, description, main, scripts (start + dev), dependencies, devDependencies. DO NOT DROP any of those fields.\n- README.md exists; do not touch it.\n- No .gitignore exists yet.\n\nRequirements (all must hold before you mark complete):\n- package.json still parses as valid JSON\n- package.json scripts.test equals \"vitest run\"\n- package.json scripts.start equals \"node src/index.js\" (preserved from original)\n- package.json scripts.dev equals \"node --watch src/index.js\" (preserved from original)\n- package.json devDependencies.vitest equals \"^1.0.0\" (preserved from original)\n- .gitignore exists at the sandbox root\n- .gitignore contains the line \"node_modules\"\n- .gitignore contains the line \"dist\"\n- .gitignore contains the line \".env\"\n\nPreserve existing package.json fields exactly. Only add scripts.test, do not modify other entries.",
+  "assertions": [
+    { "type": "file_exists", "path": "package.json" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.test", "value": "vitest run" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.start", "value": "node src/index.js" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "scripts.dev", "value": "node --watch src/index.js" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "devDependencies.vitest", "value": "^1.0.0" },
+    { "type": "json_equals", "path": "package.json", "path_in_json": "name", "value": "my-app" },
+    { "type": "file_exists", "path": ".gitignore" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "node_modules" },
+    { "type": "file_contains", "path": ".gitignore", "substring": "dist" },
+    { "type": "file_contains", "path": ".gitignore", "substring": ".env" }
+  ],
+  "opts": { "temperature": 0.2, "maxTokens": 2000 }
+}
