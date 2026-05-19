@@ -16,6 +16,7 @@ import (
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/act"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/nomik"
@@ -957,6 +958,20 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 		logging.Warn("Failed to write AGENTS.md", "project", name, "dir", dir, "error", err)
 	} else {
 		logging.Info("AGENTS.md + CLAUDE.md written", "project", name, "dir", dir)
+		// Tier 1 system messages were baked at TUI startup before AGENTS.md
+		// existed. Invalidate the contextPaths cache and rebind each Tier 1
+		// agent's provider so AGENTS.md content reaches Planner, Observer,
+		// Assurance, and QA in the same session that created the project.
+		prompt.InvalidateContextCache()
+		for _, role := range []string{"planner", "observer", "assurance", "qa_synthesizer"} {
+			a := o.getAgent(role)
+			if a == nil {
+				continue
+			}
+			if err := a.RebindSystemPrompt(); err != nil {
+				logging.Warn("Failed to rebind Tier 1 system prompt", "role", role, "error", err)
+			}
+		}
 	}
 
 	o.mu.Lock()

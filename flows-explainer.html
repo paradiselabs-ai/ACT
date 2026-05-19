@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ACT / NesTTY architecture flows — explainer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { box-sizing: border-box; }
+:root {
+  --bg: #0e1116;
+  --fg: #e6edf3;
+  --dim: #8b949e;
+  --panel: #161b22;
+  --border: #30363d;
+  --ok: #f5b302;
+  --po: #ff9f43;
+  --gap: #e74c3c;
+}
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; font-size: 14px; line-height: 1.55; }
+main { max-width: 880px; margin: 0 auto; padding: 36px 24px 80px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 17px; margin: 32px 0 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 14px; margin: 18px 0 6px; }
+p { margin: 6px 0 12px; }
+.muted { color: var(--dim); font-size: 12px; }
+.findings { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; margin-top: 16px; }
+.findings h2 { margin-top: 0; border: none; padding: 0; }
+.finding { padding: 12px 0; border-bottom: 1px dashed var(--border); }
+.finding:last-child { border-bottom: none; }
+.finding .id { display: inline-block; padding: 1px 6px; font-size: 10px; border-radius: 8px; border: 1px solid var(--gap); color: var(--gap); margin-right: 6px; }
+.finding .title { font-weight: 600; }
+.finding .summary { color: var(--dim); margin: 4px 0 6px; }
+.finding .evidence { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--ok); }
+code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; background: var(--panel); padding: 1px 5px; border-radius: 3px; }
+.badge { display: inline-block; padding: 1px 7px; font-size: 10.5px; border-radius: 9px; margin-right: 4px; vertical-align: 1px; }
+.badge.ok { background: rgba(245,179,2,0.18); color: var(--ok); border: 1px solid var(--ok); }
+.badge.po { background: rgba(255,159,67,0.18); color: var(--po); border: 1px solid var(--po); }
+.badge.gap { background: rgba(231,76,60,0.18); color: var(--gap); border: 1px solid var(--gap); }
+ul { padding-left: 22px; }
+li { margin: 4px 0; }
+.callout { background: var(--panel); border-left: 3px solid var(--ok); padding: 10px 14px; margin: 12px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ACT / NesTTY architecture flows — explainer</h1>
+  <p class="muted">Companion to <code>architecture-flows.html</code>. Plain prose for readers who want the narrative before clicking into the interactive diagram. Branch <code>NesTTY</code> @ <code>ab159d4</code>.</p>
+
+  <section class="findings">
+    <h2>Findings (read this first)</h2>
+    <p class="muted">Six things the diagram surfaces that the prose-level docs either obscure or overstate. Each finding maps to a <span class="badge gap">gap-found</span> step in <code>architecture-flows.html</code>, or to <span class="badge po">prompt-only</span> behavior that has no code enforcement. The taxonomy distinguishes code-enforced behavior from prompt-wished behavior — the binary <code>ok</code>/<code>unverified</code> in the prior diagram let sub-agents bluff, so it was replaced.</p>
+
+    <div class="finding">
+      <span class="id">F-A</span><span class="title">No auth boundary on server</span>
+      <div class="summary">CORS is open by default. Every endpoint on <code>localhost:8080</code> is reachable unauthenticated. <code>POST /api/dev/reset</code> clears all in-memory state with no credentials. <code>DELETE /api/agents/:agentId</code> removes any agent by id. Socket.io accepts unauthenticated connections. The trust boundary is localhost only — if anything else can reach the port, the entire coordination state is open.</div>
+      <div class="evidence">server/src/index.ts:28 · 149 · 288 · 1063</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">F-B</span><span class="title">Socket.io is vestigial</span>
+      <div class="summary">The server raises 27 <code>io.emit</code> broadcasts and registers 9 <code>socket.on</code> handlers. Neither the Go TUI nor the Node Runner imports a socket.io client — both use HTTP polling. So the broadcasts have no receiver and the handlers are dead listeners from the pre-CLI MCP era. Pulling these out would shrink the server surface area considerably, but the constraint here is no source-code edits, so the diagram surfaces it rather than fixing it.</div>
+      <div class="evidence">server/src/index.ts:1063-1280 · zero socket.io imports in act-agent/ or act-agent/runner/</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">F-C</span><span class="title"><code>act-coordination.json</code> is human-written, not machine-written</span>
+      <div class="summary">The repo-root <code>act-coordination.json</code> is a manual log used to coordinate multiple Claude instances working on this codebase. No runtime code writes to it — a grep across <code>server/src/</code> and <code>act-agent/internal/</code> returns zero hits. The machine analogue is <code>data/coordination-log.jsonl</code>, owned by <code>ChronologicalLog</code> with a 5-second flush timer.</div>
+      <div class="evidence">CLAUDE.md Multi-Agent Coordination Protocol · server/src/services/ChronologicalLog.ts:88 · grep ⇒ 0 hits</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">F-D</span><span class="title">Kanban directory is doc-only</span>
+      <div class="summary"><code>.devtool/features/</code> contains 58 active and 11 done markdown task files at execution time. MEMORY.md and commit <code>991b43b</code> reference it, but there are no references in <code>server/src/</code> or <code>act-agent/internal/</code> — the directory is human and Claude coordination scaffolding, not runtime state. The schema lives in CLAUDE.md under "Kanban Board".</div>
+      <div class="evidence">ls .devtool/features = 58 + done/ = 11 · grep .devtool server/src/ act-agent/internal/ ⇒ 0 hits</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">F-E</span><span class="title">QA synthesis persistence is partial</span>
+      <div class="summary"><code>POST /api/tasks/:taskId/synthesis</code> at <code>server/src/index.ts:795</code> persists a <code>synthesis_complete</code> event and a short summary string to ChronLog. It does NOT persist the full synthesized deliverable text. The complete assembled artifact body lives only in the TUI session lifetime. So this is a partial gap — the event survives restart, but the deliverable does not. Framing it as a full gap (as the prior diagram did) would have been bluffing; framing it as fully implemented would be wrong too.</div>
+      <div class="evidence">server/src/index.ts:795-830 (handler shows summary-only ChronLog append, no deliverable store)</div>
+    </div>
+
+    <div class="finding">
+      <span class="id">F-F</span><span class="title"><code>QdrantVectorStore</code> is build-excluded</span>
+      <div class="summary"><code>server/src/services/index.ts:11-12</code> explicitly comments out the Qdrant export with the note: "<em>QdrantVectorStore has a pre-existing TypeScript error — excluded from build (MockVectorStore used instead)</em>". This is stronger than "unwired" — the file is actively kept out of the build. Production vector store is <code>LocalEmbeddingVectorStore</code> (server/src/index.ts:42). <code>MockVectorStore</code> is test-only.</div>
+      <div class="evidence">server/src/services/index.ts:11-12 (commented export) · server/src/index.ts:42 (LocalEmbeddingVectorStore instantiated)</div>
+    </div>
+  </section>
+
+  <h2>How to read the diagram</h2>
+  <p>Open <code>architecture-flows.html</code> next to this page. The diagram has three layers of meaning:</p>
+  <ul>
+    <li><span class="badge ok">ok</span> code-verified. The step's <code>detail</code> cites a <code>file:line</code> where the implementing code lives. You can open that file at that line and see the behavior the step describes.</li>
+    <li><span class="badge po">prompt-only ⌕</span> behavior that lives in prompt text only. No compiler or middleware enforces it. An agent could skip the behavior and the system would only catch it via another LLM judge. The clearest example is the Ralph Wiggum self-verification loop.</li>
+    <li><span class="badge gap">gap-found ⚠</span> documented but with no implementing code, or partially implemented. The six findings above are the gap-found items. Clicking the corresponding flow on the diagram puts the gap arrows in red dashed lines.</li>
+  </ul>
+
+  <div class="callout">
+    Status <code>unverified</code> does not appear in the shipped diagram. It was a construction-time scratch marker — every instance had to be promoted to <code>ok</code> with a <code>file:line</code> cite, demoted to <code>prompt-only</code>, demoted to <code>gap-found</code>, or removed before shipping.
+  </div>
+
+  <h2>Flow narratives</h2>
+  <p>The interactive diagram has 25 flows. The summaries below are the same prose attached to each flow record in <code>architecture-flows.json</code>; they are mirrored here so you can read the narrative without clicking through. The four documentary findings (Socket.io vestigial, no-auth boundary, <code>act-coordination.json</code> human log, kanban doc-only) are surfaced in the Findings section above rather than as their own clickable flows — they are not coordination dynamics, they are commentary on the runtime.</p>
+
+  <h3>Boot</h3>
+  <p><strong>TUI boot</strong> — User runs <code>act-agent</code>. <code>cmd/root.go</code> ensures the server is up, then <code>app.New()</code> creates four Tier 1 agents (Planner, Observer, Assurance, QA/Synthesizer) and five orchestrator goroutines.</p>
+  <p><strong>Server boot</strong> — Server replays ChronLog into in-memory state (projects, tasks, agents, file locks) before opening the port. PVM indexing starts after restore.</p>
+
+  <h3>Intake and task creation</h3>
+  <p><strong>INTAKE</strong> — Planner detects a new project (404), runs a 5-question conversation, emits <code>PROJECT_BRIEF: {json}</code>, orchestrator POSTs to <code>/api/projects</code>. The question sequence is enforced by prompt text only, so the agent could in principle skip a question and still emit a brief.</p>
+  <p><strong>BUILD — Planner emits CREATE_TASK</strong> — Planner responses contain <code>CREATE_TASK:</code> lines. The <code>messageOwnershipLoop</code> parses them, orchestrator POSTs to <code>/api/tasks</code>. The first batch of tasks triggers the lazy swarm spawn.</p>
+  <p><strong>Planner BUILD iteration</strong> — After INTAKE, every coordination event arriving through the 3 s poll loop turns into a new Planner turn — successes invite the next <code>CREATE_TASK</code>, failures invite retry, anomalies invite intervention. The branching logic between those three lives in prompt text, not in a coded state machine.</p>
+  <p><strong>Capability-based routing</strong> — When Planner emits a task without pre-assignment, <code>TaskCoordinator.assignOptimalAgent</code> picks the best available agent whose capability set covers the task's <code>requiredCapabilities</code>. PVM-suggested agent considered first, then any matching available agent.</p>
+  <p><strong>A2A external task push</strong> — External clients discover ACT via <code>/.well-known/agent.json</code>, then push tasks directly to a specific agent by id via <code>POST /api/agents/:agentId/tasks</code>. Pre-assigned, skipping the capability-routing step.</p>
+
+  <h3>Per-Tier-1-agent dynamics</h3>
+  <p><strong>Observer's 6 anomaly categories</strong> — Observer monitors six categories of issues: <code>stuck_task</code>, <code>stale_lock</code>, <code>idle_agent</code>, <code>unvalidated</code>, <code>bottleneck</code>, <code>file_conflict</code>. Each has a documented detection rule in <code>observer.go</code>. Detection itself is LLM-driven against a status snapshot — not a coded rule engine. That is why every detection step shows up as <span class="badge po">prompt-only</span>: the rules exist, but nothing enforces that the LLM applies them faithfully.</p>
+  <p><strong>Assurance two-layer validation</strong> — Layer 1 verifies the agent's Ralph self-verification trace was present (prompt-only check). Layer 2 independently scores each <code>@success_criteria</code> item via <code>view</code>/<code>grep</code> against the project working directory (code-enforced — the tools are real). Score &lt; 95 sends the task back to the agent; ≥ 95 forwards to QA.</p>
+  <p><strong>QA <code>need_clarification</code> path</strong> — When QA can't assemble a coherent deliverable, it can request clarification from a specific agent. The synthesis endpoint accepts <code>kind='need_clarification'</code> with a <code>targetAgent</code> + question — recorded in ChronLog so the Planner sees it and decides where the question goes.</p>
+
+  <h3>Per-Tier-2-swarm dynamics</h3>
+  <p><strong>Tier 2 role + backend selection</strong> — Each swarm role (developer / frontend_dev / backend_dev / qa_engineer / researcher) has its own prompt file and capability tags. Each role also has a backend choice: <code>act-agent</code> (the default, the Go binary) or <code>claude-code</code> (<code>claude --print --dangerously-skip-permissions</code>). Configured per role via <code>/swarm &lt;role&gt; &lt;backend&gt;</code>.</p>
+  <p><strong>Swarm task context assembly</strong> — Before running a task, the runner pulls the agent brief and (for complex tasks only — score &gt; 4) PVM patterns, parallel-agent awareness, and any pending inbox messages. <code>buildTaskPrompt</code> assembles these into a single prompt sent to act-agent or claude-code.</p>
+  <p><strong>Runner polls and executes a task</strong> — Each runner subprocess registers, polls <code>/api/tasks/assigned</code> every 5 s, runs the chosen backend, and reports complete. The Ralph Wiggum self-verify step lives entirely in prompt text — no code gate at <code>task complete</code> time.</p>
+
+  <h3>Recovery and rework</h3>
+  <p><strong>Task failure → retry or reassign</strong> — When a Tier 2 task fails (runner reports <code>success=false</code>, or Assurance returns <code>task_validation_failed</code>), Planner sees the event and decides: <code>POST /api/tasks/:id/retry</code> (same agent), emit <code>CREATE_TASK</code> to a different role, or escalate to the human.</p>
+  <p><strong>Validation pipeline</strong> — Runner submits for validation. Orchestrator's validation poll loop picks the task up. Assurance scores against the working directory.</p>
+  <p><strong>QA / Synthesizer assembly</strong> — Once Assurance passes, the qaPollLoop picks the task up. QA writes a <code>synthesis_complete</code> event with a short summary via the synthesis endpoint. The full deliverable text is NOT persisted server-side (finding F-E).</p>
+
+  <h3>Coordination plumbing</h3>
+  <p><strong>Agent-to-agent messaging</strong> — Agents send direct messages to each other (parallel-coordination broadcasts, validation gap notes, clarifications). Server stores messages per-recipient via <code>POST /api/messages</code>; agents read them on context fetch via <code>GET /api/agents/:id/messages</code>. EventHub classifies them on the way in.</p>
+  <p><strong>File lock claim</strong> — Swarm agents claim files before editing via <code>POST /api/files/claim</code>. Lock identity is a string compare of <code>agentId</code>. Conflicts return 409.</p>
+  <p><strong>InternalPromptMarker auto-route</strong> — Observer, Assurance, and QA messages are prepended with <code>\x00ACT_INTERNAL\x00</code> so the TUI hides the prompt but still shows the response with a role banner. <code>autoRoutePlanner</code> then triggers a Planner turn; a recursion guard caps the chain at 5 consecutive auto-turns, reset on every human input.</p>
+  <p><strong>Per-turn 5-minute timeout</strong> — Every agent turn is wrapped in <code>context.WithTimeout(ctx, 5 * time.Minute)</code>. On expiry the agent is canceled and a system message tells the user.</p>
+
+  <h3>Background loops and event surfacing</h3>
+  <p><strong>Observer monitoring loop</strong> — Observer ticks every 120 seconds. When no anomalies are found it stays silent.</p>
+  <p><strong>Coordination event surfacing</strong> — The orchestrator polls <code>/api/log</code> every 3 seconds and renders coordination events as system messages in the TUI chat.</p>
+  <p><strong>ChronLog write and flush</strong> — Handlers append events synchronously to an in-memory buffer; a 5-second flush timer batches them out to <code>data/coordination-log.jsonl</code>.</p>
+  <p><strong>PVM indexing</strong> — Every 10 seconds, <code>PVMIndexer</code> fetches new ChronLog events and embeds them via <code>LocalEmbeddingVectorStore</code> (real all-MiniLM-L6-v2 embeddings). The in-memory vector store is ephemeral — recomputed every server restart. Note: the analytics layer on top of these embeddings (<code>getAgentProfile</code> and friends in <code>SelfImprovementEngine</code>) returns placeholder data. Embeddings real, analytics fake.</p>
+
+  <h3>Process group management</h3>
+  <p><strong>Spawn + orphan management</strong> — Each runner is its own process group (Unix only — <code>Setpgid</code>). On startup, <code>SweepOrphans</code> runs <code>pkill -f act-runner.mjs</code> defensively to clear leftovers from a crashed parent. The <code>liveProcesses</code> Map in <code>act-runner.mjs</code> enforces no-clone per agent id.</p>
+
+  <h2>What the diagram is for</h2>
+  <p>Three purposes, in order of importance:</p>
+  <ul>
+    <li><strong>Honest map.</strong> A new contributor (or a future Claude session) can open the diagram and learn what the codebase actually does, not what the prose docs imply.</li>
+    <li><strong>Gap surface.</strong> The six findings above are immediately visible. The next time someone proposes a feature that depends on, say, full QA deliverable persistence, the gap is already documented — they will know they have to build the persistence layer first.</li>
+    <li><strong>Self-discipline.</strong> The constraint that every <code>ok</code> step cites a <code>file:line</code> is what makes the diagram honest. Sub-agent claims must be re-grep'd by the parent before being encoded into the JSON. This is the rule the prior session learned the hard way when a sub-agent claimed "QA persistence = full gap" using bad grep terms; the user caught the bluff because the actual endpoint at <code>server/src/index.ts:795</code> was named <code>synthesis</code>.</li>
+  </ul>
+
+  <h2>Rebuilding</h2>
+  <p>This diagram goes stale fast. See <code>.claude/architecture-flows-method.md</code> for the rebuild method. Re-run when a REST endpoint changes, a Tier 1 or Tier 2 role file appears or disappears, a coordination protocol step changes, or a claim in this explainer is contradicted by reality.</p>
+
+  <p class="muted">Generated 2026-05-19 from <code>NesTTY @ ab159d4</code>. 25 flows, 83 components, 6 findings. JSON also carries <code>meta.externalReferences[]</code> (11 LLM providers + install scripts + claude-code backend) preserved for agent context but not rendered in the visual.</p>
+</main>
+</body>
+</html>

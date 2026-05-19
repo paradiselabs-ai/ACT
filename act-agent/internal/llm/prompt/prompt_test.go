@@ -12,9 +12,24 @@ import (
 )
 
 func TestGetContextFromPaths(t *testing.T) {
-	t.Parallel()
+	// Not parallel: config.Load and getContextFromPaths use package-level
+	// globals (cfg, contextLoaded, contextContent). Running in parallel
+	// with another test that touches these would race.
 
+	// Isolate from the developer's real ~/.act.json. Without this, the
+	// global config loader walks $HOME and pulls in whatever providers/
+	// agents happen to be configured, then Validate fires against fields
+	// the test never asked for — flake-by-environment.
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// The Load singleton (cfg) may have been populated by an earlier test
+	// in the same binary. Reset before each call so contextPaths overrides
+	// below take effect on a fresh load.
+	config.ResetForTests()
+	InvalidateContextCache()
+
 	_, err := config.Load(tmpDir, false)
 	if err != nil {
 		t.Fatalf("Failed to load config: %v", err)

@@ -53,6 +53,7 @@ type Service interface {
 	IsSessionBusy(sessionID string) bool
 	IsBusy() bool
 	Update(agentName config.AgentName, modelID models.ModelID) (models.Model, error)
+	RebindSystemPrompt() error
 	Summarize(ctx context.Context, sessionID string) error
 }
 
@@ -61,8 +62,9 @@ type agent struct {
 	sessions session.Service
 	messages message.Service
 
-	tools    []tools.BaseTool
-	provider provider.Provider
+	agentName config.AgentName
+	tools     []tools.BaseTool
+	provider  provider.Provider
 
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
@@ -101,6 +103,7 @@ func NewAgent(
 
 	agent := &agent{
 		Broker:            pubsub.NewBroker[AgentEvent](),
+		agentName:         agentName,
 		provider:          agentProvider,
 		messages:          messages,
 		sessions:          sessions,
@@ -531,6 +534,24 @@ func (a *agent) Update(agentName config.AgentName, modelID models.ModelID) (mode
 	return a.provider.Model(), nil
 }
 
+// RebindSystemPrompt rebuilds the provider with a fresh system message. Used
+// when contextPaths content changes mid-session (e.g. AGENTS.md is written by
+// the orchestrator after the Planner parses PROJECT_BRIEF). Keeps the agent's
+// agentName + configured model intact; only the system message picks up the
+// new context. Conversation history, pubsub subscribers, and activeRequests
+// state are untouched because they live outside the provider.
+func (a *agent) RebindSystemPrompt() error {
+	if a.IsBusy() {
+		return fmt.Errorf("cannot rebind system prompt while processing requests")
+	}
+	fresh, err := createAgentProvider(a.agentName)
+	if err != nil {
+		return fmt.Errorf("recreate provider for %s: %w", a.agentName, err)
+	}
+	a.provider = fresh
+	return nil
+}
+
 func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	if a.summarizeProvider == nil {
 		return fmt.Errorf("summarize provider not available")
@@ -710,9 +731,6 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	providerCfg, ok := cfg.Providers[agentConfig.Provider]
 	if !ok {
 		return nil, fmt.Errorf("provider %s not configured under \"providers\" in ~/.act.json", agentConfig.Provider)
-	}
-	if providerCfg.Disabled {
-		return nil, fmt.Errorf("provider %s is disabled in ~/.act.json", agentConfig.Provider)
 	}
 
 	maxTokens := agentConfig.MaxTokens

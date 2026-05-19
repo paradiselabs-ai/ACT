@@ -1,32 +1,26 @@
 {
-  "_comment": "ACT per-role config. Move to ~/.act.json (NOT repo root). Each agent specifies a provider (key under \"providers\") and a model string passed verbatim to the upstream API. ACT does not maintain a list of supported models — type the upstream identifier as-is.",
+  "_comment": "ACT per-role config. Move to ~/.act.json (NOT repo root). Each agent specifies a provider (key under \"providers\") and a model string passed verbatim to the upstream API. ACT does not maintain a list of supported models — type the upstream identifier as-is. A provider is automatically usable once apiKey is filled in (or for local, when the endpoint responds); no explicit enable flag.",
   "data": {},
   "providers": {
     "anthropic": {
-      "apiKey": "",
-      "disabled": true
+      "apiKey": ""
     },
     "openai": {
-      "apiKey": "",
-      "disabled": true
+      "apiKey": ""
     },
     "groq": {
       "_comment": "Free tier with Llama 3.3 70B is great for swarm. Get a key at https://console.groq.com",
-      "apiKey": "",
-      "disabled": true
+      "apiKey": ""
     },
     "openrouter": {
       "_comment": "Aggregator with many free models. Get a key at https://openrouter.ai",
-      "apiKey": "",
-      "disabled": true
+      "apiKey": ""
     },
     "gemini": {
-      "apiKey": "",
-      "disabled": true
+      "apiKey": ""
     },
     "xai": {
-      "apiKey": "",
-      "disabled": true
+      "apiKey": ""
     },
     "local": {
       "_comment": "OpenAI-compatible local endpoint. baseURL points at LM Studio (default), Ollama (http://localhost:11434/v1), vLLM, etc. apiKey is usually empty for local.",

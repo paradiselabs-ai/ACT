@@ -101,6 +101,8 @@ api_keys.json
 qdrant_storage/
 qdrant_snapshots/
 milvus_data/
+EXPORT/
+EXPORT/*
 
 # ── IDE & editor ─────────────────────────────
 .vscode/
@@ -187,3 +189,8 @@ docs-assembler-config.json
 github.comparadiselabs-ai-act-tree-nestty.md
 
 CLAUDE.md
+AGENTS.md
+.codex/
+.qodo/
+.story/
+.agents/

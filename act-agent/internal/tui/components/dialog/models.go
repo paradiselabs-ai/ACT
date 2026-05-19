@@ -139,13 +139,16 @@ func GetSelectedModel(cfg *config.Config) models.Model {
 	return models.Model{ID: a.Model, Provider: a.Provider}
 }
 
-// buildProviderOptions returns the enabled providers, sorted alphabetically.
+// buildProviderOptions returns the usable providers, sorted alphabetically.
+// A provider is usable when it has the credentials its API needs: apiKey for
+// cloud providers, baseURL (or LM Studio default) for local. Bedrock/VertexAI
+// authenticate via the environment so they are always offered when configured.
 // Without a popularity map, alphabetical is a stable, predictable default.
 func buildProviderOptions(cfg *config.Config) []huh.Option[models.ModelProvider] {
 	var enabled []models.ModelProvider
 	if cfg != nil {
 		for id, p := range cfg.Providers {
-			if !p.Disabled {
+			if p.Usable(id) {
 				enabled = append(enabled, id)
 			}
 		}

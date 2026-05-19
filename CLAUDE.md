@@ -309,7 +309,8 @@ Any role not configured in `~/.act.json` falls back to `agents.developer`. There
 4. **QdrantVectorStore.ts has a pre-existing TypeScript error.** Don't fix unless wiring Qdrant.
 5. **tsx must be installed locally** in `server/` (`npm install -D tsx`).
 6. **MCP bridge removed.** ACT CLI (`act`) replaces all MCP tools with ~50-100 tokens vs 47K schema overhead.
-7. **LocalEmbeddingVectorStore is already active.** PVM embeddings are NOT a build priority.
+7. **LocalEmbeddingVectorStore is already active.** PVM embeddings are NOT a build priority. **Caveat:** the embedding pipeline is real; the analytics layer on top of it (`getAgentProfile`, `compareAgents`, `getAgentSynergy`, `SelfImprovementEngine`) currently returns placeholder data (`successRate: 0.85 + Math.random() * 0.15`, four `// placeholder` methods). When a user asks "is PVM real," answer scoped: embeddings real, analytics fake. Do not conflate them.
+8. **Verifying "is X real" requires running X, not finding X.** When the user asks whether code is real or uses placeholder data, the verification owed is: run the method, inspect what it returns, AND grep the implementation for `Math.random`, `placeholder`, `// TODO`, `// FIXME`, `hardcoded`, `mock`, `stub`, `return 0\.[0-9]`. A file that exists with real imports underneath can still have fake methods on its surface. Past sessions failed this by reporting "PVM is real" after finding the embedding layer was real, without checking the analytics methods downstream. State explicitly which layers were verified and which weren't.
 
 ***
 
@@ -406,6 +407,24 @@ When a task reaches `done`, move the file from `.devtool/features/` → `.devtoo
 ## Handoff Protocol
 
 If the user says **"this is a handoff"** or **"handoff session"**, read `.claude/HANDOFF.md` for session continuity — it contains what was done, what's in progress, and what's next. **Do NOT read HANDOFF.md otherwise** — it may be stale and is only relevant when explicitly invoked.
+
+***
+
+## Visual codebase mapping
+
+Three artifacts at repo root map the entire NesTTY codebase honestly:
+
+- `architecture-flows.html` — single-file interactive diagram. Open offline via `file://`. Filter chips per category, multi-select flow overlays in five colors (gold, blue, green, magenta, cyan).
+- `architecture-flows.json` — sibling JSON, byte-identical to the inline `<script type="application/json">` block in the HTML. Used for machine verification.
+- `flows-explainer.html` — companion with a Findings headline at top covering six gap items (Ralph prompt-only, QA partial-deliverable persistence, Socket.io vestigial, no-auth trust boundary, Qdrant build-excluded, kanban doc-only).
+
+Status taxonomy distinguishes code-enforced from prompt-wished behavior:
+- `ok` — code-verified. Every step's `detail` cites `file:line`.
+- `prompt-only` ⌕ — behavior in prompt text only.
+- `gap-found` ⚠ — documented but no implementing code, or partially implemented.
+- `unverified` is forbidden in shipped artifacts; it exists as a construction-time scratch marker only.
+
+**The method doc is `.claude/architecture-flows-method.md`.** Read it before rebuilding any of these artifacts. It contains the amended §4c (grep upfront, sub-agent claims must be re-grep'd by the parent before encoding), the JSON schema, the rendering rules, and the post-completion verification command. Rebuild when a REST endpoint changes, a Tier 1 or Tier 2 role file appears or disappears, a coordination protocol step changes, or a claim in the method doc is contradicted by reality.
 
 ***
 

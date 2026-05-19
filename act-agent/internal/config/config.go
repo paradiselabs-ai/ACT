@@ -94,10 +94,29 @@ type Agent struct {
 // servers (LM Studio, Ollama, vLLM). For "local", BaseURL replaces the
 // LM Studio default (http://localhost:1234/v1) and is the canonical place
 // to point at Ollama's "http://localhost:11434/v1".
+// A provider is "usable" iff it has the credentials its agent needs —
+// apiKey for the cloud providers, baseURL (or LM Studio default) for local.
+// We don't carry an explicit disabled flag: missing-credentials is the
+// natural disable signal, and an explicit flag invited "I set apiKey but
+// forgot to flip disabled=false" footguns.
 type Provider struct {
-	APIKey   string `json:"apiKey"`
-	BaseURL  string `json:"baseURL,omitempty"`
-	Disabled bool   `json:"disabled,omitempty"`
+	APIKey  string `json:"apiKey"`
+	BaseURL string `json:"baseURL,omitempty"`
+}
+
+// Usable reports whether a provider has the credentials its API needs.
+// Local talks to a self-hosted endpoint and only needs baseURL (which has a
+// default). Bedrock/VertexAI authenticate via the surrounding cloud SDK —
+// AWS_PROFILE / GOOGLE_APPLICATION_CREDENTIALS — and surface their own
+// credential errors at request time, so they're always considered usable
+// at config-load time when present in the providers map.
+func (p Provider) Usable(id models.ModelProvider) bool {
+	switch id {
+	case models.ProviderLocal, models.ProviderBedrock, models.ProviderVertexAI:
+		return true
+	default:
+		return p.APIKey != ""
+	}
 }
 
 // AgentConfigForRole returns the agent config for an ACT role. Looks up
@@ -252,6 +271,15 @@ var defaultContextPaths = []string{
 // Global configuration instance
 var cfg *Config
 
+// ResetForTests clears the global config singleton and the underlying viper
+// state. Test-only — call before re-invoking Load with a different fixture.
+// Production code never touches this; the singleton is intentionally
+// one-shot for the lifetime of an act-agent process.
+func ResetForTests() {
+	cfg = nil
+	viper.Reset()
+}
+
 // Load initializes the configuration from environment variables and config files.
 // If debug is true, debug mode is enabled and log level is set to debug.
 // It returns an error if configuration loading fails.
@@ -270,9 +298,12 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	configureViper()
 	setDefaults(debug)
 
-	// Read global config
-	if err := readConfig(viper.ReadInConfig()); err != nil {
-		return cfg, err
+	// Read global config. readSanitizedGlobalConfig strips _comment keys
+	// shipped in .act.example.json so users who copy the template verbatim
+	// don't trip the mapstructure unmarshal (a "_comment" string value can't
+	// be decoded into the Agent struct expected by the agents map).
+	if err := readSanitizedGlobalConfig(); err != nil {
+		return cfg, fmt.Errorf("failed to read config: %w", err)
 	}
 
 	// Load and merge local config
@@ -339,22 +370,15 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	return cfg, nil
 }
 
-// configureViper sets up viper's configuration paths and environment variables.
+// configureViper sets the env-var prefix. File reads are handled by
+// readSanitizedGlobalConfig/readSanitizedLocalConfig which strip _comment
+// keys before handing bytes to viper — the AddConfigPath/ReadInConfig path
+// is bypassed entirely because it would unmarshal the comment values into
+// typed structs and fail.
 func configureViper() {
-	// Try .act.json first (new name), fall back to .opencode.json (legacy)
-	viper.SetConfigName(fmt.Sprintf(".%s", appName))
 	viper.SetConfigType("json")
-	viper.AddConfigPath("$HOME")
-	viper.AddConfigPath(fmt.Sprintf("$XDG_CONFIG_HOME/%s", appName))
-	viper.AddConfigPath(fmt.Sprintf("$HOME/.config/%s", appName))
 	viper.SetEnvPrefix(strings.ToUpper(appName))
 	viper.AutomaticEnv()
-
-	// If .act.json not found, try legacy .opencode.json
-	if err := viper.ReadInConfig(); err != nil {
-		viper.SetConfigName(".opencode")
-		// Re-read with legacy name (will be attempted again in Load, but sets the fallback)
-	}
 }
 
 // setDefaults configures default values for configuration options.
@@ -417,29 +441,11 @@ func setProviderDefaults() {
 	// launch, so we don't set any agent defaults here anymore.
 }
 
-// readConfig handles the result of reading a configuration file.
-func readConfig(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	// It's okay if the config file doesn't exist
-	if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-		return nil
-	}
-
-	return fmt.Errorf("failed to read config: %w", err)
-}
-
 // mergeLocalConfig loads and merges configuration from the local directory.
+// Local config is sanitized identically to global so per-project .act.json
+// files can use the same _comment convention as the example template.
 func mergeLocalConfig(workingDir string) {
-	local := viper.New()
-	local.SetConfigName(fmt.Sprintf(".%s", appName))
-	local.SetConfigType("json")
-	local.AddConfigPath(workingDir)
-
-	// Merge local config if it exists
-	if err := local.ReadInConfig(); err == nil {
+	if local := readSanitizedLocalConfig(workingDir); local != nil {
 		viper.MergeConfigMap(local.AllSettings())
 	}
 }
@@ -476,9 +482,6 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 	if !ok {
 		return fmt.Errorf("agent %s configured for provider %q which is not present under \"providers\" in ~/.act.json", name, agent.Provider)
 	}
-	if providerCfg.Disabled {
-		return fmt.Errorf("agent %s configured for provider %q which is disabled in ~/.act.json", name, agent.Provider)
-	}
 	// Local provider needs only a baseURL (or the LM Studio default);
 	// every other provider needs an API key. Bedrock/VertexAI surface
 	// their own credential errors at request time when the provider
@@ -509,16 +512,6 @@ func Validate() error {
 	for name, agent := range cfg.Agents {
 		if err := validateAgent(cfg, name, agent); err != nil {
 			return err
-		}
-	}
-
-	// Validate providers
-	for provider, providerCfg := range cfg.Providers {
-		if providerCfg.APIKey == "" && !providerCfg.Disabled {
-			fmt.Printf("provider has no API key, marking as disabled %s", provider)
-			logging.Warn("provider has no API key, marking as disabled", "provider", provider)
-			providerCfg.Disabled = true
-			cfg.Providers[provider] = providerCfg
 		}
 	}
 

@@ -54,22 +54,33 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 }
 
 var (
-	onceContext    sync.Once
+	contextMu      sync.Mutex
+	contextLoaded  bool
 	contextContent string
 )
 
 func getContextFromPaths() string {
-	onceContext.Do(func() {
-		var (
-			cfg          = config.Get()
-			workDir      = cfg.WorkingDir
-			contextPaths = cfg.ContextPaths
-		)
-
-		contextContent = processContextPaths(workDir, contextPaths)
-	})
-
+	contextMu.Lock()
+	defer contextMu.Unlock()
+	if contextLoaded {
+		return contextContent
+	}
+	cfg := config.Get()
+	contextContent = processContextPaths(cfg.WorkingDir, cfg.ContextPaths)
+	contextLoaded = true
 	return contextContent
+}
+
+// InvalidateContextCache clears the cached contextPaths content. The next call
+// to getContextFromPaths re-reads every file. The orchestrator calls this
+// after writing AGENTS.md from a fresh PROJECT_BRIEF so Tier 1 agents, whose
+// system messages were baked at TUI startup before AGENTS.md existed, can pick
+// up the new content via RebindSystemPrompt.
+func InvalidateContextCache() {
+	contextMu.Lock()
+	defer contextMu.Unlock()
+	contextLoaded = false
+	contextContent = ""
 }
 
 func processContextPaths(workDir string, paths []string) string {

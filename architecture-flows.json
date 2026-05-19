@@ -1,0 +1,2327 @@
+{
+  "meta": {
+    "version": "4",
+    "generatedAt": "2026-05-19",
+    "branch": "NesTTY",
+    "headCommit": "ab159d4",
+    "title": "ACT / NesTTY architecture flows",
+    "description": "Single-source map of the NesTTY codebase. Every ok step cites file:line. prompt-only marks behavior that lives only in prompt text. gap-found marks documented behavior with no implementing code, or partial implementation. The four-status taxonomy replaces the old binary ok/unverified that let sub-agents bluff.",
+    "findings": [
+      {
+        "id": "F-A",
+        "title": "No auth boundary on server",
+        "summary": "CORS open default. Every endpoint reachable on localhost:8080 unauthenticated. POST /api/dev/reset clears all in-memory state with no credentials. DELETE /api/agents/:agentId removes any agent by id. Socket.io accepts unauthenticated connections. Trust boundary is localhost only.",
+        "evidence": "server/src/index.ts:28 (cors() default), server/src/index.ts:149 (dev/reset), server/src/index.ts:288 (DELETE agent), server/src/index.ts:1063 (socket.io connection)"
+      },
+      {
+        "id": "F-B",
+        "title": "Socket.io is vestigial",
+        "summary": "Server raises 27 io.emit broadcasts and 9 socket.on handlers. Neither the Go TUI nor the Node Runner imports a socket.io client \u2014 both use HTTP polling (TUI: act/client.go:26, Runner: act-runner.mjs:106). The socket handlers at index.ts:1063-1280 are dead listeners from the pre-CLI MCP era.",
+        "evidence": "grep -c 'io.emit(' server/src/index.ts = 27; grep -c 'socket.on(' server/src/index.ts = 9; zero socket.io imports in act-agent/ or act-agent/runner/"
+      },
+      {
+        "id": "F-C",
+        "title": "act-coordination.json is human-written",
+        "summary": "act-coordination.json at repo root is a manual log for multi-Claude coordination, not written by any runtime code. The machine analogue is data/coordination-log.jsonl, owned by ChronologicalLog with a 5s flush timer.",
+        "evidence": "CLAUDE.md Multi-Agent Coordination Protocol section; server/src/services/ChronologicalLog.ts:88 (flushTimer); grep -r 'act-coordination.json' server/src/ act-agent/internal/ = 0 hits"
+      },
+      {
+        "id": "F-D",
+        "title": "Kanban directory is doc-only",
+        "summary": ".devtool/features/ contains 58 active + 11 done markdown task files. MEMORY.md and commit 991b43b reference it. No references appear in server/src/ or act-agent/internal/ \u2014 the directory exists for human and Claude coordination, not as runtime state.",
+        "evidence": "ls .devtool/features/ | wc -l = 58; ls .devtool/features/done/ | wc -l = 11; grep -r '.devtool' server/src/ act-agent/internal/ = 0 hits"
+      },
+      {
+        "id": "F-E",
+        "title": "QA synthesis persistence is partial",
+        "summary": "POST /api/tasks/:taskId/synthesis at server/src/index.ts:795 does persist a synthesis_complete event with a short summary string to ChronLog. It does NOT persist the full synthesized deliverable text. The complete assembled artifact body lives only in the TUI session lifetime. So the QA persistence story is a partial gap: event + summary survive restart, full deliverable does not.",
+        "evidence": "server/src/index.ts:795-830 (handler body shows ChronLog append with summary, no deliverable storage); no model or table for synthesized output anywhere in server/src/"
+      },
+      {
+        "id": "F-F",
+        "title": "QdrantVectorStore is build-excluded",
+        "summary": "server/src/services/index.ts:11-12 explicitly comments out the Qdrant export with the note: 'QdrantVectorStore has a pre-existing TypeScript error \u2014 excluded from build (MockVectorStore used instead).' Not just unwired \u2014 actively excluded from compilation. Production vector store is LocalEmbeddingVectorStore (server/src/index.ts:42). MockVectorStore is test-only.",
+        "evidence": "server/src/services/index.ts:11-12 (commented export); server/src/index.ts:42 (LocalEmbeddingVectorStore instantiated); server/src/__tests__/MockVectorStore.test.ts (test-only consumer)"
+      }
+    ],
+    "externalReferences": [
+      {
+        "id": "prov_anthropic",
+        "label": "Anthropic",
+        "category": "provider",
+        "detail": "act-agent/internal/llm/provider/anthropic.go. Constant at act-agent/internal/llm/models/models.go:33 (ProviderAnthropic)."
+      },
+      {
+        "id": "prov_openai",
+        "label": "OpenAI",
+        "category": "provider",
+        "detail": "act-agent/internal/llm/provider/openai.go. Constant at act-agent/internal/llm/models/models.go:34 (ProviderOpenAI)."
+      },
+      {
+        "id": "prov_gemini",
+        "label": "Gemini",
+        "category": "provider",
+        "detail": "act-agent/internal/llm/provider/gemini.go. Constant at act-agent/internal/llm/models/models.go:35 (ProviderGemini)."
+      },
+      {
+        "id": "prov_groq",
+        "label": "Groq",
+        "category": "provider",
+        "detail": "OpenAI-compatible. Constant at act-agent/internal/llm/models/models.go:36 (ProviderGROQ). Code path at act-agent/internal/llm/agent/agent.go:736."
+      },
+      {
+        "id": "prov_openrouter",
+        "label": "OpenRouter",
+        "category": "provider",
+        "detail": "Constant at act-agent/internal/llm/models/models.go:37 (ProviderOpenRouter). Handler branch at act-agent/internal/llm/provider/provider.go:145."
+      },
+      {
+        "id": "prov_xai",
+        "label": "xAI",
+        "category": "provider",
+        "detail": "Constant at act-agent/internal/llm/models/models.go:38 (ProviderXAI). OpenAI-compatible route at act-agent/internal/llm/agent/agent.go:736."
+      },
+      {
+        "id": "prov_azure",
+        "label": "Azure OpenAI",
+        "category": "provider",
+        "detail": "act-agent/internal/llm/provider/azure.go. Constant at act-agent/internal/llm/models/models.go:39 (ProviderAzure)."
+      },
+      {
+        "id": "prov_vertexai",
+        "label": "VertexAI",
+        "category": "provider",
+        "detail": "act-agent/internal/llm/provider/vertexai.go. Constant at act-agent/internal/llm/models/models.go:40 (ProviderVertexAI). Branch at act-agent/internal/llm/provider/provider.go:140."
+      },
+      {
+        "id": "prov_bedrock",
+        "label": "Bedrock",
+        "category": "provider",
+        "detail": "act-agent/internal/llm/provider/bedrock.go. Constant at act-agent/internal/llm/models/models.go:41 (ProviderBedrock)."
+      },
+      {
+        "id": "prov_local",
+        "label": "Local (LM Studio / Ollama / vLLM)",
+        "category": "provider",
+        "detail": "OpenAI-compatible local server. Constant at act-agent/internal/llm/models/models.go:42 (ProviderLocal). Fallback chain at act-agent/internal/llm/provider/provider.go:94 (LM Studio default port 1234). BaseURL override at act-agent/internal/config/config.go:94."
+      },
+      {
+        "id": "resp_cache",
+        "label": "response_cache.go",
+        "category": "provider",
+        "detail": "Provider response caching at act-agent/internal/llm/provider/response_cache.go."
+      },
+      {
+        "id": "install_sh",
+        "label": "install.sh",
+        "category": "install",
+        "detail": "install.sh: locate ACT_ROOT, check Node 18+/Go/npm, build server + cli + act-agent, mkdir ~/.act/sessions, write ~/.act/config.json, chmod 600 ~/.act.json, symlink act-agent, optional hooks. Server NOT auto-started by install."
+      },
+      {
+        "id": "install_ps1",
+        "label": "install.ps1",
+        "category": "install",
+        "detail": "Windows installer counterpart at install.ps1."
+      },
+      {
+        "id": "act_example_json",
+        "label": ".act.example.json",
+        "category": "install",
+        "detail": "Example per-role model config copied to ~/.act.json by installer."
+      },
+      {
+        "id": "claude_code_backend",
+        "label": "claude --print --dangerously-skip-permissions",
+        "category": "provider",
+        "detail": "Alternative Tier 2 backend invoked by act-runner.mjs when --backend=claude-code or ACT_BACKEND=claude-code. Selection at act-agent/runner/act-runner.mjs:92. Branch at act-agent/runner/act-runner.mjs:222 (runAgentClaudeCode at :275)."
+      }
+    ]
+  },
+  "categories": [
+    {
+      "id": "tier1",
+      "label": "Tier 1 (interactive agents)",
+      "color": "#f5b302"
+    },
+    {
+      "id": "tier2",
+      "label": "Tier 2 (swarm prompts)",
+      "color": "#7d3cff"
+    },
+    {
+      "id": "orchestrator",
+      "label": "Go orchestrator + TUI",
+      "color": "#22a7f0"
+    },
+    {
+      "id": "runner",
+      "label": "Runner subprocess (Node)",
+      "color": "#26a65b"
+    },
+    {
+      "id": "cli",
+      "label": "act CLI (TS)",
+      "color": "#3fc380"
+    },
+    {
+      "id": "server-core",
+      "label": "ACT server services",
+      "color": "#e74c3c"
+    },
+    {
+      "id": "endpoint",
+      "label": "REST endpoints (39 total)",
+      "color": "#ff6f3c"
+    },
+    {
+      "id": "provider",
+      "label": "LLM providers",
+      "color": "#9b59b6"
+    },
+    {
+      "id": "storage",
+      "label": "Storage / in-memory state",
+      "color": "#1abc9c"
+    },
+    {
+      "id": "loop",
+      "label": "Background loops",
+      "color": "#34495e"
+    },
+    {
+      "id": "socketio",
+      "label": "Socket.io (vestigial)",
+      "color": "#95a5a6"
+    },
+    {
+      "id": "install",
+      "label": "Install topology",
+      "color": "#bdc3c7"
+    },
+    {
+      "id": "behavior",
+      "label": "Behavioral contracts",
+      "color": "#d35400"
+    }
+  ],
+  "columns": [
+    {
+      "id": "agent",
+      "label": "Tier 1 Agents"
+    },
+    {
+      "id": "prompt",
+      "label": "Prompts & Behaviors"
+    },
+    {
+      "id": "tui",
+      "label": "TUI Internals"
+    },
+    {
+      "id": "loop",
+      "label": "Background Loops"
+    },
+    {
+      "id": "bridge",
+      "label": "HTTP Bridge"
+    },
+    {
+      "id": "endpoint",
+      "label": "REST Endpoints"
+    },
+    {
+      "id": "service",
+      "label": "Services & Storage"
+    },
+    {
+      "id": "swarm",
+      "label": "Runner & Spawn"
+    }
+  ],
+  "components": [
+    {
+      "id": "planner",
+      "label": "Planner (Tier 1)",
+      "categoryId": "tier1",
+      "columnId": "agent",
+      "detail": "Only decision-maker. Created in act-agent/internal/app/app.go:74 (tier1Roles list).",
+      "tags": [
+        "agent",
+        "decision"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "observer",
+      "label": "Observer (Tier 1)",
+      "categoryId": "tier1",
+      "columnId": "agent",
+      "detail": "Silent watchdog on ~120s loop. Loop at act-agent/internal/app/orchestrator.go:1216. Interval const at act-agent/internal/app/orchestrator.go:1194 (observerInterval = 120s).",
+      "tags": [
+        "agent",
+        "monitor"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "assurance",
+      "label": "Assurance (Tier 1)",
+      "categoryId": "tier1",
+      "columnId": "agent",
+      "detail": "Event-driven validator. Uses view + grep tools to score @success_criteria items (95% gate). See act-agent/internal/llm/prompt/assurance.go:29 and act-agent/internal/llm/prompt/assurance.go:57.",
+      "tags": [
+        "agent",
+        "validation"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "qa_synth",
+      "label": "QA / Synthesizer (Tier 1)",
+      "categoryId": "tier1",
+      "columnId": "agent",
+      "detail": "Event-driven. Assembles Assurance-validated outputs. Poll loop at act-agent/internal/app/orchestrator.go:1774.",
+      "tags": [
+        "agent",
+        "synthesis"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "planner_prompt",
+      "label": "planner.go + section files",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Main prompt at act-agent/internal/llm/prompt/planner.go plus 5 section files: planner_section_evidence.go, planner_section_examples.go, planner_section_nomik.go, planner_section_success_criteria.go, planner_section_validation.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "observer_prompt",
+      "label": "observer.go",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Prompt at act-agent/internal/llm/prompt/observer.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "assurance_prompt",
+      "label": "assurance.go",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Prompt at act-agent/internal/llm/prompt/assurance.go. Instructs use of view/grep tools (line 29).",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "qa_synth_prompt",
+      "label": "qa_synthesizer.go",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Prompt at act-agent/internal/llm/prompt/qa_synthesizer.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "common_prompt",
+      "label": "common.go (shared)",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Shared prompt building blocks + env/LSP helpers at act-agent/internal/llm/prompt/common.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 4
+    },
+    {
+      "id": "prompt_dispatcher",
+      "label": "prompt.go dispatcher",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Routes role to prompt function at act-agent/internal/llm/prompt/prompt.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 5
+    },
+    {
+      "id": "nomik_guidance",
+      "label": "nomik_guidance.go (conditional)",
+      "categoryId": "tier1",
+      "columnId": "prompt",
+      "detail": "Conditional Nomik prompt injection at act-agent/internal/llm/prompt/nomik_guidance.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 6
+    },
+    {
+      "id": "dev_prompt",
+      "label": "developer.go (Tier 2)",
+      "categoryId": "tier2",
+      "columnId": "prompt",
+      "detail": "act-agent/internal/llm/prompt/developer.go \u2014 default swarm role.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 7
+    },
+    {
+      "id": "frontend_prompt",
+      "label": "frontend_dev.go (Tier 2)",
+      "categoryId": "tier2",
+      "columnId": "prompt",
+      "detail": "act-agent/internal/llm/prompt/frontend_dev.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 8
+    },
+    {
+      "id": "backend_prompt",
+      "label": "backend_dev.go (Tier 2)",
+      "categoryId": "tier2",
+      "columnId": "prompt",
+      "detail": "act-agent/internal/llm/prompt/backend_dev.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 9
+    },
+    {
+      "id": "qa_eng_prompt",
+      "label": "qa_engineer.go (Tier 2)",
+      "categoryId": "tier2",
+      "columnId": "prompt",
+      "detail": "act-agent/internal/llm/prompt/qa_engineer.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 10
+    },
+    {
+      "id": "researcher_prompt",
+      "label": "researcher.go (Tier 2)",
+      "categoryId": "tier2",
+      "columnId": "prompt",
+      "detail": "act-agent/internal/llm/prompt/researcher.go.",
+      "tags": [
+        "prompt"
+      ],
+      "slot": 11
+    },
+    {
+      "id": "app_service",
+      "label": "app.Service (Go)",
+      "categoryId": "orchestrator",
+      "columnId": "tui",
+      "detail": "Tier 1 agent map at act-agent/internal/app/app.go:35 (Agents map). Created at act-agent/internal/app/app.go:80 (Tier1ToolsForRole subset).",
+      "tags": [
+        "go"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "orchestrator",
+      "label": "Orchestrator (Go)",
+      "categoryId": "orchestrator",
+      "columnId": "tui",
+      "detail": "Coordination logic at act-agent/internal/app/orchestrator.go. Spawns five background loops at act-agent/internal/app/orchestrator.go:161-165.",
+      "tags": [
+        "go"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "internal_marker",
+      "label": "InternalPromptMarker",
+      "categoryId": "orchestrator",
+      "columnId": "tui",
+      "detail": "Hidden sentinel for non-Planner inputs at act-agent/internal/app/orchestrator.go:440 (const = \"\\x00ACT_INTERNAL\\x00\").",
+      "tags": [
+        "go",
+        "ui"
+      ],
+      "slot": 4
+    },
+    {
+      "id": "tier1_tools_helper",
+      "label": "agent.Tier1ToolsForRole",
+      "categoryId": "orchestrator",
+      "columnId": "tui",
+      "detail": "Per-role tool subset at act-agent/internal/llm/agent/tools.go:124. Token-diet: Planner/Observer get just bash, Assurance/QA get bash + view + grep.",
+      "tags": [
+        "go",
+        "token-diet"
+      ],
+      "slot": 5
+    },
+    {
+      "id": "act_cli_router",
+      "label": "cmd/root.go (CLI router)",
+      "categoryId": "orchestrator",
+      "columnId": "tui",
+      "detail": "Pre-cobra subcommand routing + cobra flags. Server auto-start wired at act-agent/cmd/root.go:122 (EnsureServerRunning).",
+      "tags": [
+        "go"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "server_launcher",
+      "label": "server/launcher.go",
+      "categoryId": "orchestrator",
+      "columnId": "tui",
+      "detail": "Detects server, spawns if absent, at act-agent/internal/server/launcher.go:30 (EnsureServerRunning).",
+      "tags": [
+        "go"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "act_client_go",
+      "label": "act/client.go (HTTP)",
+      "categoryId": "orchestrator",
+      "columnId": "bridge",
+      "detail": "Native HTTP client at act-agent/internal/act/client.go:26 (NewClient default http://localhost:8080).",
+      "tags": [
+        "go",
+        "http"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "runner_proc",
+      "label": "act-runner.mjs",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Headless swarm spawner at act-agent/runner/act-runner.mjs. Poll interval at act-agent/runner/act-runner.mjs:36 (POLL_INTERVAL default 5000ms). Task timeout at act-agent/runner/act-runner.mjs:37 (TASK_TIMEOUT default 120000ms).",
+      "tags": [
+        "node"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "spawner",
+      "label": "runner/spawner.go",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Spawns Node subprocesses with process groups. SweepOrphans at act-agent/internal/runner/spawner.go:243 (pkill -f act-runner.mjs).",
+      "tags": [
+        "go"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "spawner_unix",
+      "label": "spawner_unix.go (Setpgid)",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Process group attribute set at act-agent/internal/runner/spawner_unix.go:10 (attr.Setpgid = true).",
+      "tags": [
+        "go"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "live_processes_map",
+      "label": "liveProcesses Map (no-clone)",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Single-instance enforcement at act-agent/runner/act-runner.mjs:94 (Map keyed by agentId).",
+      "tags": [
+        "node"
+      ],
+      "slot": 4
+    },
+    {
+      "id": "sweep_orphans",
+      "label": "SweepOrphans (pkill)",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Startup defensive sweep at act-agent/internal/runner/spawner.go:243.",
+      "tags": [
+        "go"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "act_cli",
+      "label": "cli/act-cli.ts (23 cmds)",
+      "categoryId": "cli",
+      "columnId": "bridge",
+      "detail": "Manual if/else dispatch (no commander). Entry points: act-agent/cli/act-cli.ts:932 (register), 942 (context), 953 (task complete), 967 (task progress), 981 (brief update), 995 (task retry), 999 (task submit-for-validation), 1014 (files claim), 1028 (files release), 1042 (pvm search), 1058 (validation queue), 1060 (message), 1071 (log), 1079-1085 (graph task/unverified/conflicts), 1087 (status), 1089-1095 (codebase impact/rules/communities/onboard), 1097 (swarm), 1099 (nomik).",
+      "tags": [
+        "ts",
+        "cli"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "agent_registry",
+      "label": "AgentRegistry (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Agent tracking at server/src/services/AgentRegistry.ts. Restored from ChronLog at server/src/index.ts:1339-1346 (restoreFromLog).",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "task_coordinator",
+      "label": "TaskCoordinator (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Task lifecycle at server/src/services/TaskCoordinator.ts. Restored from ChronLog at server/src/index.ts:1347 (taskCoordinator.restoreTasks).",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "event_hub",
+      "label": "EventHub (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Message classification + routing at server/src/services/EventHub.ts. Rate limiting 3/30s per agent (per CLAUDE.md).",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "chron_log",
+      "label": "ChronologicalLog (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Append-only JSONL log at server/src/services/ChronologicalLog.ts. Flush timer at server/src/services/ChronologicalLog.ts:404 (setInterval 5000ms \u2014 flushIntervalMs default at server/src/services/ChronologicalLog.ts:46).",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 5
+    },
+    {
+      "id": "local_embed",
+      "label": "LocalEmbeddingVectorStore (wired)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Real all-MiniLM-L6-v2 embeddings at server/src/services/LocalEmbeddingVectorStore.ts. Instantiated at server/src/index.ts:42 (new LocalEmbeddingVectorStore()).",
+      "tags": [
+        "ts",
+        "service",
+        "wired"
+      ],
+      "slot": 7
+    },
+    {
+      "id": "vector_base",
+      "label": "VectorMemoryStore (abstract)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Abstract base class at server/src/services/VectorMemoryStore.ts. Exported from server/src/services/index.ts:6.",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 8
+    },
+    {
+      "id": "mock_vector",
+      "label": "MockVectorStore (test-only)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Test-only consumer at server/src/__tests__/MockVectorStore.test.ts. Exported from server/src/services/index.ts:13.",
+      "tags": [
+        "ts",
+        "service",
+        "test"
+      ],
+      "slot": 9
+    },
+    {
+      "id": "qdrant_vector",
+      "label": "QdrantVectorStore (build-excluded)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "File exists at server/src/services/QdrantVectorStore.ts but the export is commented out at server/src/services/index.ts:11-12 with note: 'pre-existing TypeScript error \u2014 excluded from build'.",
+      "tags": [
+        "ts",
+        "service",
+        "excluded"
+      ],
+      "slot": 10
+    },
+    {
+      "id": "pvm_indexer",
+      "label": "PVMIndexer (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Indexes events to vector store at server/src/services/PVMIndexer.ts. Interval at server/src/services/PVMIndexer.ts:60 (setInterval default 10000ms, see server/src/services/PVMIndexer.ts:52). Started from server/src/index.ts:1352 (pvmIndexer.startIndexing(10000)).",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 6
+    },
+    {
+      "id": "self_improve",
+      "label": "SelfImprovementEngine (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Background processor at server/src/services/SelfImprovementEngine.ts. Idle check setInterval at server/src/services/SelfImprovementEngine.ts:593 (30000ms). Note CLAUDE.md pitfall #7: PVM analytics methods on top of embeddings are placeholders (Math.random); embeddings themselves are real.",
+      "tags": [
+        "ts",
+        "service",
+        "placeholder-warn"
+      ],
+      "slot": 11
+    },
+    {
+      "id": "spil_parser",
+      "label": "SPILParser (service)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Parses @sections, success_criteria, directives at server/src/services/SPILParser.ts.",
+      "tags": [
+        "ts",
+        "service"
+      ],
+      "slot": 4
+    },
+    {
+      "id": "ep_meta",
+      "label": "Meta + dashboard (5 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:32 (GET /), :35 (GET /dashboard), :83 (GET /health), :96 (GET /api/status), :149 (POST /api/dev/reset \u2014 unauthenticated).",
+      "tags": [
+        "rest",
+        "auth-gap"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "ep_a2a",
+      "label": "A2A discovery + push (3)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:175 (GET /.well-known/agent.json), :189 (GET /api/agents/:agentId/agent.json), :208 (POST /api/agents/:agentId/tasks).",
+      "tags": [
+        "rest"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "ep_agents",
+      "label": "Agents (3 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:244 (GET /api/agents), :249 (POST /api/agents/register), :288 (DELETE /api/agents/:agentId \u2014 unauthenticated).",
+      "tags": [
+        "rest",
+        "auth-gap"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "ep_projects",
+      "label": "Projects + briefs (5 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:354 (POST /api/projects), :381 (GET /api/projects), :385 (GET /api/projects/:name), :437 (POST /api/projects/:name/briefs), :453 (GET /api/projects/:name/briefs/:agentId).",
+      "tags": [
+        "rest"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "ep_tasks_lifecycle",
+      "label": "Tasks lifecycle (10 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:464 (GET /api/tasks), :473 (POST /api/tasks), :511 (GET /api/tasks/failed-permanently), :523 (GET /api/tasks/assigned), :566 (GET /api/tasks/:taskId), :590 (POST /api/tasks/:taskId/progress), :607 (POST /api/tasks/:taskId/complete), :669 (POST /api/tasks/:taskId/retry), plus assignment side-effects at :235 and :495.",
+      "tags": [
+        "rest"
+      ],
+      "slot": 4
+    },
+    {
+      "id": "ep_tasks_validate",
+      "label": "Tasks validation (3 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:541 (GET /api/tasks/pending-validation), :557 (GET /api/tasks/validated), :699 (POST /api/tasks/:taskId/submit-for-validation), :736 (POST /api/tasks/:taskId/validation-verdict).",
+      "tags": [
+        "rest"
+      ],
+      "slot": 5
+    },
+    {
+      "id": "ep_tasks_synth",
+      "label": "Tasks synthesis (1 route \u2014 partial)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:795 (POST /api/tasks/:taskId/synthesis). Persists event + summary string to ChronLog at server/src/index.ts:805-811 \u2014 does NOT persist full deliverable text.",
+      "tags": [
+        "rest",
+        "partial-gap"
+      ],
+      "slot": 6
+    },
+    {
+      "id": "ep_messages",
+      "label": "Messages (2 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:835 (POST /api/messages), :877 (GET /api/agents/:agentId/messages).",
+      "tags": [
+        "rest"
+      ],
+      "slot": 7
+    },
+    {
+      "id": "ep_files",
+      "label": "Files (3 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:916 (POST /api/files/claim), :959 (POST /api/files/release), :988 (GET /api/files/locks). Lock identity = string compare at server/src/index.ts:923-928.",
+      "tags": [
+        "rest"
+      ],
+      "slot": 8
+    },
+    {
+      "id": "ep_pvm",
+      "label": "PVM (2 routes)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:1013 (GET /api/pvm/search), :1028 (GET /api/pvm/status).",
+      "tags": [
+        "rest"
+      ],
+      "slot": 9
+    },
+    {
+      "id": "ep_log",
+      "label": "Log (1 route)",
+      "categoryId": "endpoint",
+      "columnId": "endpoint",
+      "detail": "server/src/index.ts:1036 (GET /api/log). Polled every 3s by orchestrator coordinationEventLoop.",
+      "tags": [
+        "rest"
+      ],
+      "slot": 10
+    },
+    {
+      "id": "store_chronlog",
+      "label": "data/coordination-log.jsonl",
+      "categoryId": "storage",
+      "columnId": "service",
+      "detail": "Append-only JSONL on disk, flushed every 5s by ChronologicalLog (server/src/services/ChronologicalLog.ts:46, :404).",
+      "tags": [
+        "disk"
+      ],
+      "slot": 12
+    },
+    {
+      "id": "store_act_json",
+      "label": "~/.act.json",
+      "categoryId": "storage",
+      "columnId": "service",
+      "detail": "Per-role model config + provider keys. chmod 600 by installer. Loaded by act-agent/internal/config/config.go.",
+      "tags": [
+        "disk",
+        "secret"
+      ],
+      "slot": 14
+    },
+    {
+      "id": "store_coord_human",
+      "label": "act-coordination.json (human-written)",
+      "categoryId": "storage",
+      "columnId": "service",
+      "detail": "Manual multi-Claude coordination log. NOT written by any runtime code \u2014 grep finds zero references in server/src/ or act-agent/internal/. Documented in CLAUDE.md Multi-Agent Coordination Protocol.",
+      "tags": [
+        "disk",
+        "doc-only"
+      ],
+      "slot": 16
+    },
+    {
+      "id": "store_kanban",
+      "label": ".devtool/features/ (doc-only)",
+      "categoryId": "storage",
+      "columnId": "service",
+      "detail": "58 active + 11 done markdown task files at execution time. Documented in CLAUDE.md Kanban Board section. No code references in server/src/ or act-agent/internal/.",
+      "tags": [
+        "disk",
+        "doc-only"
+      ],
+      "slot": 17
+    },
+    {
+      "id": "loop_msg_own",
+      "label": "messageOwnershipLoop (PubSub)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "PubSub-driven, not timed. At act-agent/internal/app/orchestrator.go:807. Spawned at act-agent/internal/app/orchestrator.go:161.",
+      "tags": [
+        "loop"
+      ],
+      "slot": 1
+    },
+    {
+      "id": "loop_observer",
+      "label": "observerLoop (120s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "At act-agent/internal/app/orchestrator.go:1216. Interval const at act-agent/internal/app/orchestrator.go:1194.",
+      "tags": [
+        "loop"
+      ],
+      "slot": 3
+    },
+    {
+      "id": "loop_validate",
+      "label": "validationPollLoop (10s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "At act-agent/internal/app/orchestrator.go:1652. Period const at act-agent/internal/app/orchestrator.go:1201.",
+      "tags": [
+        "loop"
+      ],
+      "slot": 4
+    },
+    {
+      "id": "loop_qa",
+      "label": "qaPollLoop (10s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "At act-agent/internal/app/orchestrator.go:1774. Reuses validationPollPeriod (10s) at act-agent/internal/app/orchestrator.go:1781.",
+      "tags": [
+        "loop"
+      ],
+      "slot": 5
+    },
+    {
+      "id": "loop_coord_event",
+      "label": "coordinationEventLoop (3s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "At act-agent/internal/app/orchestrator.go:454. Interval const at act-agent/internal/app/orchestrator.go:444 (coordinationEventInterval = 3s).",
+      "tags": [
+        "loop"
+      ],
+      "slot": 6
+    },
+    {
+      "id": "loop_runner_coord",
+      "label": "Runner coordination loop (5s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "act-runner.mjs polling loop sleeps POLL_INTERVAL ms between iterations at act-agent/runner/act-runner.mjs:844 (await sleep(POLL_INTERVAL)). Default 5000ms at act-agent/runner/act-runner.mjs:36.",
+      "tags": [
+        "loop"
+      ],
+      "slot": 10
+    },
+    {
+      "id": "loop_chronlog",
+      "label": "ChronLog flush timer (5s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "server/src/services/ChronologicalLog.ts:404 (setInterval). Default flushIntervalMs at server/src/services/ChronologicalLog.ts:46 (5000).",
+      "tags": [
+        "loop"
+      ],
+      "slot": 7
+    },
+    {
+      "id": "loop_pvm",
+      "label": "PVM indexer (10s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "server/src/services/PVMIndexer.ts:60 (setInterval). Default at :52 (10000ms).",
+      "tags": [
+        "loop"
+      ],
+      "slot": 8
+    },
+    {
+      "id": "loop_self_improve",
+      "label": "SelfImprovement idle check (30s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "server/src/services/SelfImprovementEngine.ts:593 (setInterval 30 * 1000).",
+      "tags": [
+        "loop"
+      ],
+      "slot": 9
+    },
+    {
+      "id": "loop_startup_ping",
+      "label": "Startup ping (one-shot, 2s)",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "Tier 1 visibility pings at act-agent/internal/app/orchestrator.go:171.",
+      "tags": [
+        "loop"
+      ],
+      "slot": 0
+    },
+    {
+      "id": "loop_turn_timeout",
+      "label": "Per-turn 5min timeout",
+      "categoryId": "loop",
+      "columnId": "loop",
+      "detail": "context.WithTimeout wraps agent.Run at act-agent/internal/app/orchestrator.go:359. Const at act-agent/internal/app/orchestrator.go:429 (agentTurnTimeout = 5*time.Minute).",
+      "tags": [
+        "loop",
+        "timeout"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "socketio_emits",
+      "label": "io.emit (27 broadcasts)",
+      "categoryId": "socketio",
+      "columnId": "endpoint",
+      "detail": "27 io.emit() calls in server/src/index.ts (e.g. :235, :279, :300, :495, :596, :640, :650, :689, :718, :752, :774, :812, :821). No subscriber in Go TUI or Node Runner.",
+      "tags": [
+        "dead-code"
+      ],
+      "slot": 11
+    },
+    {
+      "id": "socketio_handlers",
+      "label": "socket.on (9 handlers)",
+      "categoryId": "socketio",
+      "columnId": "endpoint",
+      "detail": "9 socket.on() registrations in server/src/index.ts (e.g. handlers in the 1063-1280 block). No Go or Node client connects.",
+      "tags": [
+        "dead-code"
+      ],
+      "slot": 12
+    },
+    {
+      "id": "ralph_loop",
+      "label": "Ralph Wiggum self-verify loop",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Iterative self-verification before act-agent task complete. Lives entirely in prompt text \u2014 no code gate. References at act-agent/internal/llm/prompt/common.go (multiple lines), act-agent/internal/llm/prompt/developer.go, frontend_dev.go, backend_dev.go, qa_engineer.go, researcher.go, assurance.go. Enforcement is statistical: Assurance Layer 1 looks for evidence of self-verification but an agent that skipped Ralph would only be caught by another LLM, not by a compiler.",
+      "tags": [
+        "prompt-only"
+      ],
+      "slot": 12
+    },
+    {
+      "id": "no_auth_boundary",
+      "label": "No-auth trust boundary",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "cors() open default at server/src/index.ts:28. Sensitive endpoints unauthenticated: POST /api/dev/reset (server/src/index.ts:149), DELETE /api/agents/:agentId (server/src/index.ts:288). Socket.io accepts any connection at server/src/index.ts:1063.",
+      "tags": [
+        "auth-gap"
+      ],
+      "slot": 21
+    },
+    {
+      "id": "ralph_trace_check",
+      "label": "Layer 1 trace check",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Assurance Layer 1 looks for evidence of self-verification in the agent's submitted result. Prompt instruction at act-agent/internal/llm/prompt/assurance.go:25 (Layer 1: Self-Verification Check (Ralph Wiggum Loop)).",
+      "tags": [
+        "prompt-only",
+        "validation"
+      ],
+      "slot": 13
+    },
+    {
+      "id": "criteria_score",
+      "label": "Layer 2 criteria scoring",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Assurance Layer 2 scores @success_criteria items via view/grep tools against the project working directory. Prompt instruction at act-agent/internal/llm/prompt/assurance.go:28 (Layer 2: Independent Tool-Based Criteria Scoring).",
+      "tags": [
+        "validation",
+        "view-grep"
+      ],
+      "slot": 14
+    },
+    {
+      "id": "build_task_prompt",
+      "label": "buildTaskPrompt (assembler)",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Assembles the swarm-agent prompt from brief + project + parallel + PVM + task + inbox + gap context. At act-agent/runner/act-runner.mjs:601.",
+      "tags": [
+        "node",
+        "prompt-assembly"
+      ],
+      "slot": 6
+    },
+    {
+      "id": "complexity_score",
+      "label": "scoreComplexity / PVM trigger",
+      "categoryId": "runner",
+      "columnId": "swarm",
+      "detail": "Heuristic complexity score gates the PVM context fetch. Threshold const at act-agent/runner/act-runner.mjs:327 (COMPLEXITY_THRESHOLD = 4). Function at act-agent/runner/act-runner.mjs:333.",
+      "tags": [
+        "node",
+        "pvm-gate"
+      ],
+      "slot": 5
+    },
+    {
+      "id": "anomaly_stuck_task",
+      "label": "stuck_task anomaly",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Detection rule at act-agent/internal/llm/prompt/observer.go:26 (## 1. Stuck Tasks [stuck_task]). Assigned/in_progress >30m=WARNING, >60m=CRITICAL.",
+      "tags": [
+        "anomaly"
+      ],
+      "slot": 15
+    },
+    {
+      "id": "anomaly_stale_lock",
+      "label": "stale_lock anomaly",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Detection rule at act-agent/internal/llm/prompt/observer.go:31 (## 2. Stale File Locks [stale_lock]).",
+      "tags": [
+        "anomaly"
+      ],
+      "slot": 16
+    },
+    {
+      "id": "anomaly_idle_agent",
+      "label": "idle_agent anomaly",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Detection rule at act-agent/internal/llm/prompt/observer.go:36 (## 3. Idle Agents [idle_agent]).",
+      "tags": [
+        "anomaly"
+      ],
+      "slot": 17
+    },
+    {
+      "id": "anomaly_unvalidated",
+      "label": "unvalidated anomaly",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Detection rule at act-agent/internal/llm/prompt/observer.go:40 (## 4. Unvalidated Work [unvalidated]).",
+      "tags": [
+        "anomaly"
+      ],
+      "slot": 18
+    },
+    {
+      "id": "anomaly_bottleneck",
+      "label": "bottleneck anomaly",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Detection rule at act-agent/internal/llm/prompt/observer.go:45 (## 5. Bottlenecks [bottleneck]).",
+      "tags": [
+        "anomaly"
+      ],
+      "slot": 19
+    },
+    {
+      "id": "anomaly_conflict",
+      "label": "file_conflict anomaly",
+      "categoryId": "behavior",
+      "columnId": "prompt",
+      "detail": "Detection rule at act-agent/internal/llm/prompt/observer.go:49 (## 6. File Conflicts [conflict]).",
+      "tags": [
+        "anomaly"
+      ],
+      "slot": 20
+    },
+    {
+      "id": "assign_optimal",
+      "label": "assignOptimalAgent (routing)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "Capability-based task \u2192 agent matching at server/src/services/TaskCoordinator.ts:105. Filters available agents by requiredCapabilities at server/src/services/TaskCoordinator.ts:370.",
+      "tags": [
+        "routing"
+      ],
+      "slot": 2
+    },
+    {
+      "id": "store_inmem",
+      "label": "In-memory state (projects, tasks, agents, locks, vectors)",
+      "categoryId": "storage",
+      "columnId": "service",
+      "detail": "All in-memory maps live in the server process. Rebuilt at startup by ChronLog replay at server/src/index.ts:1339 (restoreFromLog). Includes: projects + tasks + briefs + agents + fileLocks (all restored from log), plus LocalEmbeddingVectorStore (ephemeral, recomputed every restart).",
+      "tags": [
+        "memory",
+        "rebuilt-on-boot"
+      ],
+      "slot": 13
+    },
+    {
+      "id": "store_act_cfg",
+      "label": "~/.act/config.json",
+      "categoryId": "storage",
+      "columnId": "service",
+      "slot": 15,
+      "detail": "actRoot discovery file written by install.sh; consumed by act-agent/internal/server/launcher.go:30 (EnsureServerRunning).",
+      "tags": [
+        "disk"
+      ]
+    }
+  ],
+  "flows": [
+    {
+      "id": "boot-tui",
+      "label": "TUI boot",
+      "summary": "User runs act-agent (or the act symlink). cmd/root.go ensures the server is up, then app.New() creates 4 Tier 1 agents and 5 orchestrator goroutines.",
+      "steps": [
+        {
+          "from": "act_cli_router",
+          "to": "server_launcher",
+          "label": "EnsureServerRunning",
+          "status": "ok",
+          "detail": "Wired at act-agent/cmd/root.go:122."
+        },
+        {
+          "from": "server_launcher",
+          "to": "store_act_cfg",
+          "label": "discover actRoot",
+          "status": "ok",
+          "detail": "Launcher reads ~/.act/config.json::actRoot at act-agent/internal/server/launcher.go:30+."
+        },
+        {
+          "from": "act_cli_router",
+          "to": "app_service",
+          "label": "app.New()",
+          "status": "ok",
+          "detail": "Tier 1 role list at act-agent/internal/app/app.go:74 (tier1Roles = [planner, observer, assurance, qa_synthesizer])."
+        },
+        {
+          "from": "app_service",
+          "to": "planner",
+          "label": "create",
+          "status": "ok",
+          "detail": "Loop body at act-agent/internal/app/app.go:80 (Tier1ToolsForRole + provider per role)."
+        },
+        {
+          "from": "app_service",
+          "to": "observer",
+          "label": "create",
+          "status": "ok",
+          "detail": "Same for loop body at act-agent/internal/app/app.go:78 (for _, role := range tier1Roles), role='observer'."
+        },
+        {
+          "from": "app_service",
+          "to": "assurance",
+          "label": "create",
+          "status": "ok",
+          "detail": "Same for loop body at act-agent/internal/app/app.go:78, role='assurance'."
+        },
+        {
+          "from": "app_service",
+          "to": "qa_synth",
+          "label": "create",
+          "status": "ok",
+          "detail": "Same for loop body at act-agent/internal/app/app.go:78, role='qa_synthesizer'."
+        },
+        {
+          "from": "app_service",
+          "to": "orchestrator",
+          "label": "start orchestrator",
+          "status": "ok",
+          "detail": "Goroutines launched at act-agent/internal/app/orchestrator.go:161-165."
+        }
+      ]
+    },
+    {
+      "id": "boot-server",
+      "label": "Server boot",
+      "summary": "Server replays ChronLog into in-memory state before opening the port.",
+      "steps": [
+        {
+          "from": "chron_log",
+          "to": "store_chronlog",
+          "label": "initialize",
+          "status": "ok",
+          "detail": "server/src/index.ts:1338 (chronologicalLog.initialize)."
+        },
+        {
+          "from": "store_chronlog",
+          "to": "store_inmem",
+          "label": "replay \u2192 projects",
+          "status": "ok",
+          "detail": "server/src/index.ts:1339 (restoreFromLog)."
+        },
+        {
+          "from": "store_chronlog",
+          "to": "store_inmem",
+          "label": "replay \u2192 tasks",
+          "status": "ok",
+          "detail": "server/src/index.ts:1347 (taskCoordinator.restoreTasks)."
+        },
+        {
+          "from": "store_chronlog",
+          "to": "store_inmem",
+          "label": "replay \u2192 agents",
+          "status": "ok",
+          "detail": "server/src/index.ts:1344 (agentRegistry.restoreAgents)."
+        },
+        {
+          "from": "store_chronlog",
+          "to": "store_inmem",
+          "label": "replay \u2192 file locks",
+          "status": "ok",
+          "detail": "fileLocks passed into restoreFromLog at server/src/index.ts:1339."
+        },
+        {
+          "from": "chron_log",
+          "to": "pvm_indexer",
+          "label": "startIndexing(10000)",
+          "status": "ok",
+          "detail": "server/src/index.ts:1352."
+        }
+      ]
+    },
+    {
+      "id": "intake",
+      "label": "INTAKE \u2014 first message of a new project",
+      "summary": "Planner detects unknown project (404), runs 5 questions, emits PROJECT_BRIEF, orchestrator POSTs to /api/projects.",
+      "steps": [
+        {
+          "from": "planner",
+          "to": "planner_prompt",
+          "label": "INTAKE mode",
+          "status": "ok",
+          "detail": "Prompt text gates intake at act-agent/internal/llm/prompt/planner.go:28 (INTAKE section)."
+        },
+        {
+          "from": "planner",
+          "to": "orchestrator",
+          "label": "PROJECT_BRIEF: json",
+          "status": "ok",
+          "detail": "Parsed by orchestrator alongside CREATE_TASK at act-agent/internal/app/orchestrator.go:67 (clears dispatchedMsgs)."
+        },
+        {
+          "from": "orchestrator",
+          "to": "act_client_go",
+          "label": "POST /api/projects",
+          "status": "ok",
+          "detail": "Via act-agent/internal/act/client.go:449 (CreateProject)."
+        },
+        {
+          "from": "act_client_go",
+          "to": "ep_projects",
+          "label": "/api/projects",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:354."
+        },
+        {
+          "from": "ep_projects",
+          "to": "store_inmem",
+          "label": "insert",
+          "status": "ok",
+          "detail": "In-memory map mutation in handler at server/src/index.ts:354+."
+        }
+      ]
+    },
+    {
+      "id": "create-task",
+      "label": "BUILD \u2014 Planner emits CREATE_TASK",
+      "summary": "Planner response contains CREATE_TASK lines. messageOwnershipLoop parses them, orchestrator POSTs to /api/tasks. First batch triggers lazy swarm spawn.",
+      "steps": [
+        {
+          "from": "planner",
+          "to": "orchestrator",
+          "label": "CREATE_TASK directive",
+          "status": "ok",
+          "detail": "Parsed in messageOwnershipLoop body at act-agent/internal/app/orchestrator.go:807+ (scans finished assistant messages for CREATE_TASK)."
+        },
+        {
+          "from": "orchestrator",
+          "to": "spawner",
+          "label": "lazy StartSwarm",
+          "status": "ok",
+          "detail": "First-batch gate at act-agent/internal/app/orchestrator.go:1054 (if len(SwarmSpecs)>0 && !IsRunning())."
+        },
+        {
+          "from": "spawner",
+          "to": "spawner_unix",
+          "label": "Setpgid attr",
+          "status": "ok",
+          "detail": "act-agent/internal/runner/spawner_unix.go:10."
+        },
+        {
+          "from": "spawner",
+          "to": "runner_proc",
+          "label": "node act-runner.mjs",
+          "status": "ok",
+          "detail": "Child process spawned at act-agent/internal/runner/spawner.go:123 (exec.Command(nodeBin, args...))."
+        },
+        {
+          "from": "orchestrator",
+          "to": "act_client_go",
+          "label": "POST /api/tasks",
+          "status": "ok",
+          "detail": "Via act-agent/internal/act/client.go:328 (CreateTask)."
+        },
+        {
+          "from": "act_client_go",
+          "to": "ep_tasks_lifecycle",
+          "label": "/api/tasks",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:473."
+        },
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "store_inmem",
+          "label": "insert + assign",
+          "status": "ok",
+          "detail": "Task creation + io.emit('task_assigned') at server/src/index.ts:495."
+        },
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "chron_log",
+          "label": "append task_created",
+          "status": "ok",
+          "detail": "Same handler appends ChronLog event at server/src/index.ts:476 (chronologicalLog.append)."
+        }
+      ]
+    },
+    {
+      "id": "runner-poll",
+      "label": "Runner polls + executes a task",
+      "summary": "Runner subprocess registers, polls for assigned tasks, runs act-agent or claude, reports complete.",
+      "steps": [
+        {
+          "from": "runner_proc",
+          "to": "act_cli",
+          "label": "register",
+          "status": "ok",
+          "detail": "POST /api/agents/register via act-cli at act-agent/cli/act-cli.ts:932."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_agents",
+          "label": "/api/agents/register",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:249."
+        },
+        {
+          "from": "runner_proc",
+          "to": "ep_tasks_lifecycle",
+          "label": "GET /api/tasks/assigned (5s)",
+          "status": "ok",
+          "detail": "Runner loop at act-agent/runner/act-runner.mjs:844 (sleep POLL_INTERVAL = 5000ms)."
+        },
+        {
+          "from": "runner_proc",
+          "to": "live_processes_map",
+          "label": "no-clone check",
+          "status": "ok",
+          "detail": "Map check at act-agent/runner/act-runner.mjs:94."
+        },
+        {
+          "from": "runner_proc",
+          "to": "runner_proc",
+          "label": "execFileAsync(act-agent --agent X)",
+          "status": "ok",
+          "detail": "runAgentActAgent at act-agent/runner/act-runner.mjs:228 (or runAgentClaudeCode at :275)."
+        },
+        {
+          "from": "runner_proc",
+          "to": "ralph_loop",
+          "label": "self-verify before complete",
+          "status": "prompt-only",
+          "detail": "Ralph loop lives in prompt text only \u2014 see act-agent/internal/llm/prompt/common.go and the per-role prompt files. No code gate at task complete time."
+        },
+        {
+          "from": "runner_proc",
+          "to": "act_cli",
+          "label": "act task complete",
+          "status": "ok",
+          "detail": "act-cli dispatch at act-agent/cli/act-cli.ts:953."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_tasks_lifecycle",
+          "label": "POST /api/tasks/:id/complete",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:607."
+        },
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "chron_log",
+          "label": "append task_completed",
+          "status": "ok",
+          "detail": "Inside handler at server/src/index.ts:640."
+        }
+      ]
+    },
+    {
+      "id": "validation",
+      "label": "Validation pipeline",
+      "summary": "Runner submits for validation. Assurance polls, uses view/grep, posts a verdict. Score gates pass/fail.",
+      "steps": [
+        {
+          "from": "runner_proc",
+          "to": "act_cli",
+          "label": "act task submit-for-validation",
+          "status": "ok",
+          "detail": "Dispatch at act-agent/cli/act-cli.ts:999."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_tasks_validate",
+          "label": "/api/tasks/:id/submit-for-validation",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:699."
+        },
+        {
+          "from": "orchestrator",
+          "to": "loop_validate",
+          "label": "validationPollLoop (10s)",
+          "status": "ok",
+          "detail": "Loop at act-agent/internal/app/orchestrator.go:1652."
+        },
+        {
+          "from": "loop_validate",
+          "to": "act_client_go",
+          "label": "GetPendingValidation",
+          "status": "ok",
+          "detail": "Call at act-agent/internal/app/orchestrator.go:1681; client method at act-agent/internal/act/client.go:373."
+        },
+        {
+          "from": "act_client_go",
+          "to": "ep_tasks_validate",
+          "label": "GET /api/tasks/pending-validation",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:541."
+        },
+        {
+          "from": "loop_validate",
+          "to": "assurance",
+          "label": "trigger turn",
+          "status": "ok",
+          "detail": "Validation poll fans through pending tasks at act-agent/internal/app/orchestrator.go:1689 (for _, t := range tasks) and routes each to Assurance."
+        },
+        {
+          "from": "assurance",
+          "to": "assurance_prompt",
+          "label": "view + grep tools",
+          "status": "ok",
+          "detail": "Prompt explicitly directs use of view/grep at act-agent/internal/llm/prompt/assurance.go:29 and :57."
+        },
+        {
+          "from": "assurance",
+          "to": "ep_tasks_validate",
+          "label": "POST validation-verdict",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:736."
+        },
+        {
+          "from": "ep_tasks_validate",
+          "to": "chron_log",
+          "label": "append task_validated",
+          "status": "ok",
+          "detail": "ChronLog write inside handler at server/src/index.ts:752."
+        }
+      ]
+    },
+    {
+      "id": "qa-synthesis",
+      "label": "QA / Synthesizer assembly (partial gap)",
+      "summary": "Once Assurance passes, qaPollLoop picks the task up. QA writes a summary via synthesis endpoint. Full deliverable text is NOT persisted server-side.",
+      "steps": [
+        {
+          "from": "orchestrator",
+          "to": "loop_qa",
+          "label": "qaPollLoop (10s)",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:1774."
+        },
+        {
+          "from": "loop_qa",
+          "to": "qa_synth",
+          "label": "trigger turn",
+          "status": "ok",
+          "detail": "checkValidatedTasks at act-agent/internal/app/orchestrator.go:1794 fetches validated tasks and routes each to the QA agent."
+        },
+        {
+          "from": "qa_synth",
+          "to": "qa_synth_prompt",
+          "label": "assemble output",
+          "status": "ok",
+          "detail": "baseQASynthesizerPrompt at act-agent/internal/llm/prompt/qa_synthesizer.go:15."
+        },
+        {
+          "from": "qa_synth",
+          "to": "ep_tasks_synth",
+          "label": "POST /api/tasks/:id/synthesis",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:795."
+        },
+        {
+          "from": "ep_tasks_synth",
+          "to": "chron_log",
+          "label": "append synthesis_complete + summary",
+          "status": "ok",
+          "detail": "ChronLog write at server/src/index.ts:805-811. Persists event + short summary string."
+        },
+        {
+          "from": "qa_synth",
+          "to": "store_inmem",
+          "label": "full deliverable text",
+          "status": "gap-found",
+          "detail": "PARTIAL gap: the event + summary are saved (above), but the full assembled deliverable body is never persisted server-side. It lives only in TUI session memory. See finding F-E for details."
+        }
+      ]
+    },
+    {
+      "id": "observer-watch",
+      "label": "Observer monitoring loop",
+      "summary": "Observer ticks every 120s, fetches state, surfaces anomalies. Stays silent when nothing is wrong.",
+      "steps": [
+        {
+          "from": "orchestrator",
+          "to": "loop_observer",
+          "label": "observerLoop (120s)",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:1216; const at :1194."
+        },
+        {
+          "from": "loop_observer",
+          "to": "act_client_go",
+          "label": "fetch task + agent state",
+          "status": "ok",
+          "detail": "runObserverCheck at act-agent/internal/app/orchestrator.go:1237 builds a status snapshot via the act.Client returned at orchestrator.go:1260 (buildStatusSnapshot)."
+        },
+        {
+          "from": "loop_observer",
+          "to": "observer",
+          "label": "anomaly trigger",
+          "status": "ok",
+          "detail": "Snapshot inspection in runObserverCheck at act-agent/internal/app/orchestrator.go:1237 hands the result to the Observer agent when anomalies are detected."
+        },
+        {
+          "from": "observer",
+          "to": "observer_prompt",
+          "label": "summarize anomaly",
+          "status": "ok",
+          "detail": "baseObserverPrompt at act-agent/internal/llm/prompt/observer.go:15."
+        },
+        {
+          "from": "observer",
+          "to": "orchestrator",
+          "label": "anomaly message + InternalPromptMarker",
+          "status": "ok",
+          "detail": "Marker prepended at act-agent/internal/app/orchestrator.go:346 (const at :440)."
+        }
+      ]
+    },
+    {
+      "id": "coord-event-tui",
+      "label": "Coordination event surfacing in TUI",
+      "summary": "Server-side events poll into the TUI chat as system messages every 3 seconds.",
+      "steps": [
+        {
+          "from": "orchestrator",
+          "to": "loop_coord_event",
+          "label": "coordinationEventLoop (3s)",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:454; const at :444."
+        },
+        {
+          "from": "loop_coord_event",
+          "to": "act_client_go",
+          "label": "GET /api/log",
+          "status": "ok",
+          "detail": "pollCoordinationEvents at act-agent/internal/app/orchestrator.go:479 calls client.GetLog (act-agent/internal/act/client.go:408)."
+        },
+        {
+          "from": "act_client_go",
+          "to": "ep_log",
+          "label": "/api/log",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:1036."
+        },
+        {
+          "from": "ep_log",
+          "to": "store_chronlog",
+          "label": "tail recent events",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:1036 reads tail of data/coordination-log.jsonl via ChronologicalLog.query."
+        }
+      ]
+    },
+    {
+      "id": "chronlog-flush",
+      "label": "ChronLog write + flush",
+      "summary": "Append-in-memory, flush to disk every 5s.",
+      "steps": [
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "chron_log",
+          "label": "append() (sync, in-memory)",
+          "status": "ok",
+          "detail": "async append at server/src/services/ChronologicalLog.ts:136."
+        },
+        {
+          "from": "chron_log",
+          "to": "loop_chronlog",
+          "label": "flush timer fires (5s)",
+          "status": "ok",
+          "detail": "setInterval at server/src/services/ChronologicalLog.ts:404; default ms at :46."
+        },
+        {
+          "from": "loop_chronlog",
+          "to": "store_chronlog",
+          "label": "write batched lines",
+          "status": "ok",
+          "detail": "Disk write inside flush callback (server/src/services/ChronologicalLog.ts:404+)."
+        }
+      ]
+    },
+    {
+      "id": "pvm-index",
+      "label": "PVM indexing",
+      "summary": "Every 10s, indexer pulls new ChronLog events into the in-memory vector store.",
+      "steps": [
+        {
+          "from": "loop_pvm",
+          "to": "chron_log",
+          "label": "fetch new events",
+          "status": "ok",
+          "detail": "Polled by PVMIndexer at server/src/services/PVMIndexer.ts:60."
+        },
+        {
+          "from": "loop_pvm",
+          "to": "local_embed",
+          "label": "embed + insert",
+          "status": "ok",
+          "detail": "indexNewEvents at server/src/services/PVMIndexer.ts:80 fetches events then calls embed at server/src/services/LocalEmbeddingVectorStore.ts:80."
+        },
+        {
+          "from": "local_embed",
+          "to": "store_inmem",
+          "label": "store vectors",
+          "status": "ok",
+          "detail": "Abstract store method at server/src/services/VectorMemoryStore.ts:48 \u2014 backing array is in-memory only, recomputed on restart."
+        },
+        {
+          "from": "self_improve",
+          "to": "store_inmem",
+          "label": "analytics on top of embeddings",
+          "status": "gap-found",
+          "detail": "CLAUDE.md pitfall #7: getAgentProfile, compareAgents, getAgentSynergy return placeholder data (Math.random). Embeddings are real; the analytics layer above them is fake."
+        }
+      ]
+    },
+    {
+      "id": "file-claim",
+      "label": "File lock claim",
+      "summary": "Swarm agent claims files before editing. Conflicts return 409.",
+      "steps": [
+        {
+          "from": "runner_proc",
+          "to": "act_cli",
+          "label": "act files claim",
+          "status": "ok",
+          "detail": "Dispatch at act-agent/cli/act-cli.ts:1014."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_files",
+          "label": "POST /api/files/claim",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:916."
+        },
+        {
+          "from": "ep_files",
+          "to": "store_inmem",
+          "label": "string-compare identity, 409 if conflict",
+          "status": "ok",
+          "detail": "Identity check at server/src/index.ts:923-928."
+        },
+        {
+          "from": "ep_files",
+          "to": "chron_log",
+          "label": "append file_claim event",
+          "status": "ok",
+          "detail": "Inside handler at server/src/index.ts:946+."
+        }
+      ]
+    },
+    {
+      "id": "internal-routing",
+      "label": "InternalPromptMarker auto-route",
+      "summary": "Observer/Assurance/QA messages get marker prepended so TUI hides the prompt but shows output, then autoRoutePlanner triggers a Planner turn.",
+      "steps": [
+        {
+          "from": "observer",
+          "to": "orchestrator",
+          "label": "anomaly text",
+          "status": "ok",
+          "detail": "Non-Planner internal prompt prepared at act-agent/internal/app/orchestrator.go:342 (the prepend site for InternalPromptMarker)."
+        },
+        {
+          "from": "orchestrator",
+          "to": "internal_marker",
+          "label": "prepend marker",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:346."
+        },
+        {
+          "from": "internal_marker",
+          "to": "planner",
+          "label": "autoRoutePlanner",
+          "status": "ok",
+          "detail": "Func at act-agent/internal/app/orchestrator.go:879. Recursion guard via consecutiveAutoTurns at act-agent/internal/app/orchestrator.go:92, reset to 0 by HandleHumanInput at act-agent/internal/app/orchestrator.go:246."
+        }
+      ]
+    },
+    {
+      "id": "turn-timeout",
+      "label": "Per-turn 5min timeout",
+      "summary": "Every agent turn is wrapped in a 5-minute context. On expiry the agent is canceled and a system message is emitted.",
+      "steps": [
+        {
+          "from": "orchestrator",
+          "to": "loop_turn_timeout",
+          "label": "context.WithTimeout(5m)",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:359; const at :429 (agentTurnTimeout)."
+        }
+      ]
+    },
+    {
+      "id": "socketio-vestigial",
+      "label": "Socket.io broadcasts (vestigial)",
+      "summary": "Server raises 27 io.emit calls. No client subscribes. Dead wire from the pre-CLI MCP era.",
+      "steps": [
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "socketio_emits",
+          "label": "task_completed",
+          "status": "gap-found",
+          "detail": "Emit at server/src/index.ts:640. No subscriber \u2014 Go TUI uses HTTP only (act-agent/internal/act/client.go:26), Runner has no socket.io import."
+        },
+        {
+          "from": "ep_tasks_validate",
+          "to": "socketio_emits",
+          "label": "task_validated",
+          "status": "gap-found",
+          "detail": "Emit at server/src/index.ts:752. Dead wire."
+        },
+        {
+          "from": "ep_tasks_synth",
+          "to": "socketio_emits",
+          "label": "synthesis_complete",
+          "status": "gap-found",
+          "detail": "Emit at server/src/index.ts:812. Dead wire."
+        },
+        {
+          "from": "socketio_handlers",
+          "to": "socketio_emits",
+          "label": "9 socket.on handlers \u2014 never reached",
+          "status": "gap-found",
+          "detail": "9 socket.on() registrations in the server/src/index.ts:1063-1280 block. No client connects."
+        }
+      ]
+    },
+    {
+      "id": "swarm-spawn-process-groups",
+      "label": "Process group + orphan management",
+      "summary": "Each runner is its own process group (Unix only). Parent kills the subtree on shutdown. Startup defensively sweeps orphans.",
+      "steps": [
+        {
+          "from": "spawner",
+          "to": "sweep_orphans",
+          "label": "SweepOrphans (startup)",
+          "status": "ok",
+          "detail": "act-agent/internal/runner/spawner.go:243 (pkill -f act-runner.mjs)."
+        },
+        {
+          "from": "spawner",
+          "to": "spawner_unix",
+          "label": "Setpgid attr (Unix)",
+          "status": "ok",
+          "detail": "act-agent/internal/runner/spawner_unix.go:10 (attr.Setpgid = true)."
+        },
+        {
+          "from": "spawner",
+          "to": "runner_proc",
+          "label": "spawn process group",
+          "status": "ok",
+          "detail": "exec.Command(nodeBin, args...) at act-agent/internal/runner/spawner.go:123 inherits the Setpgid attr from setProcGroup."
+        },
+        {
+          "from": "runner_proc",
+          "to": "live_processes_map",
+          "label": "no-clone enforcement",
+          "status": "ok",
+          "detail": "act-agent/runner/act-runner.mjs:94."
+        }
+      ]
+    },
+    {
+      "id": "planner-build-loop",
+      "label": "Planner BUILD iteration",
+      "summary": "After INTAKE, Planner enters BUILD mode. Coordination events arriving via the 3s poll loop become new Planner turns \u2014 successes invite the next CREATE_TASK, failures invite retry, anomalies invite intervention. The closed feedback loop is what makes Planner the sole decision-maker.",
+      "steps": [
+        {
+          "from": "loop_coord_event",
+          "to": "act_client_go",
+          "label": "GET /api/log every 3s",
+          "status": "ok",
+          "detail": "pollCoordinationEvents at act-agent/internal/app/orchestrator.go:479."
+        },
+        {
+          "from": "act_client_go",
+          "to": "ep_log",
+          "label": "/api/log tail",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:1036."
+        },
+        {
+          "from": "loop_coord_event",
+          "to": "orchestrator",
+          "label": "dispatch coord event",
+          "status": "ok",
+          "detail": "Event handler at act-agent/internal/app/orchestrator.go:560 (autoRoutePlanner with formatted summary)."
+        },
+        {
+          "from": "orchestrator",
+          "to": "internal_marker",
+          "label": "prepend marker, route to Planner",
+          "status": "ok",
+          "detail": "InternalPromptMarker prepended at act-agent/internal/app/orchestrator.go:346."
+        },
+        {
+          "from": "internal_marker",
+          "to": "planner",
+          "label": "new Planner turn",
+          "status": "ok",
+          "detail": "autoRoutePlanner at act-agent/internal/app/orchestrator.go:879."
+        },
+        {
+          "from": "planner",
+          "to": "planner_prompt",
+          "label": "BUILD mode decision",
+          "status": "prompt-only",
+          "detail": "Branch logic between emitting CREATE_TASK / retry / no-op lives in prompt text at act-agent/internal/llm/prompt/planner.go (BUILD section); not a coded state machine."
+        },
+        {
+          "from": "planner",
+          "to": "orchestrator",
+          "label": "CREATE_TASK or retry directive",
+          "status": "ok",
+          "detail": "messageOwnershipLoop scans the Planner's response for directives at act-agent/internal/app/orchestrator.go:807."
+        }
+      ]
+    },
+    {
+      "id": "observer-six-anomalies",
+      "label": "Observer's 6 anomaly categories",
+      "summary": "Observer monitors six categories of issues: stuck tasks, stale file locks, idle agents, unvalidated work, bottlenecks, file conflicts. Each has a documented detection rule in the Observer prompt. Detection itself is LLM-driven against a status snapshot \u2014 not a coded rule engine.",
+      "steps": [
+        {
+          "from": "loop_observer",
+          "to": "observer",
+          "label": "120s tick \u2192 runObserverCheck",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:1237 (runObserverCheck calls buildStatusSnapshot)."
+        },
+        {
+          "from": "observer",
+          "to": "anomaly_stuck_task",
+          "label": "detect stuck_task",
+          "status": "prompt-only",
+          "detail": "Rule at act-agent/internal/llm/prompt/observer.go:26."
+        },
+        {
+          "from": "observer",
+          "to": "anomaly_stale_lock",
+          "label": "detect stale_lock",
+          "status": "prompt-only",
+          "detail": "Rule at act-agent/internal/llm/prompt/observer.go:31."
+        },
+        {
+          "from": "observer",
+          "to": "anomaly_idle_agent",
+          "label": "detect idle_agent",
+          "status": "prompt-only",
+          "detail": "Rule at act-agent/internal/llm/prompt/observer.go:36."
+        },
+        {
+          "from": "observer",
+          "to": "anomaly_unvalidated",
+          "label": "detect unvalidated",
+          "status": "prompt-only",
+          "detail": "Rule at act-agent/internal/llm/prompt/observer.go:40."
+        },
+        {
+          "from": "observer",
+          "to": "anomaly_bottleneck",
+          "label": "detect bottleneck",
+          "status": "prompt-only",
+          "detail": "Rule at act-agent/internal/llm/prompt/observer.go:45."
+        },
+        {
+          "from": "observer",
+          "to": "anomaly_conflict",
+          "label": "detect file_conflict",
+          "status": "prompt-only",
+          "detail": "Rule at act-agent/internal/llm/prompt/observer.go:49."
+        }
+      ]
+    },
+    {
+      "id": "assurance-two-layer",
+      "label": "Assurance two-layer validation",
+      "summary": "Layer 1 verifies the agent's Ralph self-verification trace was present. Layer 2 independently scores each @success_criteria item via view/grep tools against the working directory. Score < 95 returns the task to the agent; \u2265 95 forwards to QA.",
+      "steps": [
+        {
+          "from": "loop_validate",
+          "to": "assurance",
+          "label": "hand task to Assurance",
+          "status": "ok",
+          "detail": "Validation poll body at act-agent/internal/app/orchestrator.go:1689 (for _, t := range tasks)."
+        },
+        {
+          "from": "assurance",
+          "to": "ralph_trace_check",
+          "label": "Layer 1: Ralph trace",
+          "status": "prompt-only",
+          "detail": "Prompt instruction at act-agent/internal/llm/prompt/assurance.go:25."
+        },
+        {
+          "from": "assurance",
+          "to": "criteria_score",
+          "label": "Layer 2: score @success_criteria",
+          "status": "ok",
+          "detail": "Prompt directs view/grep at act-agent/internal/llm/prompt/assurance.go:28 and :57; the tools themselves are real (Tier1ToolsForRole at act-agent/internal/llm/agent/tools.go:124 gives Assurance bash + view + grep)."
+        },
+        {
+          "from": "assurance",
+          "to": "ep_tasks_validate",
+          "label": "POST validation-verdict",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:736."
+        },
+        {
+          "from": "ep_tasks_validate",
+          "to": "store_inmem",
+          "label": "\u226595: status=validated",
+          "status": "ok",
+          "detail": "Pass branch at server/src/index.ts:746 (updateTaskProgress validated)."
+        },
+        {
+          "from": "ep_tasks_validate",
+          "to": "store_inmem",
+          "label": "<95: status=assigned (returned)",
+          "status": "ok",
+          "detail": "Fail branch at server/src/index.ts:763 (updateTaskProgress assigned)."
+        }
+      ]
+    },
+    {
+      "id": "qa-clarification",
+      "label": "QA need_clarification path",
+      "summary": "When QA can't assemble a coherent deliverable, it can request clarification from a specific agent. The synthesis endpoint accepts kind='need_clarification' with a targetAgent + question \u2014 recorded in ChronLog so the Planner sees it and routes the question.",
+      "steps": [
+        {
+          "from": "qa_synth",
+          "to": "qa_synth_prompt",
+          "label": "detect ambiguity",
+          "status": "prompt-only",
+          "detail": "Decision to ask vs assemble lives in prompt at act-agent/internal/llm/prompt/qa_synthesizer.go (baseQASynthesizerPrompt at :15)."
+        },
+        {
+          "from": "qa_synth",
+          "to": "ep_tasks_synth",
+          "label": "POST kind='need_clarification'",
+          "status": "ok",
+          "detail": "Endpoint branch at server/src/index.ts:813."
+        },
+        {
+          "from": "ep_tasks_synth",
+          "to": "chron_log",
+          "label": "synthesis_needs_clarification event",
+          "status": "ok",
+          "detail": "ChronLog write at server/src/index.ts:814-820."
+        },
+        {
+          "from": "chron_log",
+          "to": "loop_coord_event",
+          "label": "surface to TUI",
+          "status": "ok",
+          "detail": "Coordination event loop polls at act-agent/internal/app/orchestrator.go:479."
+        },
+        {
+          "from": "loop_coord_event",
+          "to": "planner",
+          "label": "Planner routes to targetAgent",
+          "status": "prompt-only",
+          "detail": "Routing decision is the Planner's per its prompt at act-agent/internal/llm/prompt/planner.go; no coded handler for synthesis_needs_clarification."
+        }
+      ]
+    },
+    {
+      "id": "task-failure-recovery",
+      "label": "Task failure \u2192 retry or reassign",
+      "summary": "When a Tier 2 task fails (runner reports task_completed with success=false, or task_validation_failed), Planner sees the event and decides: POST /api/tasks/:id/retry (same agent), emit CREATE_TASK to a different role, or escalate to the human.",
+      "steps": [
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "chron_log",
+          "label": "append task_failed",
+          "status": "ok",
+          "detail": "Fail branch at server/src/index.ts:650."
+        },
+        {
+          "from": "chron_log",
+          "to": "loop_coord_event",
+          "label": "surface task_failed",
+          "status": "ok",
+          "detail": "act-agent/internal/app/orchestrator.go:454."
+        },
+        {
+          "from": "loop_coord_event",
+          "to": "planner",
+          "label": "failure auto-routed to Planner",
+          "status": "ok",
+          "detail": "autoRoutePlanner invoked at act-agent/internal/app/orchestrator.go:560 with task-failed summary."
+        },
+        {
+          "from": "planner",
+          "to": "act_client_go",
+          "label": "POST /api/tasks/:id/retry",
+          "status": "ok",
+          "detail": "Endpoint at server/src/index.ts:669; client method at act-agent/internal/act/client.go (act CLI 'task retry' at act-agent/cli/act-cli.ts:995 also reachable from the Planner via the tools surface)."
+        },
+        {
+          "from": "act_client_go",
+          "to": "ep_tasks_lifecycle",
+          "label": "/api/tasks/:id/retry",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:669-697."
+        },
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "store_inmem",
+          "label": "retryCount++, status=pending",
+          "status": "ok",
+          "detail": "taskCoordinator.retryTask at server/src/index.ts:680."
+        }
+      ]
+    },
+    {
+      "id": "swarm-role-and-backend",
+      "label": "Tier 2 role + backend selection",
+      "summary": "Each swarm role (developer / frontend_dev / backend_dev / qa_engineer / researcher) has its own prompt file and capability tags. Each role also has a backend choice \u2014 act-agent (default) or claude-code \u2014 set per role via /swarm or act-agent swarm set.",
+      "steps": [
+        {
+          "from": "orchestrator",
+          "to": "spawner",
+          "label": "StartSwarm with role specs",
+          "status": "ok",
+          "detail": "Spawner at act-agent/internal/runner/spawner.go:58 (StartSwarm(specs))."
+        },
+        {
+          "from": "spawner",
+          "to": "runner_proc",
+          "label": "spawn --role X --backend Y",
+          "status": "ok",
+          "detail": "exec.Command at act-agent/internal/runner/spawner.go:123 with --role and --backend flags."
+        },
+        {
+          "from": "runner_proc",
+          "to": "runner_proc",
+          "label": "BACKEND switch",
+          "status": "ok",
+          "detail": "Branch at act-agent/runner/act-runner.mjs:222 (runAgent dispatches to runAgentActAgent or runAgentClaudeCode)."
+        },
+        {
+          "from": "runner_proc",
+          "to": "dev_prompt",
+          "label": "role=developer",
+          "status": "ok",
+          "detail": "DeveloperPrompt at act-agent/internal/llm/prompt/developer.go:10; baseDeveloperPrompt at act-agent/internal/llm/prompt/developer.go:18."
+        },
+        {
+          "from": "runner_proc",
+          "to": "frontend_prompt",
+          "label": "role=frontend_dev",
+          "status": "ok",
+          "detail": "FrontendDevPrompt at act-agent/internal/llm/prompt/frontend_dev.go:10."
+        },
+        {
+          "from": "runner_proc",
+          "to": "backend_prompt",
+          "label": "role=backend_dev",
+          "status": "ok",
+          "detail": "BackendDevPrompt at act-agent/internal/llm/prompt/backend_dev.go:10."
+        },
+        {
+          "from": "runner_proc",
+          "to": "qa_eng_prompt",
+          "label": "role=qa_engineer",
+          "status": "ok",
+          "detail": "QAEngineerPrompt at act-agent/internal/llm/prompt/qa_engineer.go:10."
+        },
+        {
+          "from": "runner_proc",
+          "to": "researcher_prompt",
+          "label": "role=researcher",
+          "status": "ok",
+          "detail": "ResearcherPrompt at act-agent/internal/llm/prompt/researcher.go:10."
+        }
+      ]
+    },
+    {
+      "id": "swarm-context-injection",
+      "label": "Swarm task context assembly",
+      "summary": "Before running a task, the runner pulls the agent brief and (for complex tasks only) PVM patterns, parallel-agent awareness, and any pending inbox messages. buildTaskPrompt assembles these into a single prompt sent to act-agent or claude-code.",
+      "steps": [
+        {
+          "from": "runner_proc",
+          "to": "act_cli",
+          "label": "fetchAgentBrief",
+          "status": "ok",
+          "detail": "act-agent/runner/act-runner.mjs:526 (fetchAgentBrief)."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_projects",
+          "label": "GET /api/projects/:name/briefs/:agentId",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:453."
+        },
+        {
+          "from": "runner_proc",
+          "to": "complexity_score",
+          "label": "scoreComplexity",
+          "status": "ok",
+          "detail": "Heuristic at act-agent/runner/act-runner.mjs:333 (function); threshold const at act-agent/runner/act-runner.mjs:327 (COMPLEXITY_THRESHOLD=4)."
+        },
+        {
+          "from": "complexity_score",
+          "to": "ep_pvm",
+          "label": "if score>4: GET /api/pvm/search",
+          "status": "ok",
+          "detail": "Triggered at act-agent/runner/act-runner.mjs:552; endpoint at server/src/index.ts:1013."
+        },
+        {
+          "from": "runner_proc",
+          "to": "build_task_prompt",
+          "label": "assemble parts",
+          "status": "ok",
+          "detail": "act-agent/runner/act-runner.mjs:601 (buildTaskPrompt: brief + project + parallel + PVM + task + inbox + gap)."
+        },
+        {
+          "from": "build_task_prompt",
+          "to": "runner_proc",
+          "label": "final prompt \u2192 backend",
+          "status": "ok",
+          "detail": "Used at act-agent/runner/act-runner.mjs:583 (prompt = buildTaskPrompt(...))."
+        }
+      ]
+    },
+    {
+      "id": "agent-messaging",
+      "label": "Agent-to-agent messaging",
+      "summary": "Agents send direct messages to each other (e.g. parallel-coordination broadcasts, validation gap notes, clarifications). Server stores messages per-recipient; agents read them on context fetch.",
+      "steps": [
+        {
+          "from": "runner_proc",
+          "to": "act_cli",
+          "label": "sendMessage(\"@target ...\")",
+          "status": "ok",
+          "detail": "Runner helper at act-agent/runner/act-runner.mjs:208 (sendMessage). Called from pre-task coordination at act-agent/runner/act-runner.mjs:453 and reply path at act-agent/runner/act-runner.mjs:746."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_messages",
+          "label": "POST /api/messages",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:835."
+        },
+        {
+          "from": "ep_messages",
+          "to": "event_hub",
+          "label": "classify + route",
+          "status": "ok",
+          "detail": "EventHub.classifyMessage at server/src/services/EventHub.ts:153 is invoked during message routing at server/src/services/EventHub.ts:242."
+        },
+        {
+          "from": "ep_messages",
+          "to": "chron_log",
+          "label": "append message event",
+          "status": "ok",
+          "detail": "ChronLog write inside POST /api/messages handler at server/src/index.ts:835+."
+        },
+        {
+          "from": "act_cli",
+          "to": "ep_messages",
+          "label": "GET /api/agents/:id/messages",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:877."
+        }
+      ]
+    },
+    {
+      "id": "capability-routing",
+      "label": "Capability-based task routing",
+      "summary": "When Planner emits a task without pre-assignment, TaskCoordinator.assignOptimalAgent picks the best available agent whose capability set covers the task's requiredCapabilities. PVM-suggested agent considered first, then any matching available agent.",
+      "steps": [
+        {
+          "from": "ep_tasks_lifecycle",
+          "to": "task_coordinator",
+          "label": "createTask",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:473 calls taskCoordinator.createTask."
+        },
+        {
+          "from": "task_coordinator",
+          "to": "assign_optimal",
+          "label": "assignOptimalAgent",
+          "status": "ok",
+          "detail": "server/src/services/TaskCoordinator.ts:105."
+        },
+        {
+          "from": "assign_optimal",
+          "to": "agent_registry",
+          "label": "filter by capability",
+          "status": "ok",
+          "detail": "Capability match at server/src/services/AgentRegistry.ts:150 and server/src/services/TaskCoordinator.ts:370."
+        },
+        {
+          "from": "assign_optimal",
+          "to": "store_inmem",
+          "label": "assign + io.emit(task_assigned)",
+          "status": "ok",
+          "detail": "Assignment side-effect at server/src/index.ts:495."
+        }
+      ]
+    }
+  ]
+}
