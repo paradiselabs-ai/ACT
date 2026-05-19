@@ -6,6 +6,7 @@ import (
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/models"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/spil"
 )
 
 // TestPromptSwitchRouting verifies that the GetAgentPrompt switch
@@ -18,15 +19,15 @@ func TestPromptSwitchRouting(t *testing.T) {
 		name string
 		fn   func(models.ModelProvider) string
 	}{
-		{"PlannerPrompt", func(p models.ModelProvider) string { return basePlannerPrompt }},
-		{"ObserverPrompt", func(p models.ModelProvider) string { return baseObserverPrompt }},
-		{"AssurancePrompt", func(p models.ModelProvider) string { return baseAssurancePrompt }},
-		{"QASynthesizerPrompt", func(p models.ModelProvider) string { return baseQASynthesizerPrompt }},
-		{"DeveloperPrompt", func(p models.ModelProvider) string { return baseDeveloperPrompt }},
-		{"FrontendDevPrompt", func(p models.ModelProvider) string { return baseFrontendDevPrompt }},
-		{"BackendDevPrompt", func(p models.ModelProvider) string { return baseBackendDevPrompt }},
-		{"QAEngineerPrompt", func(p models.ModelProvider) string { return baseQAEngineerPrompt }},
-		{"ResearcherPrompt", func(p models.ModelProvider) string { return baseResearcherPrompt }},
+		{"PlannerPrompt", func(p models.ModelProvider) string { return spil.Body("planner") }},
+		{"ObserverPrompt", func(p models.ModelProvider) string { return spil.Body("observer") }},
+		{"AssurancePrompt", func(p models.ModelProvider) string { return spil.Body("assurance") }},
+		{"QASynthesizerPrompt", func(p models.ModelProvider) string { return spil.Body("qa_synthesizer") }},
+		{"DeveloperPrompt", func(p models.ModelProvider) string { return spil.Body("developer") }},
+		{"FrontendDevPrompt", func(p models.ModelProvider) string { return spil.Body("frontend_dev") }},
+		{"BackendDevPrompt", func(p models.ModelProvider) string { return spil.Body("backend_dev") }},
+		{"QAEngineerPrompt", func(p models.ModelProvider) string { return spil.Body("qa_engineer") }},
+		{"ResearcherPrompt", func(p models.ModelProvider) string { return spil.Body("researcher") }},
 	}
 
 	for _, tt := range tests {
