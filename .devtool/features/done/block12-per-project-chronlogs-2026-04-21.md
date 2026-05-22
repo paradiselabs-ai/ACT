@@ -1,12 +1,12 @@
 ---
 id: "block12-per-project-chronlogs-2026-04-21"
-status: "todo"
+status: "done"
 priority: "high"
 assignee: null
 dueDate: null
 created: "2026-04-21T17:30:00.000Z"
 modified: "2026-04-21T17:54:28.096Z"
-completedAt: null
+completedAt: "2026-05-19T23:52:00.000Z"
 labels: ["persistence", "chronlog", "block-12"]
 order: "b07"
 ---

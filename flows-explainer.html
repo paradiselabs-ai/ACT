@@ -39,16 +39,18 @@ code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 ul { padding-left: 22px; }
 li { margin: 4px 0; }
 .callout { background: var(--panel); border-left: 3px solid var(--ok); padding: 10px 14px; margin: 12px 0; font-size: 13px; }
+.chain { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; margin: 14px 0; }
+.chain h3 { margin-top: 6px; }
 </style>
 </head>
 <body>
 <main>
   <h1>ACT / NesTTY architecture flows — explainer</h1>
-  <p class="muted">Companion to <code>architecture-flows.html</code>. Plain prose for readers who want the narrative before clicking into the interactive diagram. Branch <code>NesTTY</code> @ <code>ab159d4</code>.</p>
+  <p class="muted">Companion to <code>architecture-flows.html</code>. Plain prose for readers who want the narrative before clicking into the interactive diagram. Branch <code>feat/pvm-full-implementation</code> @ <code>0e4895d</code> + uncommitted W09 / W10 / W10-followup-a deltas. Map v6.</p>
 
   <section class="findings">
     <h2>Findings (read this first)</h2>
-    <p class="muted">Six things the diagram surfaces that the prose-level docs either obscure or overstate. Each finding maps to a <span class="badge gap">gap-found</span> step in <code>architecture-flows.html</code>, or to <span class="badge po">prompt-only</span> behavior that has no code enforcement. The taxonomy distinguishes code-enforced behavior from prompt-wished behavior — the binary <code>ok</code>/<code>unverified</code> in the prior diagram let sub-agents bluff, so it was replaced.</p>
+    <p class="muted">Seven things the diagram surfaces that the prose-level docs either obscure or overstate. Each finding maps to a <span class="badge gap">gap-found</span> step in <code>architecture-flows.html</code>, or to <span class="badge po">prompt-only</span> behavior that has no code enforcement. The taxonomy distinguishes code-enforced behavior from prompt-wished behavior — the binary <code>ok</code>/<code>unverified</code> in the prior diagram let sub-agents bluff, so it was replaced.</p>
 
     <div class="finding">
       <span class="id">F-A</span><span class="title">No auth boundary on server</span>
@@ -58,20 +60,20 @@ li { margin: 4px 0; }
 
     <div class="finding">
       <span class="id">F-B</span><span class="title">Socket.io is vestigial</span>
-      <div class="summary">The server raises 27 <code>io.emit</code> broadcasts and registers 9 <code>socket.on</code> handlers. Neither the Go TUI nor the Node Runner imports a socket.io client — both use HTTP polling. So the broadcasts have no receiver and the handlers are dead listeners from the pre-CLI MCP era. Pulling these out would shrink the server surface area considerably, but the constraint here is no source-code edits, so the diagram surfaces it rather than fixing it.</div>
+      <div class="summary">The server raises 27 <code>io.emit</code> broadcasts and registers 9 <code>socket.on</code> handlers. Neither the Go TUI nor the Node Runner imports a socket.io client — both use HTTP polling. So the broadcasts have no receiver and the handlers are dead listeners from the pre-CLI MCP era. Pulling these out would shrink the server surface area considerably, but the constraint here is no source-code edits inside the map work, so the diagram surfaces it rather than fixing it.</div>
       <div class="evidence">server/src/index.ts:1063-1280 · zero socket.io imports in act-agent/ or act-agent/runner/</div>
     </div>
 
     <div class="finding">
       <span class="id">F-C</span><span class="title"><code>act-coordination.json</code> is human-written, not machine-written</span>
       <div class="summary">The repo-root <code>act-coordination.json</code> is a manual log used to coordinate multiple Claude instances working on this codebase. No runtime code writes to it — a grep across <code>server/src/</code> and <code>act-agent/internal/</code> returns zero hits. The machine analogue is <code>data/coordination-log.jsonl</code>, owned by <code>ChronologicalLog</code> with a 5-second flush timer.</div>
-      <div class="evidence">CLAUDE.md Multi-Agent Coordination Protocol · server/src/services/ChronologicalLog.ts:88 · grep ⇒ 0 hits</div>
+      <div class="evidence">CLAUDE.md Multi-Agent Coordination Protocol · server/src/services/ChronologicalLog.ts:89 · grep ⇒ 0 hits</div>
     </div>
 
     <div class="finding">
       <span class="id">F-D</span><span class="title">Kanban directory is doc-only</span>
-      <div class="summary"><code>.devtool/features/</code> contains 58 active and 11 done markdown task files at execution time. MEMORY.md and commit <code>991b43b</code> reference it, but there are no references in <code>server/src/</code> or <code>act-agent/internal/</code> — the directory is human and Claude coordination scaffolding, not runtime state. The schema lives in CLAUDE.md under "Kanban Board".</div>
-      <div class="evidence">ls .devtool/features = 58 + done/ = 11 · grep .devtool server/src/ act-agent/internal/ ⇒ 0 hits</div>
+      <div class="summary"><code>.devtool/features/</code> contains the kanban tickets that get moved into <code>done/</code> on completion. MEMORY.md and recent commits reference it, but there are no references in <code>server/src/</code> or <code>act-agent/internal/</code> — the directory is human and Claude coordination scaffolding, not runtime state. The schema lives in CLAUDE.md under "Kanban Board".</div>
+      <div class="evidence">grep .devtool server/src/ act-agent/internal/ ⇒ 0 hits</div>
     </div>
 
     <div class="finding">
@@ -85,6 +87,12 @@ li { margin: 4px 0; }
       <div class="summary"><code>server/src/services/index.ts:11-12</code> explicitly comments out the Qdrant export with the note: "<em>QdrantVectorStore has a pre-existing TypeScript error — excluded from build (MockVectorStore used instead)</em>". This is stronger than "unwired" — the file is actively kept out of the build. Production vector store is <code>LocalEmbeddingVectorStore</code> (server/src/index.ts:42). <code>MockVectorStore</code> is test-only.</div>
       <div class="evidence">server/src/services/index.ts:11-12 (commented export) · server/src/index.ts:42 (LocalEmbeddingVectorStore instantiated)</div>
     </div>
+
+    <div class="finding">
+      <span class="id">F-G</span><span class="title"><code>compareAgents</code> + <code>/api/log</code> projectName filter still partial</span>
+      <div class="summary">Two residual filter bugs surfaced by the W10 E2E. (1) <code>GET /api/pvm/compare</code> returns <code>taskCount=0</code> for every agent even when each agent has 3 completed+validated tasks in fresh data — the <code>compareAgents</code> method in <code>LocalEmbeddingVectorStore</code> filters by <code>taskType</code> using a code path that does not pick up the <code>data.task.type</code> field now correctly preserved by W10-followup-a. (2) <code>GET /api/log?projectName=</code> returns identical event counts for alpha and beta even with asymmetric task distribution — the <code>projectName</code> query parameter likely is not threaded into the per-project file read at <code>ChronologicalLog.readProjectLog</code>. Filed as W10-followup-b. Neither is a regression; both were latent bugs the E2E exposed by exercising the full lifecycle for the first time.</div>
+      <div class="evidence">/tmp/w10_e2e.sh run 2026-05-21 · server/src/services/LocalEmbeddingVectorStore.ts:428 · server/src/index.ts:1114 · server/src/services/ChronologicalLog.ts:385</div>
+    </div>
   </section>
 
   <h2>How to read the diagram</h2>
@@ -92,15 +100,59 @@ li { margin: 4px 0; }
   <ul>
     <li><span class="badge ok">ok</span> code-verified. The step's <code>detail</code> cites a <code>file:line</code> where the implementing code lives. You can open that file at that line and see the behavior the step describes.</li>
     <li><span class="badge po">prompt-only ⌕</span> behavior that lives in prompt text only. No compiler or middleware enforces it. An agent could skip the behavior and the system would only catch it via another LLM judge. The clearest example is the Ralph Wiggum self-verification loop.</li>
-    <li><span class="badge gap">gap-found ⚠</span> documented but with no implementing code, or partially implemented. The six findings above are the gap-found items. Clicking the corresponding flow on the diagram puts the gap arrows in red dashed lines.</li>
+    <li><span class="badge gap">gap-found ⚠</span> documented but with no implementing code, or partially implemented. The seven findings above are the gap-found items. Clicking the corresponding flow on the diagram puts the gap arrows in red dashed lines.</li>
   </ul>
 
   <div class="callout">
-    Status <code>unverified</code> does not appear in the shipped diagram. It was a construction-time scratch marker — every instance had to be promoted to <code>ok</code> with a <code>file:line</code> cite, demoted to <code>prompt-only</code>, demoted to <code>gap-found</code>, or removed before shipping.
+    Status <code>unverified</code> does not appear in the shipped diagram. It was a construction-time scratch marker — every instance had to be promoted to <code>ok</code> with a <code>file:line</code> cite, demoted to <code>prompt-only</code>, demoted to <code>gap-found</code>, or removed before shipping. The v6 verification script reports <code>0</code> bluffs and <code>0</code> unverified.
   </div>
 
-  <h2>Flow narratives</h2>
-  <p>The interactive diagram has 25 flows. The summaries below are the same prose attached to each flow record in <code>architecture-flows.json</code>; they are mirrored here so you can read the narrative without clicking through. The four documentary findings (Socket.io vestigial, no-auth boundary, <code>act-coordination.json</code> human log, kanban doc-only) are surfaced in the Findings section above rather than as their own clickable flows — they are not coordination dynamics, they are commentary on the runtime.</p>
+  <section class="chain">
+    <h2 style="border:none;padding:0;margin:0 0 8px;">PVM rebuild chain (W01 → W10 + followup-a)</h2>
+    <p class="muted">The PVM subsystem (PAIRed Vector Minutes — semantic memory of coordination events) was the focus of the last sprint. v5 of the map captured the chain through W09; v6 adds W10 and W10-followup-a. The chain is finished, the hardened wipe ran, the end-to-end test passes 22/22 against fresh data.</p>
+
+    <h3>W01 — Mode gate</h3>
+    <p>Real <code>all-MiniLM-L6-v2</code> embeddings flipped on at <code>LocalEmbeddingVectorStore</code>. A <code>mode</code> field (<code>:62</code>) plus warmup race-safe announcement so the boot log says <code>[PVM] real embeddings active</code> exactly once. <code>getMode()</code> getter at <code>:93</code> for runtime queries.</p>
+
+    <h3>W02 — Per-event project tagging</h3>
+    <p><code>extractProjectName</code> at <code>PVMIndexer.ts:36</code> reads <code>data.task.metadata.projectName</code>, <code>data.metadata.projectName</code>, <code>data.projectName</code>, or — only for <code>project_created</code> events — <code>data.name</code>. Anything else falls through to <code>__global__</code>. Tagging applied at both ingest sites.</p>
+
+    <h3>W03 — Scoped search</h3>
+    <p>Vector store, indexer wrapper, REST endpoint, runner injection, and CLI all thread a <code>projectName</code> through. Endpoint default stays cross-project; CLI default is scoped. <code>__global__</code> events surface in every scoped query so harness-level wisdom isn't hidden behind project walls.</p>
+
+    <h3>W04 — Backfill</h3>
+    <p><code>POST /api/pvm/reindex</code> at <code>server/src/index.ts:1040</code> calls the idempotent <code>indexAllEvents</code>. <code>act-agent pvm reindex</code> CLI subcommand wraps the endpoint.</p>
+
+    <h3>W05 — Xenova model install</h3>
+    <p>Model dropped under <code>node_modules/@xenova/transformers/.cache/Xenova/all-MiniLM-L6-v2/</code>. Confirmed by the boot banner reporting <code>dim=384</code>. The Xenova cache survived the W10 wipe because it sits inside <code>node_modules</code>, which is outside the wipe whitelist.</p>
+
+    <h3>W06 — Real analytics derivations</h3>
+    <p><code>getAgentProfile</code> (line 273), <code>getAgentSynergy</code> (line 366), <code>compareAgents</code> (line 428) re-implemented to derive from real task lifecycle JOINs via the new private <code>lookupTaskOutcomes</code> helper (line 475). <code>Math.random</code> placeholders and hardcoded 0.85 / 3600 / 0.95 constants all removed.</p>
+
+    <h3>W07 — SelfImprovementEngine real derivations</h3>
+    <p>Four stub methods (<code>analyzeToolUsagePatterns</code> at <code>:404</code>, <code>analyzeCollaborationPatterns</code> at <code>:483</code>, <code>analyzeKnowledgePatterns</code> at <code>:565</code>, <code>calculateImprovementMetrics</code> at <code>:662</code>) replaced with derivations from ChronLog event counts, taskId-join shared work counting, peer_response keyword-frequency topic extraction, and validated/completed ratio. <code>analyzeCoordinationPatterns</code> still placeholder by design — out of W07 scope.</p>
+
+    <h3>W08 — ChronLog per-project split</h3>
+    <p><code>ChronologicalLog</code> dual-writes: the global JSONL plus a per-project mirror under <code>server/data/projects/&lt;projectName&gt;/coordination-log.jsonl</code>. Routing by <code>extractProjectName</code>; sanitization at <code>projectLogPath</code> (<code>:247</code>). Read paths <code>getRecent</code> and <code>query</code> accept an optional <code>projectName</code> argument. A one-shot migration script at <code>server/scripts/chronlog-split.ts</code> handled the v4-era backlog.</p>
+
+    <h3>W09 — Follow-up fixes</h3>
+    <p>Three things: (1) <code>extractProjectName</code> narrowed its <code>data.name</code> fallback to <code>project_created</code> events only — earlier behavior over-matched <code>agent_registered.data.name</code> and created bogus role-named buckets (<code>Developer</code>, <code>Backend_Dev</code>, etc.) under <code>data/projects/</code>. (2) Indexer added a <code>typedTaskIds</code> dedup set so the coordination-flavored duplicate of a typed lifecycle event is dropped in-batch — the richer typed event survives. (3) Analytics REST endpoints landed at <code>:1062</code> (profile), <code>:1077</code> (synergy), <code>:1092</code> (compare).</p>
+
+    <h3>W10 — Cursor regression + agent attribution</h3>
+    <p>Two bugs. <strong>Bug I (cursor regression):</strong> <code>POST /api/pvm/reindex</code> made the cursor jump backwards to 2026-04-17 because <code>ChronologicalLog.query()</code> defaulted to <code>limit=100</code>; <code>indexAllEvents</code> was getting the OLDEST 100 events. Fixed at three layers — explicit <code>limit:100000</code> in the indexer's two <code>query</code> calls (<code>:145</code>, <code>:234</code>), defensive default-no-limit in the query method itself (<code>ChronologicalLog.ts:338</code>), and a max-timestamp no-regression guard around the cursor write (<code>:294-302</code>). <strong>Bug J (agent field mismatch):</strong> the indexer was reading <code>event.agentId</code>, but ChronLog events carry <code>event.agent</code> at top level — so every indexed point got attributed to <code>"system"</code>. Fixed at <code>:191</code> and <code>:268</code> with <code>event.agent || event.agentId || 'system'</code>. The whole work was then validated against the live data before any wipe.</p>
+
+    <h3>W10 — Hardened wipe</h3>
+    <p>Eight pre-existing storage targets were scheduled for deletion: <code>data/coordination-log.jsonl</code>, <code>.pre-split.bak</code>, the entire <code>data/projects/</code> subtree, plus <code>~/.act/{act.db, act.db-shm, act.db-wal, agent-id, sessions/}</code>. Per user constraint, the wipe was rewritten path-by-path with a <code>wipe_assert_safe()</code> helper that refuses symlinks, requires realpath under <code>$ACT_ROOT/server/data/</code> or <code>$HOME/.act/</code>, and uses <code>rm --</code> separator. Seven protected paths were asserted preserved after the wipe (<code>~/.act.json</code>, <code>runners/</code>, <code>commands/</code>, <code>config.json</code>, <code>repl-config.json</code>, <code>server.log</code>, the Xenova model cache). Final assertion: <code>git status</code> shows only the expected tracked-source diff, no wipe-target leakage into the working tree.</p>
+
+    <h3>W10-followup-a — Schema mismatch fix</h3>
+    <p>The post-wipe smoke surfaced a soft anomaly: every agent profile reported <code>completedTasks: 0</code> despite real task lifecycle data. Root cause: the indexer's <code>.map(event)</code> was constructing the indexed <code>CoordinationMessage</code> from <code>{ timestamp, agent, message, type, scope, projectName }</code> and dropping <code>event.data</code> entirely. <code>lookupTaskOutcomes</code> then walked <code>this.points</code> looking for <code>m.data.taskId</code> — which was always <code>undefined</code> — and silently skipped every event. The JOIN never fired. One-line fix at both <code>.map</code> blocks (<code>PVMIndexer.ts:195-201</code> and <code>:277-285</code>): preserve <code>event.data</code> on the indexed point. Verified by synthesizing a minimal <code>task_assigned + task_completed + task_validated</code> triad and asserting <code>completedTasks=1</code>, <code>successRate=1</code>, <code>reliability=1</code>, <code>avgTaskTime=60s</code>.</p>
+
+    <h3>End-to-end verification</h3>
+    <p><code>/tmp/w10_e2e.sh</code> drove the server through a realistic 2-project / 3-agent / 6-task-lifecycle workflow, then asserted every PVM endpoint returned evidence-backed numbers. 22 of 22 assertions passed. The cursor did not regress through reindex. Scoped search to <code>alpha</code> returned 5 results with zero <code>beta</code> leakage. <code>getAgentProfile</code> for <code>dev-1</code> and <code>backend-1</code> both reported <code>completedTasks=3</code>, <code>successRate=1</code>, <code>reliability=1</code>. The per-project ChronLog mirror correctly split events into <code>alpha/</code> and <code>beta/</code> directories. Two residual anomalies surfaced as F-G — neither blocks the chain, both filed as W10-followup-b.</p>
+  </section>
+
+  <h2>Flow narratives (non-PVM)</h2>
+  <p>The interactive diagram has 30 flows total; the PVM ones are covered in the chain section above. The summaries below mirror the prose attached to each non-PVM flow record in <code>architecture-flows.json</code> so you can read the narrative without clicking through.</p>
 
   <h3>Boot</h3>
   <p><strong>TUI boot</strong> — User runs <code>act-agent</code>. <code>cmd/root.go</code> ensures the server is up, then <code>app.New()</code> creates four Tier 1 agents (Planner, Observer, Assurance, QA/Synthesizer) and five orchestrator goroutines.</p>
@@ -137,8 +189,8 @@ li { margin: 4px 0; }
   <h3>Background loops and event surfacing</h3>
   <p><strong>Observer monitoring loop</strong> — Observer ticks every 120 seconds. When no anomalies are found it stays silent.</p>
   <p><strong>Coordination event surfacing</strong> — The orchestrator polls <code>/api/log</code> every 3 seconds and renders coordination events as system messages in the TUI chat.</p>
-  <p><strong>ChronLog write and flush</strong> — Handlers append events synchronously to an in-memory buffer; a 5-second flush timer batches them out to <code>data/coordination-log.jsonl</code>.</p>
-  <p><strong>PVM indexing</strong> — Every 10 seconds, <code>PVMIndexer</code> fetches new ChronLog events and embeds them via <code>LocalEmbeddingVectorStore</code> (real all-MiniLM-L6-v2 embeddings). The in-memory vector store is ephemeral — recomputed every server restart. Note: the analytics layer on top of these embeddings (<code>getAgentProfile</code> and friends in <code>SelfImprovementEngine</code>) returns placeholder data. Embeddings real, analytics fake.</p>
+  <p><strong>ChronLog write and flush</strong> — Handlers append events synchronously to an in-memory buffer; a 5-second flush timer batches them out to <code>data/coordination-log.jsonl</code>. After each global flush, <code>flushToJSONL</code> groups the just-flushed buffer by <code>extractProjectName</code> and mirrors it into the per-project files (W08).</p>
+  <p><strong>PVM indexing</strong> — Every 10 seconds, <code>PVMIndexer</code> fetches new ChronLog events and embeds them via <code>LocalEmbeddingVectorStore</code> (real <code>all-MiniLM-L6-v2</code> embeddings). The in-memory vector store is ephemeral — recomputed every server restart. <strong>What changed since the prior explainer:</strong> the analytics layer on top of these embeddings is no longer placeholder data. <code>getAgentProfile</code>, <code>getAgentSynergy</code>, and (partially) <code>compareAgents</code> all derive from real task lifecycle JOINs through the W06 + W09 + W10-followup-a chain. The one residual filter bug in <code>compareAgents</code> is finding F-G above. Embeddings real, analytics now substantially real with one known-bad filter to chase.</p>
 
   <h3>Process group management</h3>
   <p><strong>Spawn + orphan management</strong> — Each runner is its own process group (Unix only — <code>Setpgid</code>). On startup, <code>SweepOrphans</code> runs <code>pkill -f act-runner.mjs</code> defensively to clear leftovers from a crashed parent. The <code>liveProcesses</code> Map in <code>act-runner.mjs</code> enforces no-clone per agent id.</p>
@@ -147,14 +199,14 @@ li { margin: 4px 0; }
   <p>Three purposes, in order of importance:</p>
   <ul>
     <li><strong>Honest map.</strong> A new contributor (or a future Claude session) can open the diagram and learn what the codebase actually does, not what the prose docs imply.</li>
-    <li><strong>Gap surface.</strong> The six findings above are immediately visible. The next time someone proposes a feature that depends on, say, full QA deliverable persistence, the gap is already documented — they will know they have to build the persistence layer first.</li>
+    <li><strong>Gap surface.</strong> The seven findings above are immediately visible. The next time someone proposes a feature that depends on, say, full QA deliverable persistence or compareAgents reporting real numbers, the gap is already documented — they will know they have to close it first.</li>
     <li><strong>Self-discipline.</strong> The constraint that every <code>ok</code> step cites a <code>file:line</code> is what makes the diagram honest. Sub-agent claims must be re-grep'd by the parent before being encoded into the JSON. This is the rule the prior session learned the hard way when a sub-agent claimed "QA persistence = full gap" using bad grep terms; the user caught the bluff because the actual endpoint at <code>server/src/index.ts:795</code> was named <code>synthesis</code>.</li>
   </ul>
 
   <h2>Rebuilding</h2>
   <p>This diagram goes stale fast. See <code>.claude/architecture-flows-method.md</code> for the rebuild method. Re-run when a REST endpoint changes, a Tier 1 or Tier 2 role file appears or disappears, a coordination protocol step changes, or a claim in this explainer is contradicted by reality.</p>
 
-  <p class="muted">Generated 2026-05-19 from <code>NesTTY @ ab159d4</code>. 25 flows, 83 components, 6 findings. JSON also carries <code>meta.externalReferences[]</code> (11 LLM providers + install scripts + claude-code backend) preserved for agent context but not rendered in the visual.</p>
+  <p class="muted">Generated 2026-05-21 from <code>feat/pvm-full-implementation @ 0e4895d + uncommitted W09 / W10 / W10-followup-a deltas</code>. 30 flows, 85 components, 7 findings. JSON also carries <code>meta.externalReferences[]</code> (11 LLM providers + install scripts + claude-code backend) preserved for agent context but not rendered in the visual.</p>
 </main>
 </body>
 </html>

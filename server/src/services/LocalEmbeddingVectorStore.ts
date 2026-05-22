@@ -45,7 +45,6 @@ async function getEmbeddingPipeline(): Promise<any> {
   embeddingPipeline = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
     quantized: true // ~25MB quantized vs ~90MB fp32
   });
-  logger.info('[PVM] Embedding model loaded ✅');
   return embeddingPipeline;
 }
 
@@ -60,21 +59,39 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   private points: StoredPoint[] = [];
   private embeddingCache: Map<string, number[]> = new Map();
   private modelReady = false;
+  private mode: 'real' | 'hash' | 'unknown' = 'unknown';
+  private modeAnnounced: boolean = false;
 
   constructor(config: Partial<VectorStoreConfig> = {}) {
     super();
     this.config = { ...DEFAULT_VECTOR_CONFIG, ...config, vectorDbType: 'mock' };
     // Warm up the model in the background so first embed() is fast
-    this.warmup();
+    getEmbeddingPipeline()
+      .then(() => {
+        this.modelReady = true;
+        if (this.mode !== 'real') {
+          this.mode = 'real';
+          if (!this.modeAnnounced) {
+            logger.info('[PVM] real embeddings active (model=Xenova/all-MiniLM-L6-v2, dim=384)');
+            this.modeAnnounced = true;
+          }
+        }
+      })
+      .catch((err: unknown) => {
+        if (this.mode !== 'hash') {
+          this.mode = 'hash';
+          if (!this.modeAnnounced) {
+            const reason = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+            logger.warn(`[PVM] HASH FALLBACK ACTIVE — embeddings are NOT semantic. Reason: ${reason}`);
+            logger.warn('[PVM] Search results will rank by hashCode proximity, not meaning. Install Xenova/all-MiniLM-L6-v2 ONNX model in ~/.cache/huggingface/hub to fix.');
+            this.modeAnnounced = true;
+          }
+        }
+      });
   }
 
-  private async warmup(): Promise<void> {
-    try {
-      await getEmbeddingPipeline();
-      this.modelReady = true;
-    } catch (err: any) {
-      logger.warn(`[PVM] Could not load embedding model: ${err.message}. Falling back to hash embeddings.`);
-    }
+  public getMode(): 'real' | 'hash' | 'unknown' {
+    return this.mode;
   }
 
   async embed(text: string): Promise<number[]> {
@@ -86,14 +103,37 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
 
     if (this.modelReady) {
       embedding = await this.realEmbed(text);
+      if (this.mode !== 'real') {
+        this.mode = 'real';
+        if (!this.modeAnnounced) {
+          logger.info('[PVM] real embeddings active (model=Xenova/all-MiniLM-L6-v2, dim=384)');
+          this.modeAnnounced = true;
+        }
+      }
     } else {
       // Model not yet loaded — try loading now, fall back to hash if unavailable
       try {
         await getEmbeddingPipeline();
         this.modelReady = true;
         embedding = await this.realEmbed(text);
-      } catch {
+        if (this.mode !== 'real') {
+          this.mode = 'real';
+          if (!this.modeAnnounced) {
+            logger.info('[PVM] real embeddings active (model=Xenova/all-MiniLM-L6-v2, dim=384)');
+            this.modeAnnounced = true;
+          }
+        }
+      } catch (err) {
         embedding = this.hashEmbed(text);
+        if (this.mode !== 'hash') {
+          this.mode = 'hash';
+          if (!this.modeAnnounced) {
+            const reason = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+            logger.warn(`[PVM] HASH FALLBACK ACTIVE — embeddings are NOT semantic. Reason: ${reason}`);
+            logger.warn('[PVM] Search results will rank by hashCode proximity, not meaning. Install Xenova/all-MiniLM-L6-v2 ONNX model in ~/.cache/huggingface/hub to fix.');
+            this.modeAnnounced = true;
+          }
+        }
       }
     }
 
@@ -167,9 +207,19 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       ? { query, limit }
       : { ...query, limit: query.limit || limit };
 
+    logger.debug(`[PVM] search mode=${this.mode} query="${searchQuery.query.slice(0, 60)}" limit=${searchQuery.limit ?? 'default'}`);
+
     const queryVector = await this.embed(searchQuery.query);
 
-    let filtered = this.points;
+    // Project filter — opt-in. Caller passes searchQuery.projectName to narrow
+    // results to one project plus all __global__ events. When omitted (the
+    // default), search returns cross-project results.
+    const projectScope = (searchQuery as any).projectName as string | undefined;
+    let filtered = projectScope
+      ? this.points.filter(p =>
+          (p.message as any).projectName === projectScope ||
+          (p.message as any).projectName === '__global__')
+      : this.points;
     if (!searchQuery.includeMeta) {
       // Default: exclude harness/tooling-state events so stale "CLI broken"
       // claims don't leak into agent task context. Events without an explicit
@@ -241,21 +291,60 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       };
     }
 
+    const outcomes = this.lookupTaskOutcomes(agentId);
+
+    // Per-task-type capability metrics derived from real outcomes
+    const outcomesByType: Record<string, typeof outcomes> = {};
+    for (const o of outcomes) {
+      const key = o.type ?? 'unknown';
+      (outcomesByType[key] ||= []).push(o);
+    }
+
+    // Also include event-type counts so types without lifecycle data still show
     const typeCount: Record<string, number> = {};
     for (const point of agentMessages) {
       typeCount[point.message.type] = (typeCount[point.message.type] || 0) + 1;
     }
 
     const capabilities: Record<string, any> = {};
-    for (const [type, count] of Object.entries(typeCount)) {
+    // Capability per task-type for which we have completed-task outcomes
+    for (const [type, taskOutcomes] of Object.entries(outcomesByType)) {
+      const validated = taskOutcomes.filter(o => o.validated);
+      const passed = validated.filter(o => o.passed);
+      const durations = taskOutcomes.map(o => o.durationMs).filter((d): d is number => d !== null);
       capabilities[type] = {
-        successRate: 0.85 + Math.random() * 0.15,
-        taskCount: count,
-        avgCompletionTime: 3600,
-        confidenceScore: count >= 5 ? 0.9 : 0.5,
-        evidenceQuality: count >= 10 ? 'strong' : count >= 5 ? 'moderate' : 'weak'
+        successRate: validated.length > 0 ? passed.length / validated.length : 0,
+        taskCount: taskOutcomes.length,
+        avgCompletionTime: durations.length > 0
+          ? Math.round(durations.reduce((s, d) => s + d, 0) / durations.length / 1000)
+          : 0,
+        confidenceScore: Math.min(1.0, taskOutcomes.length / 10),
+        evidenceQuality: taskOutcomes.length >= 10 ? 'strong'
+                       : taskOutcomes.length >= 5  ? 'moderate'
+                       : 'weak'
       };
     }
+    // Event-type counts for types without lifecycle data
+    for (const [type, count] of Object.entries(typeCount)) {
+      if (!capabilities[type]) {
+        capabilities[type] = {
+          successRate: 0,
+          taskCount: count,
+          avgCompletionTime: 0,
+          confidenceScore: count >= 5 ? 0.5 : 0.2,
+          evidenceQuality: count >= 10 ? 'moderate' : 'weak'
+        };
+      }
+    }
+
+    // Overall performance from the same outcomes
+    const completedTasks = outcomes.length;
+    const validatedTasks = outcomes.filter(o => o.validated);
+    const passedTasks = validatedTasks.filter(o => o.passed);
+    const avgDurationMs = (() => {
+      const d = outcomes.map(o => o.durationMs).filter((x): x is number => x !== null);
+      return d.length > 0 ? d.reduce((s, x) => s + x, 0) / d.length : 0;
+    })();
 
     return {
       agentId,
@@ -264,11 +353,11 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       toolUsage: {},
       synergies: {},
       overallPerformance: {
-        totalTasks: agentMessages.length,
-        completedTasks: agentMessages.length,
-        successRate: 0.9,
-        avgTaskTime: 3600,
-        reliability: 0.95
+        totalTasks: agentMessages.filter(p => p.message.type?.startsWith('task_')).length,
+        completedTasks,
+        successRate: validatedTasks.length > 0 ? passedTasks.length / validatedTasks.length : 0,
+        avgTaskTime: Math.round(avgDurationMs / 1000),
+        reliability: completedTasks > 0 ? passedTasks.length / completedTasks : 0
       },
       lastUpdated: new Date().toISOString()
     };
@@ -280,13 +369,59 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     strengthAreas: string[];
     weaknessAreas: string[];
   }> {
-    const a1 = this.points.filter(p => p.message.agent === agent1).length;
-    const a2 = this.points.filter(p => p.message.agent === agent2).length;
+    // Collect taskIds each agent participated in
+    const tasksOf = (agentId: string): Set<string> => {
+      const set = new Set<string>();
+      for (const p of this.points) {
+        const m = p.message as any;
+        const data = m.data || {};
+        const taskId = data.taskId || data.task?.id;
+        if (!taskId) continue;
+        if (m.agent === agentId || data.agentId === agentId || data.assignedAgent === agentId) {
+          set.add(taskId);
+        }
+      }
+      return set;
+    };
+    const t1 = tasksOf(agent1);
+    const t2 = tasksOf(agent2);
+    const shared: string[] = [];
+    for (const id of t1) if (t2.has(id)) shared.push(id);
+
+    // Outcomes for the shared task set
+    const validationByTask: Map<string, boolean> = new Map();
+    const typeByTask: Map<string, string | undefined> = new Map();
+    for (const p of this.points) {
+      const m = p.message as any;
+      const data = m.data || {};
+      const taskId = data.taskId || data.task?.id;
+      if (!taskId || !shared.includes(taskId)) continue;
+      if (m.type === 'task_validated') validationByTask.set(taskId, true);
+      if (m.type === 'task_validation_failed') validationByTask.set(taskId, false);
+      if (m.type === 'task_created') typeByTask.set(taskId, data.task?.type || data.requiredCapabilities?.[0]);
+    }
+    const validatedShared = shared.filter(id => validationByTask.has(id));
+    const passedShared = validatedShared.filter(id => validationByTask.get(id));
+
+    // Strength / weakness from per-type pass rate
+    const perTypePass: Record<string, { pass: number; total: number }> = {};
+    for (const id of validatedShared) {
+      const type = typeByTask.get(id) ?? 'unknown';
+      (perTypePass[type] ||= { pass: 0, total: 0 }).total++;
+      if (validationByTask.get(id)) perTypePass[type].pass++;
+    }
+    const strengthAreas = Object.entries(perTypePass)
+      .filter(([_, v]) => v.total >= 2 && v.pass / v.total >= 0.75)
+      .map(([k]) => k);
+    const weaknessAreas = Object.entries(perTypePass)
+      .filter(([_, v]) => v.total >= 2 && v.pass / v.total < 0.5)
+      .map(([k]) => k);
+
     return {
-      collaborationCount: Math.min(a1, a2),
-      successRate: 0.88,
-      strengthAreas: ['coordination'],
-      weaknessAreas: []
+      collaborationCount: shared.length,
+      successRate: validatedShared.length > 0 ? passedShared.length / validatedShared.length : 0,
+      strengthAreas,
+      weaknessAreas
     };
   }
 
@@ -300,7 +435,7 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     const comparisons = [];
     for (const agentId of agentIds) {
       const profile = await this.getAgentProfile(agentId);
-      const cap = profile.capabilities[taskType] || { successRate: 0.5, taskCount: 0, confidenceScore: 0 };
+      const cap = profile.capabilities[taskType] || { successRate: 0, taskCount: 0, confidenceScore: 0 };
       comparisons.push({
         agentId,
         matchScore: cap.confidenceScore,
@@ -330,6 +465,71 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   clear(): void {
     this.points = [];
     this.embeddingCache.clear();
+  }
+
+  /**
+   * For an agent, walk this.points and pair task_completed events with their
+   * task_validated counterparts (joined by taskId in event.data). Returns
+   * per-task outcomes for use by getAgentProfile / getAgentSynergy.
+   */
+  private lookupTaskOutcomes(agentId: string): {
+    taskId: string;
+    type: string | undefined;
+    completed: boolean;
+    validated: boolean;
+    passed: boolean;
+    durationMs: number | null;
+  }[] {
+    const assignedByTask: Map<string, number> = new Map();
+    const completedByTask: Map<string, number> = new Map();
+    const validationByTask: Map<string, boolean> = new Map();
+    // Type lives on task_created (data IS the Task object). task_completed/assigned
+    // events only carry { taskId, agentId } and have no type field, so without
+    // this join every outcome's type defaulted to 'unknown' and compareAgents
+    // returned taskCount=0 for any taskType filter.
+    const typeByTask: Map<string, string | undefined> = new Map();
+
+    for (const p of this.points) {
+      const m = p.message as any;
+      const data = m.data || {};
+      const taskId = data.taskId || data.task?.id || data.id;
+      if (!taskId) continue;
+
+      const ms = new Date(m.timestamp).getTime();
+      if (isNaN(ms)) continue;
+
+      if (m.type === 'task_created') {
+        const t = data.metadata?.taskType
+              || data.task?.metadata?.taskType
+              || data.type
+              || data.task?.type
+              || data.requiredCapabilities?.[0]
+              || data.task?.requiredCapabilities?.[0];
+        if (t && !typeByTask.has(taskId)) typeByTask.set(taskId, t);
+      } else if (m.type === 'task_assigned' && (data.assignedAgent === agentId || data.agentId === agentId)) {
+        assignedByTask.set(taskId, ms);
+      } else if (m.type === 'task_completed' && (data.agentId === agentId || m.agent === agentId)) {
+        completedByTask.set(taskId, ms);
+      } else if (m.type === 'task_validated' || m.type === 'task_validation_failed') {
+        validationByTask.set(taskId, m.type === 'task_validated');
+      }
+    }
+
+    const outcomes = [];
+    for (const [taskId, completedMs] of completedByTask.entries()) {
+      const assigned = assignedByTask.get(taskId);
+      const validated = validationByTask.has(taskId);
+      const passed = validationByTask.get(taskId) ?? false;
+      outcomes.push({
+        taskId,
+        type: typeByTask.get(taskId),
+        completed: true,
+        validated,
+        passed,
+        durationMs: assigned !== undefined ? completedMs - assigned : null
+      });
+    }
+    return outcomes;
   }
 
   private cosineSimilarity(a: number[], b: number[]): number {

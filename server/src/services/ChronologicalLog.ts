@@ -21,6 +21,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { CoordinationMessage } from '../types/coordination.js';
+import { extractProjectName } from './PVMIndexer.js';
 
 export interface ChronologicalLogConfig {
   // Storage configuration
@@ -214,9 +215,23 @@ export class ChronologicalLog {
     const fh = await fs.open(this.config.jsonlPath, 'a');
     try {
       await fh.write(lines, null, 'utf-8');
-      await fh.sync(); // fsync — ensure data is on disk, not just in OS cache
+      await fh.sync();
     } finally {
       await fh.close();
+    }
+
+    // Per-project mirror writes
+    const groups: Map<string, CoordinationMessage[]> = new Map();
+    for (const e of this.buffer) {
+      const project = extractProjectName(e as any);
+      if (!groups.has(project)) groups.set(project, []);
+      groups.get(project)!.push(e);
+    }
+    for (const [project, events] of groups.entries()) {
+      const projPath = this.projectLogPath(project);
+      await fs.mkdir(path.dirname(projPath), { recursive: true });
+      const projLines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
+      await fs.appendFile(projPath, projLines, 'utf-8');
     }
   }
 
@@ -229,6 +244,12 @@ export class ChronologicalLog {
     // For now, JSONL is sufficient
   }
 
+  private projectLogPath(projectName: string): string {
+    const safe = projectName.replace(/[^A-Za-z0-9_-]/g, '_');
+    const dir = path.dirname(this.config.jsonlPath || './data/coordination-log.jsonl');
+    return path.join(dir, 'projects', safe, 'coordination-log.jsonl');
+  }
+
   /**
    * Query recent events
    * Efficient for common use case: "get last N events"
@@ -236,7 +257,7 @@ export class ChronologicalLog {
    * @param limit - Maximum number of events to return
    * @returns Recent events in reverse chronological order (newest first)
    */
-  async getRecent(limit: number = 100): Promise<CoordinationMessage[]> {
+  async getRecent(limit: number = 100, projectName?: string): Promise<CoordinationMessage[]> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -244,13 +265,16 @@ export class ChronologicalLog {
     // Flush buffer to ensure we have latest
     await this.flush();
 
-    // Read from JSONL file
-    if (!this.config.jsonlPath) {
+    const sourcePath = projectName
+      ? this.projectLogPath(projectName)
+      : this.config.jsonlPath;
+
+    if (!sourcePath) {
       return [];
     }
 
     try {
-      const content = await fs.readFile(this.config.jsonlPath, 'utf-8');
+      const content = await fs.readFile(sourcePath, 'utf-8');
       const lines = content.trim().split('\n').filter(l => l.length > 0);
 
       // Get last N lines
@@ -273,7 +297,7 @@ export class ChronologicalLog {
    * @param query - Query parameters
    * @returns Matching events
    */
-  async query(query: LogQuery): Promise<LogQueryResult> {
+  async query(query: LogQuery, projectName?: string): Promise<LogQueryResult> {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -281,9 +305,10 @@ export class ChronologicalLog {
     // Flush to ensure we query latest data
     await this.flush();
 
-    // Read all events
-    // TODO: Optimize with SQLite for large logs
-    const allEvents = await this.getAll();
+    // Read all events — from per-project file if projectName given
+    const allEvents = projectName
+      ? await this.readProjectLog(projectName)
+      : await this.getAll();
 
     // Filter events
     let filtered = allEvents;
@@ -304,10 +329,13 @@ export class ChronologicalLog {
       filtered = filtered.filter(e => e.type === query.type);
     }
 
-    // Apply pagination
+    // Apply pagination. If caller omits `limit`, return EVERYTHING — pagination
+    // only kicks in when the caller explicitly asks for it. Default-to-100 was a
+    // silent footgun for callers like indexAllEvents that want the whole log;
+    // they were getting the OLDEST 100 (jsonl is read top-to-bottom, oldest first).
     const offset = query.offset || 0;
-    const limit = query.limit || 100;
     const total = filtered.length;
+    const limit = (typeof query.limit === 'number' && query.limit > 0) ? query.limit : total;
     const paginated = filtered.slice(offset, offset + limit);
 
     return {
@@ -354,6 +382,18 @@ export class ChronologicalLog {
     return this.totalEvents;
   }
 
+  private async readProjectLog(projectName: string): Promise<CoordinationMessage[]> {
+    const sourcePath = this.projectLogPath(projectName);
+    try {
+      const content = await fs.readFile(sourcePath, 'utf-8');
+      return content.trim().split('\n').filter(l => l.length > 0)
+        .map(line => JSON.parse(line) as CoordinationMessage);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+  }
+
   /**
    * Compact the log file
    * Removes duplicate events, optimizes storage
@@ -376,6 +416,7 @@ export class ChronologicalLog {
 
       // For now, simple compaction: just keep all events
       // TODO: More sophisticated compaction (remove duplicates, compress, etc.)
+      // TODO: per-project files also need compaction in the future.
       const compactedEvents = [...olderEvents, ...recentEvents];
 
       // Write compacted log

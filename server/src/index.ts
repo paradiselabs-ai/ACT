@@ -251,12 +251,19 @@ app.post('/api/agents/register', async (req, res) => {
     const { agentId, name, capabilities, model, provider } = req.body;
     if (!agentId) return res.status(400).json({ success: false, error: 'agentId is required' });
 
-    // Reject duplicate agent IDs — each instance must have a unique identity
-    if (agentRegistry.isRegistered(agentId)) {
+    // Reject duplicate agent IDs only on LIVE collisions — when an existing
+    // agent with the same ID is currently online, a second registration is a
+    // real identity conflict and must be rejected. Offline entries (restored
+    // from the event log on server restart, or left behind by a disconnected
+    // runner) are stale state, not conflicts; let the new caller take over
+    // the identity. registerAgent already merges performance counters from
+    // the existing record, so this is a clean handoff.
+    const existing = agentRegistry.getAgent(agentId);
+    if (existing && existing.status === 'online') {
       return res.status(409).json({
         success: false,
         conflict: true,
-        error: `Agent ID "${agentId}" is already registered. Choose a different ID (e.g. append a number: "${agentId}-2").`
+        error: `Agent ID "${agentId}" is already registered and online. Choose a different ID (e.g. append a number: "${agentId}-2").`
       });
     }
 
@@ -1006,19 +1013,22 @@ app.get('/api/improvement/status', (req, res) => {
 });
 
 // PVM endpoints
-// PVM search is intentionally cross-project — its purpose is team coordination
-// memory and agent skill profiles built from ALL prior work. Scoping would
-// defeat the point: the Planner asks "has anyone ever solved X?" and wants
-// past patterns from any project, not just the current one.
+// PVM search defaults to cross-project — the original "has anyone ever solved
+// X?" use case, useful for the researcher role and for Planner cross-domain
+// pattern lookup. Callers can opt into per-project scoping by passing
+// ?project=NAME on the query string; scoped queries also include __global__
+// events (cross-project infrastructure). See PVMIndexer.extractProjectName
+// for the tagging rule.
 app.get('/api/pvm/search', async (req, res) => {
   try {
-    const { query, limit } = req.query;
+    const { query, limit, project } = req.query;
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ success: false, error: 'Query parameter is required' });
     }
-
-    const results = await pvmIndexer.search(query, limit ? parseInt(limit as string) : 10);
-    res.json({ success: true, results });
+    const limitNum = limit ? parseInt(limit as string) : 10;
+    const projectName = typeof project === 'string' && project.length > 0 ? project : undefined;
+    const results = await pvmIndexer.search(query, limitNum, projectName);
+    res.json({ success: true, results, scope: projectName ?? 'cross-project' });
   } catch (error: any) {
     logger.error(`PVM search failed: ${error.message}`);
     res.status(500).json({ success: false, error: error.message });
@@ -1029,30 +1039,101 @@ app.get('/api/pvm/status', (req, res) => {
   res.json(pvmIndexer.getStatus());
 });
 
+// PVM reindex — force a full re-index of the ChronologicalLog into the vector
+// store. Useful after a tagging-logic change (e.g. after workflow 02 of the
+// PVM-rebuild chain landed) so existing events get re-tagged without a server
+// restart. Indexer's existing indexAllEvents() is idempotent (batchStore
+// upserts by id), so calling this multiple times is safe.
+app.post('/api/pvm/reindex', async (req, res) => {
+  try {
+    const beforeStatus = pvmIndexer.getStatus();
+    logger.info(`🔄 PVM reindex requested (before: indexedEventCount=${beforeStatus.indexedEventCount})`);
+    await pvmIndexer.indexAllEvents();
+    const afterStatus = pvmIndexer.getStatus();
+    logger.info(`✅ PVM reindex complete (after: indexedEventCount=${afterStatus.indexedEventCount})`);
+    res.json({
+      success: true,
+      before: beforeStatus,
+      after: afterStatus,
+      delta: afterStatus.indexedEventCount - beforeStatus.indexedEventCount
+    });
+  } catch (error: any) {
+    logger.error(`PVM reindex failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PVM agent profile — returns derived skill metrics for one agent. Source of
+// data: lookupTaskOutcomes inside LocalEmbeddingVectorStore.getAgentProfile,
+// which joins task_assigned / task_completed / task_validated events by taskId.
+app.get('/api/pvm/profile', async (req, res) => {
+  try {
+    const { agentId } = req.query;
+    if (!agentId || typeof agentId !== 'string') {
+      return res.status(400).json({ success: false, error: 'agentId query parameter is required' });
+    }
+    const profile = await vectorStore.getAgentProfile(agentId);
+    res.json({ success: true, profile });
+  } catch (error: any) {
+    logger.error(`PVM profile failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PVM agent synergy — collaboration metrics for an agent pair.
+app.get('/api/pvm/synergy', async (req, res) => {
+  try {
+    const { agent1, agent2 } = req.query;
+    if (!agent1 || !agent2 || typeof agent1 !== 'string' || typeof agent2 !== 'string') {
+      return res.status(400).json({ success: false, error: 'agent1 and agent2 query parameters are required' });
+    }
+    const synergy = await vectorStore.getAgentSynergy(agent1, agent2);
+    res.json({ success: true, synergy });
+  } catch (error: any) {
+    logger.error(`PVM synergy failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PVM agent compare — ranks a set of agents for a given task type.
+app.get('/api/pvm/compare', async (req, res) => {
+  try {
+    const { agents, taskType } = req.query;
+    if (!agents || typeof agents !== 'string') {
+      return res.status(400).json({ success: false, error: 'agents query parameter is required (comma-separated)' });
+    }
+    if (!taskType || typeof taskType !== 'string') {
+      return res.status(400).json({ success: false, error: 'taskType query parameter is required' });
+    }
+    const agentIds = agents.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    const comparison = await vectorStore.compareAgents(agentIds, taskType);
+    res.json({ success: true, comparison });
+  } catch (error: any) {
+    logger.error(`PVM compare failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Read raw ChronologicalLog — used by import project + Tier 1 agents via
 // act_cli log. Accepts ?project=NAME to filter to events scoped to that
 // project (task lifecycle + project-tagged messages). Without the filter,
 // agents see the global stream and surface old-project activity.
 app.get('/api/log', async (req, res) => {
   try {
-    const project = typeof req.query.project === 'string' ? req.query.project : '';
+    // Accept both ?project= and ?projectName= — callers (Tier 1 agents, act_cli,
+    // E2E harness) use the latter to mirror the field name in event payloads.
+    const projectParam = typeof req.query.projectName === 'string'
+      ? req.query.projectName
+      : typeof req.query.project === 'string' ? req.query.project : '';
     const rawLimit = parseInt(req.query.limit as string) || 500;
-    // When filtering, fetch more and trim after — otherwise the project's
-    // real events get capped by unrelated events in the same window.
-    const fetchLimit = project ? Math.max(rawLimit * 4, 2000) : rawLimit;
-    let events = await chronologicalLog.getRecent(fetchLimit);
-    if (project) {
-      events = events.filter(e => {
-        const d = (e as any).data || {};
-        if (d.task?.metadata?.projectName === project) return true;
-        if (d.projectName === project) return true;
-        if (d.metadata?.projectName === project) return true;
-        // System project-created events
-        if ((e as any).type === 'project_created' && d.name === project) return true;
-        return false;
-      });
-      if (events.length > rawLimit) events = events.slice(-rawLimit);
-    }
+    // When a project is specified, read directly from the per-project JSONL
+    // file (W08 split) instead of filtering the global stream in-memory.
+    // The global stream contains all projects, so a post-fetch filter
+    // a) bounded the result by a global window, and b) missed events whose
+    // projectName lived on a field not in the hand-written allowlist.
+    const events = projectParam
+      ? await chronologicalLog.getRecent(rawLimit, projectParam)
+      : await chronologicalLog.getRecent(rawLimit);
     res.json({ success: true, events, count: events.length });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });

@@ -757,25 +757,58 @@ async function cmdRegister(client: ACTClient, args: Record<string, any>): Promis
   }
 }
 
+async function cmdPvmReindex(client: ACTClient, _args: any): Promise<void> {
+  const serverUrl = client.getServerUrl();
+  const url = `${serverUrl}/api/pvm/reindex`;
+  const res = await fetch(url, { method: 'POST' });
+  if (!res.ok) {
+    console.error(`PVM reindex failed: HTTP ${res.status}`);
+    process.exit(1);
+  }
+  const data = await res.json() as {
+    success: boolean;
+    before: { indexedEventCount: number; lastIndexedTimestamp: string | null };
+    after: { indexedEventCount: number; lastIndexedTimestamp: string | null };
+    delta: number;
+  };
+  console.log('PVM reindex complete.');
+  console.log(`  Before: ${data.before.indexedEventCount} indexed events (lastSeen: ${data.before.lastIndexedTimestamp ?? 'never'})`);
+  console.log(`  After:  ${data.after.indexedEventCount} indexed events (lastSeen: ${data.after.lastIndexedTimestamp ?? 'never'})`);
+  console.log(`  Delta:  ${data.delta >= 0 ? '+' : ''}${data.delta}`);
+}
+
 async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promise<void> {
   const query = args['<query>'];
   const limit = parseInt(args['--limit'] || '10', 10);
 
   if (!query) {
-    printError('Error: query is required');
-    printError('Usage: act-agent pvm search "query" [--limit N]');
-    process.exit(1);
+    console.log('PVM search needs a query. Skipping routing evidence — proceed with role decomposition based on the brief.');
+    process.exit(0);
   }
 
-  // PVM is cross-project by design — past patterns from any project are
-  // legitimate routing evidence for the current one.
-  const results = await client.searchPVM(query, limit);
+  const globalMode = !!args['--global'];
+  const project = globalMode
+    ? undefined
+    : (args['--project'] || process.env.ACT_PROJECT || basename(process.cwd()));
+
+  const params: Record<string, string> = { query, limit: String(limit) };
+  if (project) params.project = project;
+
+  const url = `${client['serverUrl']}/api/pvm/search?` + new URLSearchParams(params).toString();
+  const response = await fetch(url);
+  if (!response.ok) {
+    console.log('No results.');
+    return;
+  }
+  const data = await response.json();
+  const results = (data.results || []) as any[];
   if (results.length === 0) {
     console.log('No results.');
     return;
   }
 
-  console.log(`PVM search: "${query}" — ${results.length} result(s)`);
+  const scope = data.scope || (project ? project : 'cross-project');
+  console.log(`PVM search: "${query}" — ${results.length} result(s) (scope: ${scope})`);
   console.log();
   for (const r of results) {
     // Results from LocalEmbeddingVectorStore are { message: CoordinationMessage, similarity: number }.
@@ -841,6 +874,7 @@ async function main(): Promise<void> {
     'task submit-for-validation': 'Submit completed task for Assurance review',
     'brief update': 'Update agent brief for a project',
     'pvm search': 'Search coordination memory (PVM)',
+    'pvm reindex': 'Force re-index all ChronLog events into PVM',
     'validation queue': 'List tasks pending Assurance validation',
     'files claim': 'Claim files for exclusive editing',
     'files release': 'Release file locks',
@@ -1039,11 +1073,15 @@ async function main(): Promise<void> {
         '--task-id': releaseArgs.values['task-id'],
         'agent-id': releaseArgs.values['agent-id'],
       });
+    } else if (command === 'pvm' && subcommand === 'reindex') {
+      await cmdPvmReindex(client, {});
     } else if (command === 'pvm' && subcommand === 'search') {
       // act pvm search "query" [--limit N]
       const pvmArgs = parseArgs({
         options: {
-          'limit': { type: 'string' }
+          'limit': { type: 'string' },
+          'project': { type: 'string' },
+          'global': { type: 'boolean' }
         },
         strict: false,
         allowPositionals: true
@@ -1052,6 +1090,7 @@ async function main(): Promise<void> {
       const queryParts: string[] = [];
       for (let i = 2; i < args.length; i++) {
         if (args[i] === '--limit' && args[i + 1]) { i++; continue; }
+        if (args[i] === '--project' && args[i + 1]) { i++; continue; }
         if (!args[i].startsWith('--')) queryParts.push(args[i]);
       }
       await cmdPvmSearch(client, { '<query>': queryParts.join(' ') || undefined, ...pvmArgs.values });
@@ -1098,6 +1137,11 @@ async function main(): Promise<void> {
       await cmdSwarm(args.slice(1));
     } else if (command === 'nomik') {
       await cmdNomik(args.slice(1));
+    } else if (command === 'pvm' && !subcommand) {
+      console.log('Usage: act-agent pvm <subcommand>');
+      console.log('  search "<query>" [--project=NAME] [--limit=N] [--global]');
+      console.log('  reindex');
+      process.exit(0);
     } else {
       printError(`Unknown command: ${command}${subcommand ? ' ' + subcommand : ''}`);
       printError('Run "act-agent --help" for usage information');

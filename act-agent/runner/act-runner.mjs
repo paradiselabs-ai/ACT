@@ -355,7 +355,10 @@ function scoreComplexity(task) {
 async function fetchPVMContext(task) {
   try {
     const query = [task.title, task.description].filter(Boolean).join(' ').substring(0, 300);
-    const data = await get('/api/pvm/search', { query, limit: 5 });
+    const project = task.projectName || task.metadata?.projectName || null;
+    const params = { query, limit: 5 };
+    if (project) params.project = project;
+    const data = await get('/api/pvm/search', params);
     const results = data.results || [];
     if (results.length === 0) return null;
 
@@ -366,7 +369,7 @@ async function fetchPVMContext(task) {
       })
       .join('\n\n');
 
-    log(`  [PVM] Injecting ${results.length} related pattern(s) into task prompt.`);
+    log(`  [PVM] Injecting ${results.length} related pattern(s) into task prompt${project ? ` (scope: ${project})` : ''}.`);
     return formatted;
   } catch (err) {
     log(`  [PVM] Search unavailable (non-fatal): ${err.message}`);

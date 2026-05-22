@@ -11,7 +11,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "chronlog:split": "tsx scripts/chronlog-split.ts"
   },
   "keywords": [
     "ai",

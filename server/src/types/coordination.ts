@@ -14,6 +14,12 @@ export interface CoordinationMessage {
   // stale tooling-state claims don't leak into agent task context on later runs.
   // Omitted scope is treated as "project" (pre-existing events age out naturally).
   scope?: 'project' | 'meta';
+  // projectName: which project this event belongs to. Populated by PVMIndexer
+  // from event.data.metadata.projectName (task events), event.data.projectName
+  // (agent messages), event.data.name (project_created), or event.data.task.metadata.projectName
+  // (embedded task payloads). Untagged or cross-project events are stored as
+  // "__global__" and surface in every project-scoped query.
+  projectName?: string;
 }
 
 export type MessageType =

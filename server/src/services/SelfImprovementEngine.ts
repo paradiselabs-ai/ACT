@@ -402,9 +402,35 @@ export class SelfImprovementEngine extends EventEmitter {
   }
   
   private async analyzeToolUsagePatterns(events: CoordinationEvent[]): Promise<string> {
-    // In a real implementation, this would analyze tool usage patterns
-    // For now, we'll provide a placeholder
-    return 'Tool usage analysis not yet implemented. Would analyze which tools are most/least effective.';
+    // Tool events surface either as discrete tool_call/tool_result types or as
+    // task_progress events containing tool annotations in event.data.tool.
+    const toolEvents = events.filter(e =>
+      e.type === 'tool_call' ||
+      e.type === 'tool_result' ||
+      (e as any).data?.tool
+    );
+    if (toolEvents.length === 0) {
+      return 'No tool usage events found in the analyzed period.';
+    }
+
+    const toolCount: Record<string, number> = {};
+    const toolErrors: Record<string, number> = {};
+    for (const e of toolEvents) {
+      const tool = (e as any).data?.tool || (e as any).tool || 'unknown';
+      toolCount[tool] = (toolCount[tool] || 0) + 1;
+      const isError = (e as any).data?.isError || /error|failed/i.test((e as any).message || '');
+      if (isError) toolErrors[tool] = (toolErrors[tool] || 0) + 1;
+    }
+
+    const sorted = Object.entries(toolCount).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 3).map(([t, c]) => {
+      const errs = toolErrors[t] || 0;
+      const errRate = ((errs / c) * 100).toFixed(0);
+      return `${t} (${c} calls, ${errRate}% error rate)`;
+    }).join(', ');
+
+    return `Analyzed ${toolEvents.length} tool events across ${sorted.length} tools. ` +
+           `Most used: ${top}.`;
   }
   
   private async analyzeAssignmentPatterns(events: CoordinationEvent[]): Promise<string> {
@@ -455,9 +481,41 @@ export class SelfImprovementEngine extends EventEmitter {
   }
   
   private async analyzeCollaborationPatterns(events: CoordinationEvent[]): Promise<string> {
-    // In a real implementation, this would analyze collaboration patterns
-    // For now, we'll provide a placeholder
-    return 'Collaboration pattern analysis not yet implemented. Would analyze how agents work together.';
+    // Two agents collaborate when they both appear on events sharing a taskId.
+    // Build the agent set per task, then count distinct unordered pairs.
+    const agentsByTask: Map<string, Set<string>> = new Map();
+    for (const e of events) {
+      const taskId = (e as any).taskId || (e as any).data?.taskId || (e as any).data?.task?.id;
+      if (!taskId) continue;
+      const agent = e.agentId || (e as any).data?.agentId || (e as any).data?.assignedAgent;
+      if (!agent) continue;
+      if (!agentsByTask.has(taskId)) agentsByTask.set(taskId, new Set());
+      agentsByTask.get(taskId)!.add(agent);
+    }
+
+    const pairCount: Map<string, number> = new Map();
+    for (const agentSet of agentsByTask.values()) {
+      if (agentSet.size < 2) continue;
+      const agents = Array.from(agentSet).sort();
+      for (let i = 0; i < agents.length; i++) {
+        for (let j = i + 1; j < agents.length; j++) {
+          const key = `${agents[i]}|${agents[j]}`;
+          pairCount.set(key, (pairCount.get(key) || 0) + 1);
+        }
+      }
+    }
+
+    if (pairCount.size === 0) {
+      return 'No multi-agent task collaborations found in the analyzed period.';
+    }
+
+    const sorted = Array.from(pairCount.entries()).sort((a, b) => b[1] - a[1]);
+    const top = sorted.slice(0, 3)
+      .map(([pair, count]) => `${pair.replace('|', ' + ')} (${count} shared tasks)`)
+      .join(', ');
+
+    return `Detected ${pairCount.size} distinct agent pairs collaborating across ${agentsByTask.size} multi-agent tasks. ` +
+           `Top pairs: ${top}.`;
   }
   
   private async analyzePerformancePatterns(events: CoordinationEvent[]): Promise<string> {
@@ -505,9 +563,36 @@ export class SelfImprovementEngine extends EventEmitter {
   }
   
   private async analyzeKnowledgePatterns(events: CoordinationEvent[]): Promise<string> {
-    // In a real implementation, this would analyze knowledge patterns
-    // For now, we'll provide a placeholder
-    return 'Knowledge pattern analysis not yet implemented. Would analyze what the system has learned.';
+    // peer_response events are the primary knowledge-transfer surface. Count
+    // outbound responses per agent and identify recurring topics via simple
+    // keyword frequency on the response text.
+    const peerEvents = events.filter(e => e.type === 'peer_response');
+    if (peerEvents.length === 0) {
+      return 'No peer-response events found in the analyzed period.';
+    }
+
+    // Count responses per agent (who is answering)
+    const responseCount: Record<string, number> = {};
+    const wordFreq: Record<string, number> = {};
+    const STOP = new Set(['the','a','an','is','was','are','were','be','been','being','have','has','had','do','does','did','will','would','shall','should','may','might','must','can','could','of','in','to','for','with','on','at','by','from','as','into','through','during','before','after','above','below','between','and','but','or','nor','not','so','yet','both','either','neither','each','every','all','any','few','more','most','other','some','such','no','only','own','same','than','too','very','just','that','this','it','its','i','we','you','he','she','they','me','him','her','us','them','my','your','his','our','their','if','then','else','when','where','why','how','which','who','whom','what']);
+
+    for (const e of peerEvents) {
+      const agent = e.agentId || 'unknown';
+      responseCount[agent] = (responseCount[agent] || 0) + 1;
+      const words = ((e as any).message || '').toLowerCase().split(/\W+/).filter((w: string) => w.length > 3 && !STOP.has(w));
+      for (const w of words) {
+        wordFreq[w] = (wordFreq[w] || 0) + 1;
+      }
+    }
+
+    const topResponders = Object.entries(responseCount).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([a, c]) => `${a} (${c} responses)`).join(', ');
+    const topTopics = Object.entries(wordFreq).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([w]) => w).join(', ');
+
+    return `Analyzed ${peerEvents.length} peer-response events. ` +
+           `Top responders: ${topResponders}. ` +
+           `Recurring topics: ${topTopics || 'none significant'}.`;
   }
   
   /**
@@ -574,14 +659,31 @@ export class SelfImprovementEngine extends EventEmitter {
   /**
    * Calculate improvement metrics
    */
-  private calculateImprovementMetrics(analysis: {summary: string, details: any}): Record<string, number> {
-    // In a real implementation, this would calculate actual metrics
-    // For now, we'll provide placeholder metrics
+  private calculateImprovementMetrics(analysis: {summary: string, details: any}, recommendationsCount?: number): Record<string, number> {
+    // improvement_score: ratio of successful outcomes (validation passes) to
+    // total completed tasks in the analysis window. Derived from eventHistory
+    // since the analysis object doesn't carry raw counts.
+    const completed = this.eventHistory.filter(e => e.type === 'task_completed').length;
+    const validated = this.eventHistory.filter(e => e.type === 'task_validated').length;
+    const improvementScore = completed > 0 ? validated / completed : 0;
+
+    // confidence_level: log-scale function of sample size, saturates ~0.95 for >100 events
+    const n = this.eventHistory.length;
+    const confidenceLevel = Math.min(0.95, Math.log10(Math.max(1, n)) / 2);
+
+    // recommendations_generated: from optional param, or count from details if available
+    let recsGenerated = recommendationsCount ?? 0;
+    if (!recsGenerated && analysis.details?.recommendations) {
+      recsGenerated = Array.isArray(analysis.details.recommendations)
+        ? analysis.details.recommendations.length
+        : 0;
+    }
+
     return {
-      'improvement_score': 0.85,
-      'confidence_level': 0.92,
-      'data_points_analyzed': this.eventHistory.length,
-      'recommendations_generated': 3
+      'improvement_score': Math.round(improvementScore * 100) / 100,
+      'confidence_level': Math.round(confidenceLevel * 100) / 100,
+      'data_points_analyzed': n,
+      'recommendations_generated': recsGenerated
     };
   }
   

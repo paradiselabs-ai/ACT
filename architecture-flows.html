@@ -111,10 +111,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 </div>
 <script type="application/json" id="data">{
   "meta": {
-    "version": "4",
-    "generatedAt": "2026-05-19",
-    "branch": "NesTTY",
-    "headCommit": "ab159d4",
+    "version": "6",
+    "generatedAt": "2026-05-21",
+    "branch": "feat/pvm-full-implementation",
+    "headCommit": "0e4895d+uncommitted-W09-W10-followupA",
     "title": "ACT / NesTTY architecture flows",
     "description": "Single-source map of the NesTTY codebase. Every ok step cites file:line. prompt-only marks behavior that lives only in prompt text. gap-found marks documented behavior with no implementing code, or partial implementation. The four-status taxonomy replaces the old binary ok/unverified that let sub-agents bluff.",
     "findings": [
@@ -127,7 +127,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       {
         "id": "F-B",
         "title": "Socket.io is vestigial",
-        "summary": "Server raises 27 io.emit broadcasts and 9 socket.on handlers. Neither the Go TUI nor the Node Runner imports a socket.io client \u2014 both use HTTP polling (TUI: act/client.go:26, Runner: act-runner.mjs:106). The socket handlers at index.ts:1063-1280 are dead listeners from the pre-CLI MCP era.",
+        "summary": "Server raises 27 io.emit broadcasts and 9 socket.on handlers. Neither the Go TUI nor the Node Runner imports a socket.io client — both use HTTP polling (TUI: act/client.go:26, Runner: act-runner.mjs:106). The socket handlers at index.ts:1063-1280 are dead listeners from the pre-CLI MCP era.",
         "evidence": "grep -c 'io.emit(' server/src/index.ts = 27; grep -c 'socket.on(' server/src/index.ts = 9; zero socket.io imports in act-agent/ or act-agent/runner/"
       },
       {
@@ -139,7 +139,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       {
         "id": "F-D",
         "title": "Kanban directory is doc-only",
-        "summary": ".devtool/features/ contains 58 active + 11 done markdown task files. MEMORY.md and commit 991b43b reference it. No references appear in server/src/ or act-agent/internal/ \u2014 the directory exists for human and Claude coordination, not as runtime state.",
+        "summary": ".devtool/features/ contains 58 active + 11 done markdown task files. MEMORY.md and commit 991b43b reference it. No references appear in server/src/ or act-agent/internal/ — the directory exists for human and Claude coordination, not as runtime state.",
         "evidence": "ls .devtool/features/ | wc -l = 58; ls .devtool/features/done/ | wc -l = 11; grep -r '.devtool' server/src/ act-agent/internal/ = 0 hits"
       },
       {
@@ -151,8 +151,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       {
         "id": "F-F",
         "title": "QdrantVectorStore is build-excluded",
-        "summary": "server/src/services/index.ts:11-12 explicitly comments out the Qdrant export with the note: 'QdrantVectorStore has a pre-existing TypeScript error \u2014 excluded from build (MockVectorStore used instead).' Not just unwired \u2014 actively excluded from compilation. Production vector store is LocalEmbeddingVectorStore (server/src/index.ts:42). MockVectorStore is test-only.",
+        "summary": "server/src/services/index.ts:11-12 explicitly comments out the Qdrant export with the note: 'QdrantVectorStore has a pre-existing TypeScript error — excluded from build (MockVectorStore used instead).' Not just unwired — actively excluded from compilation. Production vector store is LocalEmbeddingVectorStore (server/src/index.ts:42). MockVectorStore is test-only.",
         "evidence": "server/src/services/index.ts:11-12 (commented export); server/src/index.ts:42 (LocalEmbeddingVectorStore instantiated); server/src/__tests__/MockVectorStore.test.ts (test-only consumer)"
+      },
+      {
+        "id": "F-G",
+        "title": "compareAgents + /api/log projectName filter still partial",
+        "summary": "Two residual filter bugs surfaced by the W10 E2E. (1) GET /api/pvm/compare returns taskCount=0 for every agent even when each agent has 3 completed+validated tasks in fresh data — the compareAgents method in LocalEmbeddingVectorStore filters by taskType using a code path that does not pick up the data.task.type field now correctly preserved by W10-followup-a. (2) GET /api/log?projectName= returns identical event counts for alpha and beta even with asymmetric task distribution — the projectName query parameter likely is not threaded into the per-project file read at ChronologicalLog.readProjectLog. Filed as W10-followup-b. Neither is a regression; both were latent bugs the E2E exposed by exercising the full lifecycle for the first time.",
+        "evidence": "E2E run 2026-05-21 (/tmp/w10_e2e.sh): compare returned {\"taskCount\":0} for dev-1 + backend-1; /api/log?projectName=alpha and ?projectName=beta both returned 86 events. server/src/services/LocalEmbeddingVectorStore.ts:428 (compareAgents); server/src/index.ts:1114 (/api/log handler); server/src/services/ChronologicalLog.ts:385 (readProjectLog)."
       }
     ],
     "externalReferences": [
@@ -246,7 +252,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         "category": "provider",
         "detail": "Alternative Tier 2 backend invoked by act-runner.mjs when --backend=claude-code or ACT_BACKEND=claude-code. Selection at act-agent/runner/act-runner.mjs:92. Branch at act-agent/runner/act-runner.mjs:222 (runAgentClaudeCode at :275)."
       }
-    ]
+    ],
+    "notes": "v5 captures the PVM rebuild chain (W01-08) landed 2026-05-19 on feat/pvm-full-implementation. Only PVM-domain components and flows were re-verified for this version — non-PVM components carried forward from v4 because no non-PVM source paths changed in the interval. Flow count exceeds the method-doc band (15-22) at 30 because the codebase has grown; flow count tracks moving-part complexity rather than a target."
   },
   "categories": [
     {
@@ -480,7 +487,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "developer.go (Tier 2)",
       "categoryId": "tier2",
       "columnId": "prompt",
-      "detail": "act-agent/internal/llm/prompt/developer.go \u2014 default swarm role.",
+      "detail": "act-agent/internal/llm/prompt/developer.go — default swarm role.",
       "tags": [
         "prompt"
       ],
@@ -718,7 +725,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "ChronologicalLog (service)",
       "categoryId": "server-core",
       "columnId": "service",
-      "detail": "Append-only JSONL log at server/src/services/ChronologicalLog.ts. Flush timer at server/src/services/ChronologicalLog.ts:404 (setInterval 5000ms \u2014 flushIntervalMs default at server/src/services/ChronologicalLog.ts:46).",
+      "detail": "Append-only JSONL log at server/src/services/ChronologicalLog.ts. Flush timer at line 445 (setInterval, default 5000ms via flushIntervalMs at :47). W08 added dual-write: flushToJSONL at :210 mirrors each event into a per-project file routed by extractProjectName (imported from PVMIndexer). projectLogPath helper at :247 sanitizes the project name. Read paths getRecent (line 260) and query (line 300) accept optional projectName parameter and read the per-project file via readProjectLog (line 385). W10 fixed a default-limit footgun at line 338: prior code defaulted to limit=100 + slice(offset, offset+100), which silently capped indexAllEvents to the OLDEST 100 events. New behavior: when caller omits limit, return the full filtered set (total length); pagination only kicks in when explicitly requested.",
       "tags": [
         "ts",
         "service"
@@ -730,7 +737,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "LocalEmbeddingVectorStore (wired)",
       "categoryId": "server-core",
       "columnId": "service",
-      "detail": "Real all-MiniLM-L6-v2 embeddings at server/src/services/LocalEmbeddingVectorStore.ts. Instantiated at server/src/index.ts:42 (new LocalEmbeddingVectorStore()).",
+      "detail": "Real all-MiniLM-L6-v2 embeddings at server/src/services/LocalEmbeddingVectorStore.ts. Instantiated at server/src/index.ts:42 (const vectorStore = new LocalEmbeddingVectorStore()). W01 added mode field (line 62), public getMode() getter (line 93), and constructor warmup .then/.catch chain that announces mode='real' or 'hash' on startup. W03 added project filter in search at line 218 (filter by projectName==scope || __global__ before cosine similarity). W06 added private lookupTaskOutcomes helper at line 475 that joins task_assigned/completed/validated by taskId; getAgentProfile (line 273), getAgentSynergy (line 366), compareAgents (line 428) now derive from this helper instead of Math.random.",
       "tags": [
         "ts",
         "service",
@@ -768,7 +775,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "QdrantVectorStore (build-excluded)",
       "categoryId": "server-core",
       "columnId": "service",
-      "detail": "File exists at server/src/services/QdrantVectorStore.ts but the export is commented out at server/src/services/index.ts:11-12 with note: 'pre-existing TypeScript error \u2014 excluded from build'.",
+      "detail": "File exists at server/src/services/QdrantVectorStore.ts but the export is commented out at server/src/services/index.ts:11-12 with note: 'pre-existing TypeScript error — excluded from build'.",
       "tags": [
         "ts",
         "service",
@@ -781,7 +788,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "PVMIndexer (service)",
       "categoryId": "server-core",
       "columnId": "service",
-      "detail": "Indexes events to vector store at server/src/services/PVMIndexer.ts. Interval at server/src/services/PVMIndexer.ts:60 (setInterval default 10000ms, see server/src/services/PVMIndexer.ts:52). Started from server/src/index.ts:1352 (pvmIndexer.startIndexing(10000)).",
+      "detail": "Indexes events to vector store at server/src/services/PVMIndexer.ts. Polling interval starts at server/src/services/PVMIndexer.ts:108 (setInterval, default 10000ms via startIndexing param at :100). W02 exported helper extractProjectName at line 36; pulls projectName from data.task.metadata.projectName | data.metadata.projectName | data.projectName | (event.type==='project_created' ? data.name : undefined). W09 narrowed the d.name fallback to project_created events only (line 49) so agent_registered.data.name no longer creates bogus role-named buckets. Tagging applied at both ingest sites: indexNewEvents (line 201) and indexAllEvents (line 282). W09 also added a typedTaskIds dedup set (lines 164, 247) so the coordination-duplicate of a typed lifecycle event is dropped in-batch. W10 fixed cursor regression by (a) passing limit:100000 to ChronologicalLog.query at indexNewEvents:145 and indexAllEvents:234 so the indexer drains the full log instead of the oldest 100, and (b) computing the max timestamp across the batch with a no-regression guard at :294-302. W10 also fixed agent attribution at lines 191 and 268: event.agent || event.agentId || 'system' — previously fell straight to 'system' for ChronLog events that emit agent at top level. W10-followup-a preserves event.data on each indexed CoordinationMessage (lines 195-201 and 277-285) so downstream analytics readers (LocalEmbeddingVectorStore.lookupTaskOutcomes:475) can JOIN task lifecycle events by data.taskId — without this the JOIN silently dropped every event and every agent reported completedTasks:0.",
       "tags": [
         "ts",
         "service"
@@ -793,7 +800,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "SelfImprovementEngine (service)",
       "categoryId": "server-core",
       "columnId": "service",
-      "detail": "Background processor at server/src/services/SelfImprovementEngine.ts. Idle check setInterval at server/src/services/SelfImprovementEngine.ts:593 (30000ms). Note CLAUDE.md pitfall #7: PVM analytics methods on top of embeddings are placeholders (Math.random); embeddings themselves are real.",
+      "detail": "SelfImprovementEngine at server/src/services/SelfImprovementEngine.ts. W07 replaced four placeholder stub methods with real derivations: analyzeToolUsagePatterns (line 404 — counts tool_call/tool_result events with per-tool error rates), analyzeCollaborationPatterns (line 483 — agent-pair shared-task counting via taskId join), analyzeKnowledgePatterns (line 565 — peer_response source counting + keyword-frequency topic extraction), calculateImprovementMetrics (line 662 — validated/completed ratio for improvement_score, log-scale confidence_level). analyzeCoordinationPatterns at line 339 retains a 'For now, we'll just note that session filtering is requested' placeholder; out of W07's scope. No REST endpoint exposes any SelfImprovementEngine method — preexisting gap, not in this chain's scope.",
       "tags": [
         "ts",
         "service",
@@ -818,7 +825,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "Meta + dashboard (5 routes)",
       "categoryId": "endpoint",
       "columnId": "endpoint",
-      "detail": "server/src/index.ts:32 (GET /), :35 (GET /dashboard), :83 (GET /health), :96 (GET /api/status), :149 (POST /api/dev/reset \u2014 unauthenticated).",
+      "detail": "server/src/index.ts:32 (GET /), :35 (GET /dashboard), :83 (GET /health), :96 (GET /api/status), :149 (POST /api/dev/reset — unauthenticated).",
       "tags": [
         "rest",
         "auth-gap"
@@ -841,7 +848,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "Agents (3 routes)",
       "categoryId": "endpoint",
       "columnId": "endpoint",
-      "detail": "server/src/index.ts:244 (GET /api/agents), :249 (POST /api/agents/register), :288 (DELETE /api/agents/:agentId \u2014 unauthenticated).",
+      "detail": "server/src/index.ts:244 (GET /api/agents), :249 (POST /api/agents/register), :288 (DELETE /api/agents/:agentId — unauthenticated).",
       "tags": [
         "rest",
         "auth-gap"
@@ -883,10 +890,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     },
     {
       "id": "ep_tasks_synth",
-      "label": "Tasks synthesis (1 route \u2014 partial)",
+      "label": "Tasks synthesis (1 route — partial)",
       "categoryId": "endpoint",
       "columnId": "endpoint",
-      "detail": "server/src/index.ts:795 (POST /api/tasks/:taskId/synthesis). Persists event + summary string to ChronLog at server/src/index.ts:805-811 \u2014 does NOT persist full deliverable text.",
+      "detail": "server/src/index.ts:795 (POST /api/tasks/:taskId/synthesis). Persists event + summary string to ChronLog at server/src/index.ts:805-811 — does NOT persist full deliverable text.",
       "tags": [
         "rest",
         "partial-gap"
@@ -917,10 +924,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     },
     {
       "id": "ep_pvm",
-      "label": "PVM (2 routes)",
+      "label": "PVM (3 routes)",
       "categoryId": "endpoint",
       "columnId": "endpoint",
-      "detail": "server/src/index.ts:1013 (GET /api/pvm/search), :1028 (GET /api/pvm/status).",
+      "detail": "server/src/index.ts:1015 (GET /api/pvm/search — opt-in project filter via ?project=NAME, W03), :1031 (GET /api/pvm/status), :1040 (POST /api/pvm/reindex — idempotent re-ingest via indexAllEvents, W04), :1062 (GET /api/pvm/profile?agentId=X — W09; wired to vectorStore.getAgentProfile), :1077 (GET /api/pvm/synergy?agent1=X&agent2=Y — W09; wired to vectorStore.getAgentSynergy), :1092 (GET /api/pvm/compare?agents=X,Y&taskType=Z — W09; wired to vectorStore.compareAgents). All six PVM endpoints verified live via E2E run 2026-05-21 (/tmp/w10_e2e.sh): 22/22 assertions passed, including profile JOIN returning completedTasks=3, successRate=1, reliability=1 for both dev-1 and backend-1 after exercising the full task lifecycle.",
       "tags": [
         "rest"
       ],
@@ -942,7 +949,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "data/coordination-log.jsonl",
       "categoryId": "storage",
       "columnId": "service",
-      "detail": "Append-only JSONL on disk, flushed every 5s by ChronologicalLog (server/src/services/ChronologicalLog.ts:46, :404).",
+      "detail": "Append-only JSONL on disk, flushed every 5s by ChronologicalLog (server/src/services/ChronologicalLog.ts:47, :437). W08 added a parallel persistence layer at data/projects/<name>/coordination-log.jsonl mirroring every flushed event. Source file preserved as data/coordination-log.jsonl.pre-split.bak by the one-shot migration script (chronlog-split.ts). Existing single-file global log retained for back-compat — readers default to it.",
       "tags": [
         "disk"
       ],
@@ -965,7 +972,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "act-coordination.json (human-written)",
       "categoryId": "storage",
       "columnId": "service",
-      "detail": "Manual multi-Claude coordination log. NOT written by any runtime code \u2014 grep finds zero references in server/src/ or act-agent/internal/. Documented in CLAUDE.md Multi-Agent Coordination Protocol.",
+      "detail": "Manual multi-Claude coordination log. NOT written by any runtime code — grep finds zero references in server/src/ or act-agent/internal/. Documented in CLAUDE.md Multi-Agent Coordination Protocol.",
       "tags": [
         "disk",
         "doc-only"
@@ -1133,7 +1140,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "Ralph Wiggum self-verify loop",
       "categoryId": "behavior",
       "columnId": "prompt",
-      "detail": "Iterative self-verification before act-agent task complete. Lives entirely in prompt text \u2014 no code gate. References at act-agent/internal/llm/prompt/common.go (multiple lines), act-agent/internal/llm/prompt/developer.go, frontend_dev.go, backend_dev.go, qa_engineer.go, researcher.go, assurance.go. Enforcement is statistical: Assurance Layer 1 looks for evidence of self-verification but an agent that skipped Ralph would only be caught by another LLM, not by a compiler.",
+      "detail": "Iterative self-verification before act-agent task complete. Lives entirely in prompt text — no code gate. References at act-agent/internal/llm/prompt/common.go (multiple lines), act-agent/internal/llm/prompt/developer.go, frontend_dev.go, backend_dev.go, qa_engineer.go, researcher.go, assurance.go. Enforcement is statistical: Assurance Layer 1 looks for evidence of self-verification but an agent that skipped Ralph would only be caught by another LLM, not by a compiler.",
       "tags": [
         "prompt-only"
       ],
@@ -1191,7 +1198,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "scoreComplexity / PVM trigger",
       "categoryId": "runner",
       "columnId": "swarm",
-      "detail": "Heuristic complexity score gates the PVM context fetch. Threshold const at act-agent/runner/act-runner.mjs:327 (COMPLEXITY_THRESHOLD = 4). Function at act-agent/runner/act-runner.mjs:333.",
+      "detail": "Heuristic complexity score gates the PVM context fetch in the runner. Threshold const at act-agent/runner/act-runner.mjs:327 (COMPLEXITY_THRESHOLD = 4). Function at act-agent/runner/act-runner.mjs:333. Triggered from executeTask at :549 where task.projectName is extracted, then fetchPVMContext at :355 passes the project as the ?project= query param to /api/pvm/search at :360. W03 added the project-pass; pre-W03 fetchPVMContext was unscoped.",
       "tags": [
         "node",
         "pvm-gate"
@@ -1269,7 +1276,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "assignOptimalAgent (routing)",
       "categoryId": "server-core",
       "columnId": "service",
-      "detail": "Capability-based task \u2192 agent matching at server/src/services/TaskCoordinator.ts:105. Filters available agents by requiredCapabilities at server/src/services/TaskCoordinator.ts:370.",
+      "detail": "Capability-based task → agent matching at server/src/services/TaskCoordinator.ts:105. Filters available agents by requiredCapabilities at server/src/services/TaskCoordinator.ts:370.",
       "tags": [
         "routing"
       ],
@@ -1296,6 +1303,30 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "detail": "actRoot discovery file written by install.sh; consumed by act-agent/internal/server/launcher.go:30 (EnsureServerRunning).",
       "tags": [
         "disk"
+      ]
+    },
+    {
+      "id": "store_projects",
+      "label": "data/projects/* per-project ChronLogs",
+      "categoryId": "storage",
+      "columnId": "service",
+      "detail": "Per-project JSONL files at server/data/projects/<projectName>/coordination-log.jsonl (plus server/data/projects/__global__/coordination-log.jsonl for untagged/system events). Written by ChronologicalLog.flushToJSONL at server/src/services/ChronologicalLog.ts:210 via projectLogPath at :247. Directory sanitization: replaces non [A-Za-z0-9_-] with '_'. Routes determined by extractProjectName (imported from PVMIndexer.ts:36). W09 narrowed the d.name fallback in extractProjectName to project_created events only (PVMIndexer.ts:49) so agent_registered.data.name no longer creates bogus role-named buckets. W10's hardened wipe (whitelist-guarded under server/data/ + ~/.act/) cleared all historical buckets including the v4-era orphans; post-W10 E2E (2026-05-21) confirms only correctly tagged buckets are created (alpha, beta, __global__ after a 6-task lifecycle run).",
+      "tags": [
+        "fs",
+        "storage",
+        "pvm-chain"
+      ]
+    },
+    {
+      "id": "chronlog_split_script",
+      "label": "chronlog-split.ts (one-shot)",
+      "categoryId": "server-core",
+      "columnId": "service",
+      "detail": "One-shot migration script at server/scripts/chronlog-split.ts. Reads server/data/coordination-log.jsonl, groups every event by extractProjectName (imported from ../src/services/PVMIndexer), writes per-project files under server/data/projects/<name>/. Source file copied to coordination-log.jsonl.pre-split.bak BEFORE any writes. Refuses to run if projects/ already has content (idempotency guard via fs.readdir + length check). Run via 'npm run chronlog:split' (alias in server/package.json:scripts). Executed once on 2026-05-19 against the v4-era ChronLog (673 events redistributed across 16 directories). Now historical — W10 hardened wipe cleared all pre-existing buckets and the .pre-split.bak source file. Script remains in tree for any future ChronLog migration of the same shape.",
+      "tags": [
+        "ts",
+        "migration",
+        "pvm-chain"
       ]
     }
   ],
@@ -1378,28 +1409,28 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         {
           "from": "store_chronlog",
           "to": "store_inmem",
-          "label": "replay \u2192 projects",
+          "label": "replay → projects",
           "status": "ok",
           "detail": "server/src/index.ts:1339 (restoreFromLog)."
         },
         {
           "from": "store_chronlog",
           "to": "store_inmem",
-          "label": "replay \u2192 tasks",
+          "label": "replay → tasks",
           "status": "ok",
           "detail": "server/src/index.ts:1347 (taskCoordinator.restoreTasks)."
         },
         {
           "from": "store_chronlog",
           "to": "store_inmem",
-          "label": "replay \u2192 agents",
+          "label": "replay → agents",
           "status": "ok",
           "detail": "server/src/index.ts:1344 (agentRegistry.restoreAgents)."
         },
         {
           "from": "store_chronlog",
           "to": "store_inmem",
-          "label": "replay \u2192 file locks",
+          "label": "replay → file locks",
           "status": "ok",
           "detail": "fileLocks passed into restoreFromLog at server/src/index.ts:1339."
         },
@@ -1414,7 +1445,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     },
     {
       "id": "intake",
-      "label": "INTAKE \u2014 first message of a new project",
+      "label": "INTAKE — first message of a new project",
       "summary": "Planner detects unknown project (404), runs 5 questions, emits PROJECT_BRIEF, orchestrator POSTs to /api/projects.",
       "steps": [
         {
@@ -1456,7 +1487,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     },
     {
       "id": "create-task",
-      "label": "BUILD \u2014 Planner emits CREATE_TASK",
+      "label": "BUILD — Planner emits CREATE_TASK",
       "summary": "Planner response contains CREATE_TASK lines. messageOwnershipLoop parses them, orchestrator POSTs to /api/tasks. First batch triggers lazy swarm spawn.",
       "steps": [
         {
@@ -1562,7 +1593,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "ralph_loop",
           "label": "self-verify before complete",
           "status": "prompt-only",
-          "detail": "Ralph loop lives in prompt text only \u2014 see act-agent/internal/llm/prompt/common.go and the per-role prompt files. No code gate at task complete time."
+          "detail": "Ralph loop lives in prompt text only — see act-agent/internal/llm/prompt/common.go and the per-role prompt files. No code gate at task complete time."
         },
         {
           "from": "runner_proc",
@@ -1808,6 +1839,13 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "label": "write batched lines",
           "status": "ok",
           "detail": "Disk write inside flush callback (server/src/services/ChronologicalLog.ts:404+)."
+        },
+        {
+          "from": "loop_chronlog",
+          "to": "store_projects",
+          "label": "mirror per-project (dual-write)",
+          "status": "ok",
+          "detail": "After the global jsonl write completes, flushToJSONL at server/src/services/ChronologicalLog.ts:223-235 groups the just-flushed buffer by extractProjectName and appends each group to its per-project file at server/data/projects/<projectName>/coordination-log.jsonl. Routing via projectLogPath at :247."
         }
       ]
     },
@@ -1831,18 +1869,25 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "detail": "indexNewEvents at server/src/services/PVMIndexer.ts:80 fetches events then calls embed at server/src/services/LocalEmbeddingVectorStore.ts:80."
         },
         {
+          "from": "loop_pvm",
+          "to": "pvm_indexer",
+          "label": "tag projectName via extractProjectName",
+          "status": "ok",
+          "detail": "W02 added projectName tagging at both ingest sites. extractProjectName at server/src/services/PVMIndexer.ts:36 reads data.task.metadata.projectName | data.metadata.projectName | data.projectName | data.name. Applied at indexNewEvents (server/src/services/PVMIndexer.ts:138) and indexAllEvents (server/src/services/PVMIndexer.ts:190)."
+        },
+        {
           "from": "local_embed",
           "to": "store_inmem",
           "label": "store vectors",
           "status": "ok",
-          "detail": "Abstract store method at server/src/services/VectorMemoryStore.ts:48 \u2014 backing array is in-memory only, recomputed on restart."
+          "detail": "Abstract store method at server/src/services/VectorMemoryStore.ts:48 — backing array is in-memory only, recomputed on restart."
         },
         {
           "from": "self_improve",
           "to": "store_inmem",
-          "label": "analytics on top of embeddings",
+          "label": "analytics methods derive from real lifecycle joins",
           "status": "gap-found",
-          "detail": "CLAUDE.md pitfall #7: getAgentProfile, compareAgents, getAgentSynergy return placeholder data (Math.random). Embeddings are real; the analytics layer above them is fake."
+          "detail": "W06 replaced placeholder Math.random returns with real derivations: LocalEmbeddingVectorStore.getAgentProfile (line 273), getAgentSynergy (line 366), compareAgents (line 428) now use lookupTaskOutcomes (line 475) to join task_assigned/completed/validated by taskId. W09 wired the missing REST endpoints at server/src/index.ts:1062 (profile), :1077 (synergy), :1092 (compare). W10-followup-a fixed a schema mismatch: PVMIndexer.map() was stripping event.data when building the indexed CoordinationMessage, so lookupTaskOutcomes' JOIN on data.taskId always missed and every agent reported completedTasks:0. Now preserves event.data at PVMIndexer.ts:195-201 and 277-285. Verified end-to-end via /tmp/w10_e2e.sh (2026-05-21): dev-1 and backend-1 both report completedTasks=3, successRate=1, reliability=1 after a 6-task lifecycle."
         }
       ]
     },
@@ -1933,7 +1978,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "socketio_emits",
           "label": "task_completed",
           "status": "gap-found",
-          "detail": "Emit at server/src/index.ts:640. No subscriber \u2014 Go TUI uses HTTP only (act-agent/internal/act/client.go:26), Runner has no socket.io import."
+          "detail": "Emit at server/src/index.ts:640. No subscriber — Go TUI uses HTTP only (act-agent/internal/act/client.go:26), Runner has no socket.io import."
         },
         {
           "from": "ep_tasks_validate",
@@ -1952,7 +1997,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         {
           "from": "socketio_handlers",
           "to": "socketio_emits",
-          "label": "9 socket.on handlers \u2014 never reached",
+          "label": "9 socket.on handlers — never reached",
           "status": "gap-found",
           "detail": "9 socket.on() registrations in the server/src/index.ts:1063-1280 block. No client connects."
         }
@@ -1996,7 +2041,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     {
       "id": "planner-build-loop",
       "label": "Planner BUILD iteration",
-      "summary": "After INTAKE, Planner enters BUILD mode. Coordination events arriving via the 3s poll loop become new Planner turns \u2014 successes invite the next CREATE_TASK, failures invite retry, anomalies invite intervention. The closed feedback loop is what makes Planner the sole decision-maker.",
+      "summary": "After INTAKE, Planner enters BUILD mode. Coordination events arriving via the 3s poll loop become new Planner turns — successes invite the next CREATE_TASK, failures invite retry, anomalies invite intervention. The closed feedback loop is what makes Planner the sole decision-maker.",
       "steps": [
         {
           "from": "loop_coord_event",
@@ -2052,12 +2097,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     {
       "id": "observer-six-anomalies",
       "label": "Observer's 6 anomaly categories",
-      "summary": "Observer monitors six categories of issues: stuck tasks, stale file locks, idle agents, unvalidated work, bottlenecks, file conflicts. Each has a documented detection rule in the Observer prompt. Detection itself is LLM-driven against a status snapshot \u2014 not a coded rule engine.",
+      "summary": "Observer monitors six categories of issues: stuck tasks, stale file locks, idle agents, unvalidated work, bottlenecks, file conflicts. Each has a documented detection rule in the Observer prompt. Detection itself is LLM-driven against a status snapshot — not a coded rule engine.",
       "steps": [
         {
           "from": "loop_observer",
           "to": "observer",
-          "label": "120s tick \u2192 runObserverCheck",
+          "label": "120s tick → runObserverCheck",
           "status": "ok",
           "detail": "act-agent/internal/app/orchestrator.go:1237 (runObserverCheck calls buildStatusSnapshot)."
         },
@@ -2108,7 +2153,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     {
       "id": "assurance-two-layer",
       "label": "Assurance two-layer validation",
-      "summary": "Layer 1 verifies the agent's Ralph self-verification trace was present. Layer 2 independently scores each @success_criteria item via view/grep tools against the working directory. Score < 95 returns the task to the agent; \u2265 95 forwards to QA.",
+      "summary": "Layer 1 verifies the agent's Ralph self-verification trace was present. Layer 2 independently scores each @success_criteria item via view/grep tools against the working directory. Score < 95 returns the task to the agent; ≥ 95 forwards to QA.",
       "steps": [
         {
           "from": "loop_validate",
@@ -2141,7 +2186,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         {
           "from": "ep_tasks_validate",
           "to": "store_inmem",
-          "label": "\u226595: status=validated",
+          "label": "≥95: status=validated",
           "status": "ok",
           "detail": "Pass branch at server/src/index.ts:746 (updateTaskProgress validated)."
         },
@@ -2157,7 +2202,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     {
       "id": "qa-clarification",
       "label": "QA need_clarification path",
-      "summary": "When QA can't assemble a coherent deliverable, it can request clarification from a specific agent. The synthesis endpoint accepts kind='need_clarification' with a targetAgent + question \u2014 recorded in ChronLog so the Planner sees it and routes the question.",
+      "summary": "When QA can't assemble a coherent deliverable, it can request clarification from a specific agent. The synthesis endpoint accepts kind='need_clarification' with a targetAgent + question — recorded in ChronLog so the Planner sees it and routes the question.",
       "steps": [
         {
           "from": "qa_synth",
@@ -2198,7 +2243,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     },
     {
       "id": "task-failure-recovery",
-      "label": "Task failure \u2192 retry or reassign",
+      "label": "Task failure → retry or reassign",
       "summary": "When a Tier 2 task fails (runner reports task_completed with success=false, or task_validation_failed), Planner sees the event and decides: POST /api/tasks/:id/retry (same agent), emit CREATE_TASK to a different role, or escalate to the human.",
       "steps": [
         {
@@ -2248,7 +2293,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
     {
       "id": "swarm-role-and-backend",
       "label": "Tier 2 role + backend selection",
-      "summary": "Each swarm role (developer / frontend_dev / backend_dev / qa_engineer / researcher) has its own prompt file and capability tags. Each role also has a backend choice \u2014 act-agent (default) or claude-code \u2014 set per role via /swarm or act-agent swarm set.",
+      "summary": "Each swarm role (developer / frontend_dev / backend_dev / qa_engineer / researcher) has its own prompt file and capability tags. Each role also has a backend choice — act-agent (default) or claude-code — set per role via /swarm or act-agent swarm set.",
       "steps": [
         {
           "from": "orchestrator",
@@ -2337,9 +2382,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         {
           "from": "complexity_score",
           "to": "ep_pvm",
-          "label": "if score>4: GET /api/pvm/search",
+          "label": "if score>4: GET /api/pvm/search?query=...&project=<task.projectName>",
           "status": "ok",
-          "detail": "Triggered at act-agent/runner/act-runner.mjs:552; endpoint at server/src/index.ts:1013."
+          "detail": "Triggered at act-agent/runner/act-runner.mjs:552; project extracted at :358 (task.projectName || task.metadata?.projectName); passed as ?project= query param at :360. Endpoint at server/src/index.ts:1015."
         },
         {
           "from": "runner_proc",
@@ -2351,7 +2396,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         {
           "from": "build_task_prompt",
           "to": "runner_proc",
-          "label": "final prompt \u2192 backend",
+          "label": "final prompt → backend",
           "status": "ok",
           "detail": "Used at act-agent/runner/act-runner.mjs:583 (prompt = buildTaskPrompt(...))."
         }
@@ -2433,10 +2478,191 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "detail": "Assignment side-effect at server/src/index.ts:495."
         }
       ]
+    },
+    {
+      "id": "pvm-mode-resolution",
+      "label": "PVM embedding mode resolution",
+      "summary": "On server startup, LocalEmbeddingVectorStore's constructor warms up the @xenova/transformers pipeline. The .then/.catch chain flips a private `mode` field to 'real' or 'hash' and logs a one-time banner. The mode is also flipped from inside embed() as a race-window safety net if the first embed() call beats the warmup.",
+      "steps": [
+        {
+          "from": "local_embed",
+          "to": "local_embed",
+          "label": "constructor warmup chain",
+          "status": "ok",
+          "detail": "server/src/services/LocalEmbeddingVectorStore.ts:69 getEmbeddingPipeline().then() sets modelReady=true and mode='real'; .catch() sets mode='hash' with a console.warn explaining the hash fallback. Both branches guard against re-announcement via modeAnnounced boolean (line 63)."
+        },
+        {
+          "from": "local_embed",
+          "to": "local_embed",
+          "label": "in-line race safety: embed() also flips mode",
+          "status": "ok",
+          "detail": "embed() at server/src/services/LocalEmbeddingVectorStore.ts:97 — if modelReady true fast-path realEmbed at :105 flips mode; if not, the try/catch at :115-137 attempts load and falls through to hashEmbed at :127 on failure, flipping mode='hash'."
+        },
+        {
+          "from": "local_embed",
+          "to": "loop_pvm",
+          "label": "mode persists for indexer/search use",
+          "status": "ok",
+          "detail": "Public getMode() at server/src/services/LocalEmbeddingVectorStore.ts:93 returns the resolved mode for any caller. Each search() call logs the active mode at :210 (debug-level), so per-query mode is observable."
+        }
+      ]
+    },
+    {
+      "id": "pvm-scoped-search",
+      "label": "PVM search with project scope filter",
+      "summary": "W03 added an opt-in project filter to PVM search. The REST endpoint, the runner injection, and the CLI all thread a projectName through; the vector store applies the filter BEFORE cosine similarity ranking, including __global__ events in every scoped query.",
+      "steps": [
+        {
+          "from": "act_cli",
+          "to": "ep_pvm",
+          "label": "GET /api/pvm/search?query=...&project=<scope>",
+          "status": "ok",
+          "detail": "cmdPvmSearch at act-agent/cli/act-cli.ts:780. Scope default: args['--project'] || ACT_PROJECT env || basename(cwd) at :792. --global flag opts out at :789."
+        },
+        {
+          "from": "runner_proc",
+          "to": "ep_pvm",
+          "label": "auto-inject when complexity>4",
+          "status": "ok",
+          "detail": "fetchPVMContext at act-agent/runner/act-runner.mjs:355 extracts project at :358 (task.projectName || task.metadata?.projectName); adds to params at :360."
+        },
+        {
+          "from": "ep_pvm",
+          "to": "pvm_indexer",
+          "label": "pvmIndexer.search(query, limit, projectName)",
+          "status": "ok",
+          "detail": "Endpoint handler at server/src/index.ts:1015-1029 parses ?project, threads to pvmIndexer.search at :1023. Response includes scope field at :1024."
+        },
+        {
+          "from": "pvm_indexer",
+          "to": "local_embed",
+          "label": "vectorStore.search({query, limit, projectName})",
+          "status": "ok",
+          "detail": "PVMIndexer.search at server/src/services/PVMIndexer.ts:193 forwards projectName to vectorStore.search."
+        },
+        {
+          "from": "local_embed",
+          "to": "store_inmem",
+          "label": "filter points by projectName || __global__ BEFORE cosine",
+          "status": "ok",
+          "detail": "search at server/src/services/LocalEmbeddingVectorStore.ts:202 applies project filter at :218 (filter by projectName==scope || projectName=='__global__') BEFORE computing cosine similarity at :244. Scope-narrowed candidate set is faster to score."
+        }
+      ]
+    },
+    {
+      "id": "pvm-reindex",
+      "label": "PVM forced re-ingest",
+      "summary": "W04 added a POST /api/pvm/reindex endpoint and an `act-agent pvm reindex` CLI subcommand. Calls PVMIndexer.indexAllEvents which is idempotent — batchStore upserts by id, so repeated calls produce the same final state.",
+      "steps": [
+        {
+          "from": "act_cli",
+          "to": "ep_pvm",
+          "label": "POST /api/pvm/reindex",
+          "status": "ok",
+          "detail": "cmdPvmReindex in act-agent/cli/act-cli.ts; endpoint handler at server/src/index.ts:1040."
+        },
+        {
+          "from": "ep_pvm",
+          "to": "pvm_indexer",
+          "label": "pvmIndexer.indexAllEvents()",
+          "status": "ok",
+          "detail": "Handler calls indexAllEvents at server/src/services/PVMIndexer.ts:144."
+        },
+        {
+          "from": "pvm_indexer",
+          "to": "chron_log",
+          "label": "query all events (no since cursor)",
+          "status": "ok",
+          "detail": "indexAllEvents queries ChronLog with empty options at server/src/services/PVMIndexer.ts:149."
+        },
+        {
+          "from": "pvm_indexer",
+          "to": "local_embed",
+          "label": "batchStore upserts by ${timestamp}_${agent}",
+          "status": "ok",
+          "detail": "batchStore at server/src/services/LocalEmbeddingVectorStore.ts:196 iterates store(). store() at server/src/services/LocalEmbeddingVectorStore.ts:179 upserts by point.id = `${timestamp}_${agent}` (findIndex check at server/src/services/LocalEmbeddingVectorStore.ts:188). Idempotent."
+        }
+      ]
+    },
+    {
+      "id": "chronlog-migration",
+      "label": "ChronLog one-shot per-project split",
+      "summary": "W08 added a non-destructive migration script that reads the existing single-file coordination-log.jsonl and rewrites it into per-project files. Backs up the source first. Run once; refuses to re-run if projects/ already exists.",
+      "steps": [
+        {
+          "from": "chronlog_split_script",
+          "to": "store_chronlog",
+          "label": "fs.copyFile to .pre-split.bak (idempotency safety)",
+          "status": "ok",
+          "detail": "server/scripts/chronlog-split.ts:42 — fs.copyFile(SOURCE, BACKUP) where BACKUP = SOURCE + '.pre-split.bak' (defined at server/scripts/chronlog-split.ts:21). Runs BEFORE any per-project writes for rollback safety."
+        },
+        {
+          "from": "chronlog_split_script",
+          "to": "store_chronlog",
+          "label": "fs.readFile source jsonl",
+          "status": "ok",
+          "detail": "server/scripts/chronlog-split.ts:46 — await fs.readFile(SOURCE, 'utf-8'). SOURCE points at server/data/coordination-log.jsonl (constant at server/scripts/chronlog-split.ts:20)."
+        },
+        {
+          "from": "chronlog_split_script",
+          "to": "pvm_indexer",
+          "label": "extractProjectName per event",
+          "status": "ok",
+          "detail": "server/scripts/chronlog-split.ts:15 imports extractProjectName from ../src/services/PVMIndexer (function definition at server/src/services/PVMIndexer.ts:36). Per-event invocation at server/scripts/chronlog-split.ts:56 wraps it with safeProjectName (server/scripts/chronlog-split.ts:24) which replaces non [A-Za-z0-9_-] with '_'."
+        },
+        {
+          "from": "chronlog_split_script",
+          "to": "store_projects",
+          "label": "fs.writeFile per-project jsonl",
+          "status": "ok",
+          "detail": "server/scripts/chronlog-split.ts:69 — fs.writeFile(filePath, projLines.join('\\n') + '\\n'). filePath = projects/<name>/coordination-log.jsonl. Groups built at server/scripts/chronlog-split.ts:56 (project -> string[] map)."
+        }
+      ]
+    },
+    {
+      "id": "pvm-analytics",
+      "label": "PVM agent analytics (W06+W09+W10-followup-a end-to-end)",
+      "summary": "Three agent analytics methods on LocalEmbeddingVectorStore — getAgentProfile, getAgentSynergy, compareAgents — derive from real task lifecycle JOINs via lookupTaskOutcomes. W09 wired the missing REST endpoints. W10-followup-a fixed the silent schema mismatch where the indexer was dropping event.data, which had hidden the JOIN failure behind correct per-type taskCount aggregation. Full chain verified live via E2E run 2026-05-21.",
+      "steps": [
+        {
+          "from": "ep_pvm",
+          "to": "local_embed",
+          "label": "GET /api/pvm/profile -> getAgentProfile",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:1062 reads ?agentId, calls vectorStore.getAgentProfile, returns {success, profile}. E2E verified 2026-05-21: GET /api/pvm/profile?agentId=dev-1 returns completedTasks=3, successRate=1, reliability=1 after a 3-task lifecycle (/tmp/w10_e2e.sh step 7)."
+        },
+        {
+          "from": "ep_pvm",
+          "to": "local_embed",
+          "label": "GET /api/pvm/synergy -> getAgentSynergy",
+          "status": "ok",
+          "detail": "Handler at server/src/index.ts:1077 reads ?agent1 + ?agent2, calls vectorStore.getAgentSynergy, returns {success, synergy:{collaborationCount, successRate, strengthAreas, weaknessAreas}}. E2E verified 2026-05-21 endpoint responds correctly (collaborationCount=0 expected when agents share no taskIds)."
+        },
+        {
+          "from": "ep_pvm",
+          "to": "local_embed",
+          "label": "GET /api/pvm/compare -> compareAgents",
+          "status": "gap-found",
+          "detail": "Handler at server/src/index.ts:1092 wired correctly to vectorStore.compareAgents (line 428), but compareAgents internal filter on taskType returns taskCount=0 even when agents have real completed+validated tasks. E2E 2026-05-21 showed dev-1 + backend-1 with 3 completed tasks each, but /api/pvm/compare?agents=dev-1,backend-1&taskType=python returned taskCount=0 for both. Filter path needs to match the data shape now preserved by W10-followup-a (data.task.type). See finding F-G."
+        },
+        {
+          "from": "local_embed",
+          "to": "local_embed",
+          "label": "lookupTaskOutcomes JOINs lifecycle by data.taskId",
+          "status": "ok",
+          "detail": "Private helper at server/src/services/LocalEmbeddingVectorStore.ts:475 walks this.points pairing task_assigned + task_completed + task_validated events for the agent by data.taskId. Returns per-task outcomes with durationMs from assigned->completed delta. Requires PVMIndexer to preserve event.data on the indexed point — that fix landed in W10-followup-a (PVMIndexer.ts:195-201, :277-285). E2E confirms the JOIN works: avgTaskTime=60s correctly computed across 3 tasks."
+        },
+        {
+          "from": "local_embed",
+          "to": "store_inmem",
+          "label": "getAgentProfile derives from outcomes",
+          "status": "ok",
+          "detail": "server/src/services/LocalEmbeddingVectorStore.ts:273. successRate from validated/passed ratio (line 358), avgCompletionTime from real durations (line 359), reliability from completed/passed ratio (line 360). No Math.random; no hardcoded 0.85/3600/0.95 constants in the analytics method bodies."
+        }
+      ]
     }
   ]
-}
-</script>
+}</script>
 <script>
 (function(){
   var data = JSON.parse(document.getElementById('data').textContent);
