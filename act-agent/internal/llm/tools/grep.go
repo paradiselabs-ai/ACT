@@ -210,12 +210,16 @@ func searchWithRipgrep(pattern, path, include string) ([]grepMatch, error) {
 		return nil, fmt.Errorf("ripgrep not found: %w", err)
 	}
 
-	// Use -n to show line numbers and include the matched line
-	args := []string{"-H", "-n", pattern}
+	// Use -n to show line numbers and include the matched line.
+	// `--` ends option parsing so an LLM-supplied pattern starting with `-`
+	// cannot be interpreted as a flag (cf. Antigravity find_by_name RCE,
+	// Pillar Security 2026-04). Path is appended after pattern; rg accepts
+	// it as the second positional after `--`.
+	args := []string{"-H", "-n"}
 	if include != "" {
 		args = append(args, "--glob", include)
 	}
-	args = append(args, path)
+	args = append(args, "--", pattern, path)
 
 	cmd := exec.Command("rg", args...)
 	output, err := cmd.Output()

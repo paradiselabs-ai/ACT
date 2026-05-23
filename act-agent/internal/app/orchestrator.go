@@ -1385,8 +1385,7 @@ func (o *Orchestrator) tier1Watchdog(ctx context.Context, sid string, snap *Stat
 				"last_turn_ago", now.Sub(last).String(),
 			)
 			o.emitSystemMessage(ctx, sid, fmt.Sprintf("👁  Observer: Assurance idle with %d task(s) in validation queue — re-triggering", pendingValidation))
-			prompt := fmt.Sprintf("Validation queue check — %d task(s) in submitted_for_validation. Run a validation pass on the oldest pending task.", pendingValidation)
-			go o.runAgentTurn(ctx, sid, "assurance", prompt)
+			go o.checkPendingValidation(ctx)
 			return true
 		}
 	}

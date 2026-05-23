@@ -1365,7 +1365,7 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 8080;
 
 // Write PID file so the Go launcher can detect stale processes
-import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, unlinkSync, existsSync, mkdirSync, readFileSync } from 'fs';
 // __dirname equivalent for ESM: path.dirname(import.meta.url) isn't needed
 // because the server's data dir is always relative to the server root (one
 // level above src/). Use the same path the ChronologicalLog uses.
@@ -1433,12 +1433,44 @@ chronologicalLog.initialize().then(async () => {
   pvmIndexer.startIndexing(10000);
   logger.info('ChronologicalLog initialized and PVM indexing started');
 
+  // Refuse to start if another live ACT server already holds this PID file.
+  // Prevents zombie-tsx stacking: when SIGKILL leaves a stale PID file behind,
+  // an honest restart still works (signal 0 to a dead PID throws); but if the
+  // earlier process is still breathing, we exit instead of fighting for port 8080.
+  if (existsSync(PID_FILE)) {
+    try {
+      const otherPid = parseInt(readFileSync(PID_FILE, 'utf-8').trim(), 10);
+      if (otherPid > 0 && otherPid !== process.pid) {
+        try {
+          process.kill(otherPid, 0); // throws if dead
+          logger.error(`ACT server already running (pid=${otherPid}). Exiting to avoid duplicate.`);
+          process.exit(1);
+        } catch {
+          // Stale PID file — previous process gone. Continue.
+          logger.warn(`Stale PID file pointed to dead pid=${otherPid}; reclaiming.`);
+        }
+      }
+    } catch (e: any) {
+      logger.warn(`Could not parse PID file: ${e.message}; reclaiming.`);
+    }
+  }
+
   // Write PID file and start listening only after state is restored
   writePidFile();
   server.listen(PORT, () => {
     logger.info(`ACT Server running on port ${PORT}`);
     logger.info(`WebSocket: ws://localhost:${PORT}`);
   });
+
+  // Sweep stale agents every 60s. AgentRegistry.performHealthCheck flips any
+  // online/busy agent whose lastSeen is more than 5 minutes old to "offline"
+  // — without this, agents from prior sessions (or crashed runners) linger as
+  // status=online and the Observer flags them as idle for tasks they can't take.
+  setInterval(() => {
+    agentRegistry.performHealthCheck().catch(err => {
+      logger.warn(`Agent health check failed: ${err.message}`);
+    });
+  }, 60_000);
 }).catch(err => {
   logger.error(`Failed to initialize ChronologicalLog: ${err.message}`);
   process.exit(1);

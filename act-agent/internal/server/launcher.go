@@ -35,26 +35,37 @@ func EnsureServerRunning(serverURL string) error {
 		}
 	}
 
-	// Check if already running. Debug-level (not Info) so it doesn't pollute
-	// captured subprocess output when act-agent is invoked as a CLI subcommand
-	// from RunDirectCommand or palette intercepts. The "server already running"
-	// state is the no-op happy path — silent is correct.
-	if isHealthy(serverURL) {
-		logging.Debug("ACT server already running", "url", serverURL)
-		return nil
-	}
-
 	// Find server entry point relative to the working directory
 	serverScript := findServerScript()
 	if serverScript == "" {
+		// Without a script we can't sweep duplicates by pattern. Fall back to a
+		// pure health check and hope the caller has started something compatible.
+		if isHealthy(serverURL) {
+			logging.Debug("ACT server already running", "url", serverURL)
+			return nil
+		}
 		logging.Warn("ACT server script not found — server must be started manually")
 		return nil // Not fatal — agent can still work without server
 	}
 
-	// Check PID file to prevent concurrent starts.
-	// The server writes its PID to data/act-server.pid on startup.
+	// Sweep stale tsx watch processes for our script BEFORE accepting the
+	// "already running" happy path. Zombie tsx servers from prior sessions can
+	// keep responding to /health long after their in-memory state has drifted
+	// (stale agents, stale tasks, lost ChronLog correlation). The PID file is
+	// the source of truth: any tsx watch process for our script whose PID is
+	// NOT the one written to the PID file is a leftover and must die.
 	serverDir := filepath.Dir(filepath.Dir(serverScript)) // server/ (parent of src/)
 	pidFile := filepath.Join(serverDir, "data", "act-server.pid")
+	authoritativePID := readPIDFile(pidFile)
+	killStaleServerProcesses(authoritativePID)
+
+	// After the sweep, health-check again. If a legitimate server still owns
+	// the port, we attach to it; otherwise we fall through to start fresh.
+	if isHealthy(serverURL) {
+		logging.Debug("ACT server already running", "url", serverURL, "authoritative_pid", authoritativePID)
+		return nil
+	}
+
 	if isServerProcessAlive(pidFile) {
 		// Process exists but health check failed — server is starting up.
 		// Wait for it instead of spawning a second one.
@@ -95,6 +106,61 @@ func waitForHealth(serverURL string) error {
 		}
 	}
 	return fmt.Errorf("ACT server did not become healthy within %s", startTimeout)
+}
+
+// readPIDFile reads the PID file and returns the recorded PID, or 0 if the
+// file is missing/unreadable/empty. Used as the "authoritative" PID for the
+// stale-server sweep — any other tsx watch process for our script is fair game.
+func readPIDFile(pidFile string) int {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
+// killStaleServerProcesses finds any tsx watch process running our server
+// script and kills it UNLESS its PID matches the authoritative PID. Mirrors
+// the runner-side SweepOrphans pattern at internal/runner/spawner.go:243.
+//
+// When the PID file is missing or stale (authoritativePID==0), every tsx
+// watch process for our script is treated as stale. Cold-start path.
+//
+// Uses pgrep+kill rather than pkill because pkill on macOS lacks -P / process
+// filtering and would match too broadly. We narrow to "tsx watch.*src/index.ts"
+// which is specific to the ACT server entry point.
+func killStaleServerProcesses(authoritativePID int) {
+	out, err := exec.Command("pgrep", "-f", "tsx watch.*src/index.ts").Output()
+	if err != nil {
+		// pgrep exits 1 with no match — that's the no-op happy path.
+		return
+	}
+	killed := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		pid, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil || pid <= 0 {
+			continue
+		}
+		if authoritativePID > 0 && pid == authoritativePID {
+			continue
+		}
+		// SIGKILL — these are zombies from prior sessions, SIGTERM may not stick.
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		_ = proc.Signal(syscall.SIGKILL)
+		killed++
+	}
+	if killed > 0 {
+		logging.Info("Swept stale ACT server processes", "killed", killed, "authoritative_pid", authoritativePID)
+		// Give the kernel a moment to release the port before the next health check.
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // isServerProcessAlive reads the PID file and checks if that process is still running.
