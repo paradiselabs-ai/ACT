@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- parseCreateTaskDirectives tests ---
@@ -212,5 +213,76 @@ func TestParseSynthesisResponse_InProgress(t *testing.T) {
 	kind, _, _, _ := parseSynthesisResponse(raw)
 	if kind != "in_progress" {
 		t.Errorf("expected kind 'in_progress', got %q", kind)
+	}
+}
+
+// --- content-hash dispatch dedup tests ---
+
+func TestTaskBatchHash_Stable(t *testing.T) {
+	a := []TaskDef{
+		{Title: "T1", Description: "do x", RequiredCapabilities: []string{"go", "api"}},
+		{Title: "T2", Description: "do y", RequiredCapabilities: []string{"ui"}},
+	}
+	// Same content, different list order + cap order — must hash identically.
+	b := []TaskDef{
+		{Title: "T2", Description: "do y", RequiredCapabilities: []string{"ui"}},
+		{Title: "T1", Description: "do x", RequiredCapabilities: []string{"api", "go"}},
+	}
+	if taskBatchHash(a) != taskBatchHash(b) {
+		t.Fatalf("expected stable hash across reordering")
+	}
+}
+
+func TestTaskBatchHash_DifferentContent(t *testing.T) {
+	a := []TaskDef{{Title: "T1", Description: "do x"}}
+	b := []TaskDef{{Title: "T1", Description: "do y"}}
+	if taskBatchHash(a) == taskBatchHash(b) {
+		t.Fatalf("expected different hash for different descriptions")
+	}
+}
+
+func TestDispatchDedup_DuplicateDropped(t *testing.T) {
+	o := &Orchestrator{recentDispatchHashes: map[string]time.Time{}}
+	tasks := []TaskDef{
+		{Title: "Build auth", Description: "JWT", RequiredCapabilities: []string{"backend"}},
+		{Title: "Wire UI", Description: "login form", RequiredCapabilities: []string{"frontend"}},
+	}
+	h := taskBatchHash(tasks)
+
+	drop, _ := o.checkAndRecordDispatchHash(h)
+	if drop {
+		t.Fatalf("first dispatch should not be dropped")
+	}
+	drop, age := o.checkAndRecordDispatchHash(h)
+	if !drop {
+		t.Fatalf("second dispatch of same hash within window should be dropped")
+	}
+	if age < 0 {
+		t.Fatalf("age should be non-negative, got %v", age)
+	}
+}
+
+func TestDispatchDedup_DifferentContentBothDispatch(t *testing.T) {
+	o := &Orchestrator{recentDispatchHashes: map[string]time.Time{}}
+	h1 := taskBatchHash([]TaskDef{{Title: "A", Description: "first"}})
+	h2 := taskBatchHash([]TaskDef{{Title: "B", Description: "second"}})
+
+	if drop, _ := o.checkAndRecordDispatchHash(h1); drop {
+		t.Fatalf("first batch should dispatch")
+	}
+	if drop, _ := o.checkAndRecordDispatchHash(h2); drop {
+		t.Fatalf("second distinct batch within window should also dispatch")
+	}
+}
+
+func TestDispatchDedup_ExpiredEntryDispatches(t *testing.T) {
+	o := &Orchestrator{recentDispatchHashes: map[string]time.Time{}}
+	h := taskBatchHash([]TaskDef{{Title: "T", Description: "d"}})
+
+	// Seed with an expired entry directly.
+	o.recentDispatchHashes[h] = time.Now().Add(-2 * dispatchHashWindow)
+	drop, _ := o.checkAndRecordDispatchHash(h)
+	if drop {
+		t.Fatalf("expired entry should be GC'd and re-dispatch allowed")
 	}
 }

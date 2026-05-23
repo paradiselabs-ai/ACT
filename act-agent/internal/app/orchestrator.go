@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -97,7 +98,21 @@ type Orchestrator struct {
 	// queue is non-empty AND the responsible role is idle AND its last turn was
 	// >tier1StuckThreshold ago, Observer re-triggers it directly. Mu-protected.
 	lastTurnAt map[string]time.Time
+
+	// recentDispatchHashes maps sha256(sorted task spec set) → dispatch time.
+	// Defense-in-depth dedup: when a flaky Planner model emits the same
+	// CREATE_TASK batch across two distinct turns (different msg.IDs, so the
+	// dispatchedMsgs check doesn't catch it), this stops the second batch
+	// from re-dispatching. Window: dispatchHashWindow. Lazily GC'd on insert.
+	dispatchHashMu       sync.Mutex
+	recentDispatchHashes map[string]time.Time
 }
+
+// dispatchHashWindow is how long a content-hash blocks a re-dispatch of the
+// same CREATE_TASK batch. Observed flake: same 5-task list re-emitted ~20s
+// later on a separate Planner turn; 60s comfortably covers that without
+// blocking legitimate re-runs the user might trigger minutes later.
+const dispatchHashWindow = 60 * time.Second
 
 // NewOrchestrator creates an orchestrator wired to the given app.
 func NewOrchestrator(app *App) *Orchestrator {
@@ -109,6 +124,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 		attemptCount:  make(map[string]int),
 		runnerSpawner: runner.NewSpawner(),
 		lastTurnAt:    make(map[string]time.Time),
+		recentDispatchHashes: make(map[string]time.Time),
 	}
 }
 
@@ -1051,6 +1067,23 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 		return
 	}
 
+	// Defense-in-depth content-hash dedup. The dispatchedMsgs guard in
+	// messageOwnershipLoop catches pubsub re-fires of the same msg.ID. This
+	// catches the separate failure mode where a flaky Planner model (observed
+	// with z-ai/glm-4.5-air:free) re-emits the exact same CREATE_TASK batch
+	// on a fresh turn ~20s later — different msg.ID, identical content, would
+	// otherwise produce duplicate task records with distinct UUIDs.
+	batchHash := taskBatchHash(tasks)
+	if drop, age := o.checkAndRecordDispatchHash(batchHash); drop {
+		logging.Warn("task_directive_duplicate_dispatch_dropped",
+			"hash_prefix", batchHash[:12],
+			"content_bytes", len(content),
+			"task_count", len(tasks),
+			"age_ms", age.Milliseconds(),
+		)
+		return
+	}
+
 	client := act.NewClient("planner", os.Getenv("ACT_PROJECT"))
 	if !client.IsAvailable() {
 		logging.Warn("ACT server unavailable — cannot create tasks from Planner directives")
@@ -1114,6 +1147,53 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 	if created > 0 {
 		go o.maybeRescanNomik(context.Background())
 	}
+}
+
+// taskBatchHash computes a stable sha256 over the parsed CREATE_TASK batch.
+// The batch is sorted by spec string before hashing so two emissions that
+// list the same tasks in a different order still collide. TaskDef has no
+// explicit "role" field — capabilities (RequiredCapabilities, falling back
+// to Capabilities) carry the role intent in ACT's routing, so they stand
+// in for the title|role|description spec triple.
+func taskBatchHash(tasks []TaskDef) string {
+	specs := make([]string, len(tasks))
+	for i, t := range tasks {
+		title := t.Title
+		if title == "" {
+			title = t.Name
+		}
+		caps := t.RequiredCapabilities
+		if len(caps) == 0 {
+			caps = t.Capabilities
+		}
+		capsCopy := append([]string(nil), caps...)
+		sort.Strings(capsCopy)
+		specs[i] = strings.Join([]string{title, t.Description, strings.Join(capsCopy, ",")}, "|")
+	}
+	sort.Strings(specs)
+	sum := sha256.Sum256([]byte(strings.Join(specs, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// checkAndRecordDispatchHash records the given hash as dispatched-now and
+// returns drop=false. If the hash is already present within dispatchHashWindow,
+// returns drop=true plus the age of the prior dispatch and leaves the map
+// untouched (so a third re-emit at t+50s still drops against the original t+0
+// timestamp). Lazily GCs expired entries on every call — no goroutine needed.
+func (o *Orchestrator) checkAndRecordDispatchHash(hash string) (drop bool, age time.Duration) {
+	o.dispatchHashMu.Lock()
+	defer o.dispatchHashMu.Unlock()
+	now := time.Now()
+	for h, ts := range o.recentDispatchHashes {
+		if now.Sub(ts) > dispatchHashWindow {
+			delete(o.recentDispatchHashes, h)
+		}
+	}
+	if ts, ok := o.recentDispatchHashes[hash]; ok {
+		return true, now.Sub(ts)
+	}
+	o.recentDispatchHashes[hash] = now
+	return false, 0
 }
 
 // filterSwarmSpecsByProject returns the subset of SwarmSpecs whose role
