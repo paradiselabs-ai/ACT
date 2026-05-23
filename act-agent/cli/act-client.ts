@@ -243,17 +243,20 @@ export class ACTClient {
     }
   }
 
-  async sendMessage(sender: string, message: string): Promise<void> {
+  async sendMessage(sender: string, message: string, projectName?: string): Promise<void> {
+    const project = projectName ?? process.env.ACT_PROJECT ?? '';
     await fetch(`${this.serverUrl}/api/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sender, message })
+      body: JSON.stringify({ sender, projectName: project, message })
     });
   }
 
-  async getMessages(agentId: string, limit = 10): Promise<any[]> {
+  async getMessages(agentId: string, limit = 10, projectName?: string): Promise<any[]> {
     try {
-      const response = await fetch(`${this.serverUrl}/api/agents/${encodeURIComponent(agentId)}/messages?limit=${limit}`);
+      const project = projectName ?? process.env.ACT_PROJECT ?? '';
+      const projectParam = project ? `&project=${encodeURIComponent(project)}` : '';
+      const response = await fetch(`${this.serverUrl}/api/agents/${encodeURIComponent(agentId)}/messages?limit=${limit}${projectParam}`);
       if (!response.ok) return [];
       const data = await response.json() as any;
       return data.messages || [];
@@ -385,12 +388,13 @@ export class ACTClient {
   }
 
   /** Claim files for exclusive editing */
-  async claimFiles(agentId: string, taskId: string, filePaths: string[]): Promise<{ success: boolean; claimed?: string[]; conflict?: boolean; conflicts?: any[]; error?: string }> {
+  async claimFiles(agentId: string, taskId: string, filePaths: string[], projectName?: string): Promise<{ success: boolean; claimed?: string[]; conflict?: boolean; conflicts?: any[]; error?: string }> {
     try {
+      const project = projectName ?? process.env.ACT_PROJECT ?? '';
       const response = await fetch(`${this.serverUrl}/api/files/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agentId, task_id: taskId, file_paths: filePaths })
+        body: JSON.stringify({ agent_id: agentId, task_id: taskId, project_name: project, file_paths: filePaths })
       });
       const data = await response.json();
       if (!response.ok) {
@@ -403,12 +407,13 @@ export class ACTClient {
   }
 
   /** Release file locks */
-  async releaseFiles(agentId: string, filePaths: string[], taskId?: string): Promise<{ success: boolean; released?: string[]; error?: string }> {
+  async releaseFiles(agentId: string, filePaths: string[], taskId?: string, projectName?: string): Promise<{ success: boolean; released?: string[]; error?: string }> {
     try {
+      const project = projectName ?? process.env.ACT_PROJECT ?? '';
       const response = await fetch(`${this.serverUrl}/api/files/release`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_id: agentId, task_id: taskId, file_paths: filePaths })
+        body: JSON.stringify({ agent_id: agentId, task_id: taskId, project_name: project, file_paths: filePaths })
       });
       const data = await response.json();
       if (!response.ok || !data.success) {

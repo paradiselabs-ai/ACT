@@ -44,9 +44,13 @@ func NewClient(agentID, project string) *Client {
 
 // Register registers this agent with the ACT coordination server.
 func (c *Client) Register() error {
+	if c.Project == "" {
+		return fmt.Errorf("act register: Client.Project is required (per-project isolation)")
+	}
 	body := map[string]any{
 		"agentId":      c.AgentID,
 		"name":         c.AgentID,
+		"projectName":  c.Project,
 		"capabilities": []string{"code", "coordination"},
 	}
 	resp, err := c.post("/api/agents/register", body)
@@ -82,15 +86,15 @@ func (c *Client) GetContext() (string, error) {
 		ch <- result{"task", task, err}
 	}()
 	go func() {
-		tasks, err := c.getString("/api/tasks")
+		tasks, err := c.ListTasks()
 		ch <- result{"tasks", tasks, err}
 	}()
 	go func() {
-		agents, err := c.getString("/api/agents")
+		agents, err := c.ListAgents()
 		ch <- result{"agents", agents, err}
 	}()
 	go func() {
-		locks, err := c.getString("/api/files/locks")
+		locks, err := c.GetFileLocks()
 		ch <- result{"locks", locks, err}
 	}()
 	go func() {
@@ -161,9 +165,10 @@ func (c *Client) ReportComplete(taskID string, result string) error {
 // ClaimFiles claims exclusive editing rights on files.
 func (c *Client) ClaimFiles(taskID string, files []string) error {
 	body := map[string]any{
-		"agent_id":   c.AgentID,
-		"task_id":    taskID,
-		"file_paths": files,
+		"agent_id":     c.AgentID,
+		"task_id":      taskID,
+		"project_name": c.Project,
+		"file_paths":   files,
 	}
 	resp, err := c.post("/api/files/claim", body)
 	if err != nil {
@@ -176,8 +181,9 @@ func (c *Client) ClaimFiles(taskID string, files []string) error {
 // ReleaseFiles releases file locks.
 func (c *Client) ReleaseFiles(files []string) error {
 	body := map[string]any{
-		"agent_id":   c.AgentID,
-		"file_paths": files,
+		"agent_id":     c.AgentID,
+		"project_name": c.Project,
+		"file_paths":   files,
 	}
 	resp, err := c.post("/api/files/release", body)
 	if err != nil {
@@ -190,8 +196,9 @@ func (c *Client) ReleaseFiles(files []string) error {
 // SendMessage sends a coordination message to other agents.
 func (c *Client) SendMessage(text string) error {
 	body := map[string]any{
-		"sender":  c.AgentID,
-		"message": text,
+		"sender":      c.AgentID,
+		"projectName": c.Project,
+		"message":     text,
 	}
 	resp, err := c.post("/api/messages", body)
 	if err != nil {
@@ -252,12 +259,18 @@ func (c *Client) getBrief() (string, error) {
 
 func (c *Client) getAssignedTask() (string, error) {
 	path := fmt.Sprintf("/api/tasks/assigned?agent_id=%s", url.QueryEscape(c.AgentID))
+	if c.Project != "" {
+		path += "&project=" + url.QueryEscape(c.Project)
+	}
 	return c.getString(path)
 }
 
 func (c *Client) getMessages(limit int) (string, error) {
 	path := fmt.Sprintf("/api/agents/%s/messages?limit=%d",
 		url.PathEscape(c.AgentID), limit)
+	if c.Project != "" {
+		path += "&project=" + url.QueryEscape(c.Project)
+	}
 	return c.getString(path)
 }
 
@@ -389,14 +402,24 @@ func (c *Client) GetValidatedTasks() (string, error) {
 	return c.getString(path)
 }
 
-// ListAgents fetches all registered agents from the ACT server.
+// ListAgents fetches registered agents from the ACT server. Scoped to the
+// client's current project when set — cross-project agents are invisible.
 func (c *Client) ListAgents() (string, error) {
-	return c.getString("/api/agents")
+	path := "/api/agents"
+	if c.Project != "" {
+		path += "?project=" + url.QueryEscape(c.Project)
+	}
+	return c.getString(path)
 }
 
-// GetFileLocks fetches the current file locks from the ACT server.
+// GetFileLocks fetches current file locks. Scoped to the client's current
+// project when set — same absolute path in another project is a separate lock.
 func (c *Client) GetFileLocks() (string, error) {
-	return c.getString("/api/files/locks")
+	path := "/api/files/locks"
+	if c.Project != "" {
+		path += "?project=" + url.QueryEscape(c.Project)
+	}
+	return c.getString(path)
 }
 
 // GetLog fetches recent coordination log entries. Scoped to the client's

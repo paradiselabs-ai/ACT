@@ -5,6 +5,7 @@ import { AgentRole } from '../types/roles';
 export interface Agent {
   id: string;
   name: string;
+  projectName: string;
   capabilities: string[];
   status: 'online' | 'busy' | 'offline';
   model?: string;
@@ -32,11 +33,15 @@ export class AgentRegistry extends EventEmitter {
   }
 
   async registerAgent(agentId: string, agentData: Partial<Agent>): Promise<Agent> {
+    if (!agentData.projectName) {
+      throw new Error(`projectName is required to register agent ${agentId}`);
+    }
     const existingAgent = this.agents.get(agentId);
 
     const agent: Agent = {
       id: agentId,
       name: agentData.name || agentId,
+      projectName: agentData.projectName,
       capabilities: agentData.capabilities || [],
       model: agentData.model,
       provider: agentData.provider,
@@ -119,24 +124,25 @@ export class AgentRegistry extends EventEmitter {
     return agentId ? this.agents.get(agentId) : undefined;
   }
 
-  getAllAgents(): Agent[] {
-    return Array.from(this.agents.values());
+  getAllAgents(projectName?: string): Agent[] {
+    const all = Array.from(this.agents.values());
+    return projectName ? all.filter(a => a.projectName === projectName) : all;
   }
 
-  getAvailableAgents(): Agent[] {
-    return this.getAllAgents().filter(agent =>
+  getAvailableAgents(projectName?: string): Agent[] {
+    return this.getAllAgents(projectName).filter(agent =>
       agent.status === 'online' && !agent.currentTask
     );
   }
 
-  getAgentsByCapability(capability: string): Agent[] {
-    return this.getAllAgents().filter(agent =>
+  getAgentsByCapability(capability: string, projectName?: string): Agent[] {
+    return this.getAllAgents(projectName).filter(agent =>
       agent.capabilities.includes(capability) && agent.status !== 'offline'
     );
   }
 
-  getOptimalAgent(requiredCapabilities: string[]): Agent | null {
-    const availableAgents = this.getAvailableAgents();
+  getOptimalAgent(requiredCapabilities: string[], projectName?: string): Agent | null {
+    const availableAgents = this.getAvailableAgents(projectName);
 
     if (availableAgents.length === 0) {
       return null;
@@ -228,16 +234,21 @@ export class AgentRegistry extends EventEmitter {
     return count;
   }
 
-  getOnlineAgentCount(): number {
-    return this.getAllAgents().filter(agent => agent.status !== 'offline').length;
+  getOnlineAgentCount(projectName?: string): number {
+    return this.getAllAgents(projectName).filter(agent => agent.status !== 'offline').length;
   }
 
   // Bulk restore agents from event log (used by restoreFromLog)
   restoreAgents(agentMap: Map<string, any>): void {
     for (const [id, agentData] of agentMap.entries()) {
+      if (!agentData.projectName) {
+        logger.warn(`restoreAgents: skipping ${id} — no projectName on event payload (pre-fix log entry)`);
+        continue;
+      }
       this.agents.set(id, {
         id: agentData.id,
         name: agentData.name,
+        projectName: agentData.projectName,
         capabilities: agentData.capabilities || [],
         status: agentData.status || 'offline',
         model: agentData.model,

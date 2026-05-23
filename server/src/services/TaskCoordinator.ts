@@ -123,7 +123,10 @@ export class TaskCoordinator extends EventEmitter {
     // requirements are specified — returns null if no agent has any matching
     // capability. This prevents wrong-role assignment (e.g. Go task to
     // frontend_dev). Tasks with empty requiredCapabilities still match any agent.
-    let selectedAgent = this.agentRegistry.getOptimalAgent(task.requiredCapabilities);
+    // Scoped to the task's project so cross-project agents are invisible to the
+    // assignment scorer.
+    const taskProject = (task.metadata?.projectName as string | undefined) ?? undefined;
+    let selectedAgent = this.agentRegistry.getOptimalAgent(task.requiredCapabilities, taskProject);
     let reason = selectedAgent
       ? `Optimal match for capabilities: ${task.requiredCapabilities.join(', ')}`
       : '';
@@ -135,9 +138,10 @@ export class TaskCoordinator extends EventEmitter {
       const pvmAgentId = await this.pickAgentFromPVM(task);
       if (pvmAgentId) {
         const pvmAgent = this.agentRegistry.getAgent(pvmAgentId);
-        // Only accept the PVM suggestion if that agent also has the capability —
-        // PVM is a hint, not an override of the capability contract.
-        if (pvmAgent && task.requiredCapabilities.some(cap => pvmAgent.capabilities.includes(cap))) {
+        // Only accept the PVM suggestion if (a) same project, and (b) has the
+        // capability. PVM aggregates globally; selection must respect project.
+        if (pvmAgent && (!taskProject || pvmAgent.projectName === taskProject)
+            && task.requiredCapabilities.some(cap => pvmAgent.capabilities.includes(cap))) {
           selectedAgent = pvmAgent;
           reason = `PVM similarity match with capability overlap`;
         }
@@ -434,16 +438,19 @@ export class TaskCoordinator extends EventEmitter {
     return this.tasks.get(taskId);
   }
 
-  getAllTasks(): Task[] {
-    return Array.from(this.tasks.values());
+  getAllTasks(projectName?: string): Task[] {
+    const all = Array.from(this.tasks.values());
+    return projectName
+      ? all.filter(t => (t.metadata?.projectName as string | undefined) === projectName)
+      : all;
   }
 
-  getTasksByStatus(status: Task['status']): Task[] {
-    return this.getAllTasks().filter(task => task.status === status);
+  getTasksByStatus(status: Task['status'], projectName?: string): Task[] {
+    return this.getAllTasks(projectName).filter(task => task.status === status);
   }
 
-  getTasksByAgent(agentId: string): Task[] {
-    return this.getAllTasks().filter(task => task.assignedAgent === agentId);
+  getTasksByAgent(agentId: string, projectName?: string): Task[] {
+    return this.getAllTasks(projectName).filter(task => task.assignedAgent === agentId);
   }
 
   getTaskCount(): number {

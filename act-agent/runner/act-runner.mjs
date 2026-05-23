@@ -127,9 +127,13 @@ const post = (path, body) => request('POST', path, body);
 // ─── ACT API calls ────────────────────────────────────────────────────────────
 
 async function register() {
+  if (!ACT_PROJECT) {
+    throw new Error('ACT_PROJECT env var is required to register a swarm runner (per-project isolation)');
+  }
   const body = {
     agentId: AGENT_ID,
     name: AGENT_NAME,
+    projectName: ACT_PROJECT,
     role: AGENT_ROLE,
     capabilities: CAPABILITIES,
   };
@@ -201,17 +205,19 @@ async function reportComplete(taskId, success, result) {
 async function getMessages(since) {
   const params = { limit: 20 };
   if (since) params.since = since;
+  if (ACT_PROJECT) params.project = ACT_PROJECT;
   const data = await get(`/api/agents/${encodeURIComponent(AGENT_ID)}/messages`, params);
   return data.messages || [];
 }
 
 async function sendMessage(message) {
-  await post('/api/messages', { sender: AGENT_ID, message });
+  await post('/api/messages', { sender: AGENT_ID, projectName: ACT_PROJECT, message });
 }
 
 async function sendSessionEnded(taskId, code) {
   await post('/api/messages', {
     sender: AGENT_ID,
+    projectName: ACT_PROJECT,
     message: `status: session ended for task ${taskId} (exit code: ${code})`
   });
 }
@@ -385,9 +391,10 @@ async function fetchPVMContext(task) {
  */
 async function fetchParallelContext() {
   try {
+    const params = ACT_PROJECT ? { project: ACT_PROJECT } : undefined;
     const [agentsData, tasksData] = await Promise.all([
-      get('/api/agents'),
-      get('/api/tasks'),
+      get('/api/agents', params),
+      get('/api/tasks', params),
     ]);
 
     const agents = (agentsData.agents || []).filter(a => a.id !== AGENT_ID);

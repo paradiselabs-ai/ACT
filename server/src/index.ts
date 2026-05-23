@@ -95,14 +95,8 @@ app.get('/health', (req, res) => {
 // Planner view and trigger false "critical issues in other projects" replies.
 app.get('/api/status', (req, res) => {
   const project = typeof req.query.project === 'string' ? req.query.project : '';
-  let allAgents = agentRegistry.getAllAgents();
-  let allTasks = Array.from(taskCoordinator.getAllTasks());
-  if (project) {
-    allTasks = allTasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
-    // Agents have no projectName field; derive membership via currentTask → project task set.
-    const scopedTaskIds = new Set(allTasks.map(t => t.id));
-    allAgents = allAgents.filter(a => a.currentTask && scopedTaskIds.has(a.currentTask));
-  }
+  const allAgents = agentRegistry.getAllAgents(project || undefined);
+  const allTasks = taskCoordinator.getAllTasks(project || undefined);
 
   const tasksByStatus: Record<string, number> = {};
   for (const task of allTasks) {
@@ -139,6 +133,7 @@ app.get('/api/status', (req, res) => {
     body.pvm = pvmIndexer.getStatus();
   } else {
     body.project = project;
+    body.fileLocks = Array.from(fileLocks.values()).filter(l => l.projectName === project).length;
   }
 
   res.json(body);
@@ -241,34 +236,41 @@ app.post('/api/agents/:agentId/tasks', async (req, res) => {
 });
 
 // ─── Agent management endpoints ─────────────────────────────────────────────
+// Scope with ?project=NAME so cross-project agents stay invisible. Without
+// the filter, returns all agents (useful for server-level tooling).
 app.get('/api/agents', (req, res) => {
-  res.json(agentRegistry.getAllAgents());
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  res.json(agentRegistry.getAllAgents(project || undefined));
 });
 
 // REST-based agent registration (for MCP bridge - no socket required)
 app.post('/api/agents/register', async (req, res) => {
   try {
-    const { agentId, name, capabilities, model, provider } = req.body;
+    const { agentId, name, projectName, capabilities, model, provider } = req.body;
     if (!agentId) return res.status(400).json({ success: false, error: 'agentId is required' });
+    if (!projectName) return res.status(400).json({ success: false, error: 'projectName is required' });
 
-    // Reject duplicate agent IDs only on LIVE collisions — when an existing
-    // agent with the same ID is currently online, a second registration is a
-    // real identity conflict and must be rejected. Offline entries (restored
-    // from the event log on server restart, or left behind by a disconnected
-    // runner) are stale state, not conflicts; let the new caller take over
-    // the identity. registerAgent already merges performance counters from
-    // the existing record, so this is a clean handoff.
+    // Reject duplicate agent IDs on any LIVE collision — an existing online
+    // agent with the same ID, regardless of project, is a real identity
+    // conflict because the underlying registry Map is keyed by agentId.
+    // Two simultaneous TUIs (one per project) would otherwise overwrite each
+    // other; pick a project-prefixed ID instead (e.g. "dev-1-habits").
+    // Offline entries (restored from the event log on server restart, or left
+    // behind by a disconnected runner) are stale state; let the new caller
+    // take over the identity. registerAgent already merges performance
+    // counters from the existing record, so this is a clean handoff.
     const existing = agentRegistry.getAgent(agentId);
     if (existing && existing.status === 'online') {
       return res.status(409).json({
         success: false,
         conflict: true,
-        error: `Agent ID "${agentId}" is already registered and online. Choose a different ID (e.g. append a number: "${agentId}-2").`
+        error: `Agent ID "${agentId}" is already registered and online${existing.projectName !== projectName ? ` in project "${existing.projectName}"` : ''}. Choose a different ID (e.g. append a number: "${agentId}-2").`
       });
     }
 
     const agent = await agentRegistry.registerAgent(agentId, {
       name: name || agentId,
+      projectName,
       capabilities: capabilities || [],
       model,
       provider,
@@ -280,7 +282,7 @@ app.post('/api/agents/register', async (req, res) => {
       agent: agentId,
       message: `agent registered: ${agentId}`,
       type: 'agent_registered',
-      data: { agentId, name: name || agentId, capabilities: capabilities || [], model, provider }
+      data: { agentId, name: name || agentId, projectName, capabilities: capabilities || [], model, provider }
     });
 
     io.emit('agent_joined', { agent, timestamp: new Date().toISOString() });
@@ -298,10 +300,10 @@ app.delete('/api/agents/:agentId', (req, res) => {
   if (!removed) {
     return res.status(404).json({ success: false, error: `Agent "${agentId}" not found` });
   }
-  // Auto-release all file locks held by this agent
-  for (const [fp, lock] of fileLocks.entries()) {
+  // Auto-release all file locks held by this agent (across any project)
+  for (const [key, lock] of fileLocks.entries()) {
     if (lock.agentId === agentId) {
-      fileLocks.delete(fp);
+      fileLocks.delete(key);
     }
   }
   io.emit('agent_left', { agentId, timestamp: new Date().toISOString() });
@@ -327,6 +329,7 @@ const projects = new Map<string, ProjectRecord>();
 interface InboxMessage {
   id: string;
   from: string;
+  projectName: string;
   message: string;
   type: string;
   timestamp: string;
@@ -343,12 +346,13 @@ function pruneInbox(agentId: string): void {
   agentInboxes.set(agentId, pruned);
 }
 
-function bufferMessageForAgent(agentId: string, from: string, message: string, type: string): void {
+function bufferMessageForAgent(agentId: string, from: string, projectName: string, message: string, type: string): void {
   pruneInbox(agentId);
   const inbox = agentInboxes.get(agentId) || [];
   inbox.push({
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     from,
+    projectName,
     message,
     type,
     timestamp: new Date().toISOString(),
@@ -514,9 +518,11 @@ app.post('/api/tasks', async (req, res) => {
   }
 });
 
-// Get permanently failed tasks (retryCount >= MAX_TASK_RETRIES) — polled by REPL
+// Get permanently failed tasks (retryCount >= MAX_TASK_RETRIES) — polled by REPL.
+// Scoped by ?project=NAME to mirror the rest of the tasks endpoints.
 app.get('/api/tasks/failed-permanently', (req, res) => {
-  const tasks = taskCoordinator.getAllTasks().filter(
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const tasks = taskCoordinator.getAllTasks(project || undefined).filter(
     t => t.status === 'failed' && t.retryCount >= MAX_TASK_RETRIES
   );
   res.json({ success: true, tasks });
@@ -573,6 +579,11 @@ app.get('/api/tasks/validated', (req, res) => {
 app.get('/api/tasks/:taskId', (req, res) => {
   const task = taskCoordinator.getTask(req.params.taskId);
   if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+  // Optional ?project= scope: 404 if the task belongs to a different project.
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  if (project && (task.metadata?.projectName as string | undefined) !== project) {
+    return res.status(404).json({ success: false, error: 'Task not found in this project' });
+  }
   res.json({ success: true, task });
 });
 
@@ -622,21 +633,25 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
       message: result
     });
 
-    // Auto-release any file locks held by this task
-    const releasedFiles: string[] = [];
-    for (const [fp, lock] of fileLocks.entries()) {
+    // Auto-release any file locks held by this task. Group by project so we
+    // emit one file_release event per project, preserving the projectName
+    // field on every replayed event.
+    const releasedByProject = new Map<string, string[]>();
+    for (const [key, lock] of fileLocks.entries()) {
       if (lock.taskId === taskId) {
-        fileLocks.delete(fp);
-        releasedFiles.push(fp);
+        fileLocks.delete(key);
+        const list = releasedByProject.get(lock.projectName) ?? [];
+        list.push(lock.filePath);
+        releasedByProject.set(lock.projectName, list);
       }
     }
-    if (releasedFiles.length > 0) {
+    for (const [projectName, releasedFiles] of releasedByProject.entries()) {
       chronologicalLog.append({
         timestamp: new Date().toISOString(),
         agent: agentId || 'system',
         message: `auto-released file locks on task complete: ${releasedFiles.join(', ')} (task: ${taskId})`,
         type: 'file_release',
-        data: { filePaths: releasedFiles, agentId: agentId || 'system', taskId },
+        data: { filePaths: releasedFiles, projectName, agentId: agentId || 'system', taskId },
       });
     }
 
@@ -841,8 +856,10 @@ app.post('/api/tasks/:taskId/synthesis', async (req, res) => {
 // Send an agent message (MCP bridge alternative to socket agent_message)
 app.post('/api/messages', async (req, res) => {
   try {
-    const { sender, message } = req.body;
-    if (!sender || !message) return res.status(400).json({ success: false, error: 'sender and message are required' });
+    const { sender, projectName, message } = req.body;
+    if (!sender || !projectName || !message) {
+      return res.status(400).json({ success: false, error: 'sender, projectName, and message are required' });
+    }
 
     const senderAgent = agentRegistry.getAgent(sender);
     const senderName = senderAgent?.name || sender;
@@ -852,24 +869,24 @@ app.post('/api/messages', async (req, res) => {
       await eventHub.handleAgentMessage(sender, senderName, message, new Date().toISOString());
     }
 
-    // Buffer into recipient inbox for MCP agents who can't receive socket events
+    // Buffer into recipient inbox for MCP agents who can't receive socket events.
+    // Only buffer for agents in the SAME project — cross-project mentions are
+    // dropped silently under per-project isolation (caller mis-routed).
     const mentionMatch = message.match(/^@(\S+)/);
     if (mentionMatch) {
-      // Direct mention — buffer only for the named recipient
       const recipientName = mentionMatch[1];
-      const allAgents = agentRegistry.getAllAgents();
-      const recipient = allAgents.find(
+      const sameProjectAgents = agentRegistry.getAllAgents().filter(a => a.projectName === projectName);
+      const recipient = sameProjectAgents.find(
         a => a.name.toLowerCase() === recipientName.toLowerCase() || a.id.toLowerCase() === recipientName.toLowerCase()
       );
       if (recipient) {
-        bufferMessageForAgent(recipient.id, sender, message, 'direct_mention');
+        bufferMessageForAgent(recipient.id, sender, projectName, message, 'direct_mention');
       }
     } else {
-      // Broadcast message — buffer for every registered agent except sender
-      const allAgents = agentRegistry.getAllAgents();
-      for (const agent of allAgents) {
+      const sameProjectAgents = agentRegistry.getAllAgents().filter(a => a.projectName === projectName);
+      for (const agent of sameProjectAgents) {
         if (agent.id !== sender) {
-          bufferMessageForAgent(agent.id, sender, message, 'broadcast');
+          bufferMessageForAgent(agent.id, sender, projectName, message, 'broadcast');
         }
       }
     }
@@ -880,13 +897,18 @@ app.post('/api/messages', async (req, res) => {
   }
 });
 
-// Get messages from an agent's inbox
+// Get messages from an agent's inbox. Scoped by ?project=NAME so the same
+// agent ID across projects doesn't leak peers' chatter.
 app.get('/api/agents/:agentId/messages', (req, res) => {
   const { agentId } = req.params;
-  const { since, limit } = req.query;
+  const { since, limit, project } = req.query;
 
   pruneInbox(agentId);
   let inbox = agentInboxes.get(agentId) || [];
+
+  if (typeof project === 'string' && project) {
+    inbox = inbox.filter(m => m.projectName === project);
+  }
 
   if (since) {
     const sinceTime = new Date(since as string).getTime();
@@ -912,23 +934,27 @@ app.get('/api/agents/:agentId/messages', (req, res) => {
 
 interface FileLock {
   filePath: string;
+  projectName: string;
   agentId: string;
   taskId: string;
   lockedAt: string;
 }
 
-const fileLocks = new Map<string, FileLock>(); // filePath → lock
+// Keyed by `${projectName} ${filePath}` so the same absolute path can be
+// independently locked in two projects under per-project isolation.
+const fileLocks = new Map<string, FileLock>();
+const lockKey = (projectName: string, filePath: string) => `${projectName} ${filePath}`;
 
 // Claim one or more files for exclusive editing
 app.post('/api/files/claim', (req, res) => {
-  const { agent_id, task_id, file_paths } = req.body;
-  if (!agent_id || !task_id || !Array.isArray(file_paths) || file_paths.length === 0) {
-    return res.status(400).json({ success: false, error: 'agent_id, task_id, and file_paths[] are required' });
+  const { agent_id, task_id, project_name, file_paths } = req.body;
+  if (!agent_id || !task_id || !project_name || !Array.isArray(file_paths) || file_paths.length === 0) {
+    return res.status(400).json({ success: false, error: 'agent_id, task_id, project_name, and file_paths[] are required' });
   }
 
   const conflicts: { filePath: string; lockedBy: string; taskId: string }[] = [];
   for (const fp of file_paths) {
-    const existing = fileLocks.get(fp);
+    const existing = fileLocks.get(lockKey(project_name, fp));
     if (existing && existing.agentId !== agent_id) {
       conflicts.push({ filePath: fp, lockedBy: existing.agentId, taskId: existing.taskId });
     }
@@ -946,7 +972,7 @@ app.post('/api/files/claim', (req, res) => {
   // No conflicts — claim all
   const now = new Date().toISOString();
   for (const fp of file_paths) {
-    fileLocks.set(fp, { filePath: fp, agentId: agent_id, taskId: task_id, lockedAt: now });
+    fileLocks.set(lockKey(project_name, fp), { filePath: fp, projectName: project_name, agentId: agent_id, taskId: task_id, lockedAt: now });
   }
 
   // Log to ChronologicalLog so PVM captures file ownership patterns
@@ -956,7 +982,7 @@ app.post('/api/files/claim', (req, res) => {
     agent: agent_id,
     message: `claimed files for editing: ${file_paths.join(', ')} (task: ${task_id})`,
     type: 'file_claim',
-    data: { filePaths: file_paths, agentId: agent_id, taskId: task_id },
+    data: { filePaths: file_paths, projectName: project_name, agentId: agent_id, taskId: task_id },
   });
 
   res.json({ success: true, claimed: file_paths });
@@ -964,16 +990,17 @@ app.post('/api/files/claim', (req, res) => {
 
 // Release one or more file locks
 app.post('/api/files/release', (req, res) => {
-  const { agent_id, task_id, file_paths } = req.body;
-  if (!agent_id || !Array.isArray(file_paths)) {
-    return res.status(400).json({ success: false, error: 'agent_id and file_paths[] are required' });
+  const { agent_id, task_id, project_name, file_paths } = req.body;
+  if (!agent_id || !project_name || !Array.isArray(file_paths)) {
+    return res.status(400).json({ success: false, error: 'agent_id, project_name, and file_paths[] are required' });
   }
 
   const released: string[] = [];
   for (const fp of file_paths) {
-    const lock = fileLocks.get(fp);
+    const key = lockKey(project_name, fp);
+    const lock = fileLocks.get(key);
     if (lock && lock.agentId === agent_id) {
-      fileLocks.delete(fp);
+      fileLocks.delete(key);
       released.push(fp);
     }
   }
@@ -984,16 +1011,22 @@ app.post('/api/files/release', (req, res) => {
       agent: agent_id,
       message: `released file locks: ${released.join(', ')} (task: ${task_id || 'unknown'})`,
       type: 'file_release',
-      data: { filePaths: released, agentId: agent_id, taskId: task_id || '' },
+      data: { filePaths: released, projectName: project_name, agentId: agent_id, taskId: task_id || '' },
     });
   }
 
   res.json({ success: true, released });
 });
 
-// Get current file lock state
+// Get current file lock state. Scope with ?project=NAME to see only that
+// project's locks; without it returns the whole registry (useful for tooling).
 app.get('/api/files/locks', (req, res) => {
-  res.json({ success: true, locks: Array.from(fileLocks.values()) });
+  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  let locks = Array.from(fileLocks.values());
+  if (project) {
+    locks = locks.filter(l => l.projectName === project);
+  }
+  res.json({ success: true, locks });
 });
 
 // Self-improvement endpoints
@@ -1148,11 +1181,17 @@ io.on('connection', (socket) => {
   // Agent registration
   socket.on('register_agent', async (data) => {
     try {
-      const { agentId, capabilities, name, model, provider } = data;
-      console.log(`🤖 AGENT REGISTRATION: ${agentId} with capabilities: ${capabilities?.join(', ')}`);
+      const { agentId, projectName, capabilities, name, model, provider } = data;
+      console.log(`🤖 AGENT REGISTRATION: ${agentId} (project=${projectName}) with capabilities: ${capabilities?.join(', ')}`);
+
+      if (!projectName) {
+        socket.emit('agent_registered', { success: false, agentId, error: 'projectName is required' });
+        return;
+      }
 
       await agentRegistry.registerAgent(agentId, {
         name: name || agentId,
+        projectName,
         capabilities: capabilities || [],
         model,
         provider,
@@ -1166,6 +1205,7 @@ io.on('connection', (socket) => {
         agent: {
           id: agentId,
           name: name || agentId,
+          projectName,
           capabilities: capabilities || [],
           model,
           provider,

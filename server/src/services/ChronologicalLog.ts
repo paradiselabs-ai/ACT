@@ -607,10 +607,11 @@ export class ChronologicalLog {
               break;
             }
             case 'agent_registered': {
-              if (d && d.agentId) {
+              if (d && d.agentId && d.projectName) {
                 agents.set(d.agentId, {
                   id: d.agentId,
                   name: d.name || d.agentId,
+                  projectName: d.projectName,
                   capabilities: d.capabilities || [],
                   status: 'offline',  // will re-register on connect
                   lastSeen: toDate(event.timestamp) ?? new Date(),
@@ -620,6 +621,9 @@ export class ChronologicalLog {
                 });
                 counts.agentCount++;
               }
+              // Pre-fix events without projectName are silently dropped on
+              // replay (see plan §4 "Boot-restoration coverage"). Use
+              // POST /api/dev/reset to clear stale state if needed.
               break;
             }
             case 'dev_reset': {
@@ -638,11 +642,12 @@ export class ChronologicalLog {
               break;
             }
             case 'file_claim': {
-              if (fileLocks && d && d.filePaths && d.agentId) {
+              if (fileLocks && d && d.filePaths && d.agentId && d.projectName) {
                 const lockedAt = toDate(event.timestamp) ?? new Date();
                 for (const fp of d.filePaths) {
-                  fileLocks.set(fp, {
+                  fileLocks.set(`${d.projectName} ${fp}`, {
                     filePath: fp,
+                    projectName: d.projectName,
                     agentId: d.agentId,
                     taskId: d.taskId || '',
                     lockedAt,
@@ -650,13 +655,15 @@ export class ChronologicalLog {
                   counts.fileLockCount++;
                 }
               }
+              // Pre-fix events without projectName silently drop (plan §4).
               break;
             }
             case 'file_release': {
-              if (fileLocks && d && d.filePaths) {
+              if (fileLocks && d && d.filePaths && d.projectName) {
                 for (const fp of d.filePaths) {
-                  fileLocks.delete(fp);
-                  if (counts.fileLockCount > 0) counts.fileLockCount--;
+                  if (fileLocks.delete(`${d.projectName} ${fp}`)) {
+                    if (counts.fileLockCount > 0) counts.fileLockCount--;
+                  }
                 }
               }
               break;
