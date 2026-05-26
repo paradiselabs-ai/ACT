@@ -89,6 +89,47 @@ func TestParseCreateTaskDirectives_TasksArrayPattern(t *testing.T) {
 	}
 }
 
+// Regression: the old regex CREATE_TASK:\s*(\{[^}]+\}) truncated at the first
+// `}` inside the description. Real Planner outputs frequently include code
+// snippets with braces (Python dict literals, function bodies, JSON examples)
+// — those used to break the parser, causing tasks_parsed=0 even when the JSON
+// was actually well-formed. With balanced-brace counting the description can
+// contain arbitrarily many `{}` pairs as long as the outer JSON is balanced.
+func TestParseCreateTaskDirectives_BracesInDescription(t *testing.T) {
+	input := `CREATE_TASK: {"title": "Implement tally.py library", "description": "Create count_words(text, min_length=1, case_sensitive=False) -> dict[str, int]. Example output: {\"the\": 5, \"and\": 3}. Tokenize with re.findall(r\"\\b\\w+\\b\", text)."}`
+
+	tasks, markersFound, firstFailPreview, _ := parseCreateTaskDirectives(input)
+	if markersFound != 1 {
+		t.Fatalf("expected markersFound=1, got %d (preview=%q)", markersFound, firstFailPreview)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d (preview=%q)", len(tasks), firstFailPreview)
+	}
+	if tasks[0].Title != "Implement tally.py library" {
+		t.Errorf("wrong title: %q", tasks[0].Title)
+	}
+	if !strings.Contains(tasks[0].Description, "dict[str, int]") {
+		t.Errorf("description truncated mid-content: %q", tasks[0].Description)
+	}
+	if !strings.Contains(tasks[0].Description, `\b\w+\b`) {
+		t.Errorf("description lost trailing content after second brace pair: %q", tasks[0].Description)
+	}
+}
+
+func TestParseCreateTaskDirectives_NestedJSONInDescription(t *testing.T) {
+	// Description carries an embedded JSON example — used to break the
+	// regex at the first inner `}`.
+	input := `CREATE_TASK: {"title": "Wire config", "description": "metadata: {\"key\": \"value\", \"nested\": {\"a\": 1}}"}`
+
+	tasks, _, preview, _ := parseCreateTaskDirectives(input)
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task with nested JSON in description, got %d (preview=%q)", len(tasks), preview)
+	}
+	if tasks[0].Title != "Wire config" {
+		t.Errorf("wrong title: %q", tasks[0].Title)
+	}
+}
+
 // --- parseValidationVerdict tests ---
 
 func TestParseValidationVerdict_PassedAt100(t *testing.T) {

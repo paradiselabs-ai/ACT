@@ -1990,7 +1990,14 @@ func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 // ─── Parsers ───────────────────────────────────────────────────────────────────
 
 var (
-	createTaskInlineRegex = regexp.MustCompile(`CREATE_TASK:\s*(\{[^}]+\})`)
+	// createTaskMarkerRegex finds each `CREATE_TASK:` marker. The JSON object
+	// after the marker is extracted with balanced-brace counting (see
+	// parseCreateTaskDirectives), NOT a regex — `[^}]+` would truncate at
+	// the first `}` inside the description (Python dict literals, function
+	// bodies, code snippets all break it). PROJECT_BRIEF and ValidationVerdict
+	// already use brace counting via extractJSONContaining; CREATE_TASK now
+	// uses the same approach.
+	createTaskMarkerRegex = regexp.MustCompile(`CREATE_TASK:\s*`)
 	clarificationRegex    = regexp.MustCompile(`(?s)NEED_CLARIFICATION:\s*@(\S+)\s+(.*)`)
 )
 
@@ -2062,6 +2069,49 @@ func extractJSONContaining(text, marker string) string {
 	return ""
 }
 
+// extractBalancedJSONFrom walks forward from text[start] (which must point at
+// a '{') and returns the substring covering the balanced JSON object,
+// honouring string-quoting so braces inside JSON strings don't count. Returns
+// "" if the input is unbalanced (e.g. truncated mid-object). Mirrors the
+// forward-walk half of extractJSONContaining — kept separate so the parsers
+// that already know where the `{` starts don't pay for the backward search.
+func extractBalancedJSONFrom(text string, start int) string {
+	if start < 0 || start >= len(text) || text[start] != '{' {
+		return ""
+	}
+	depth := 0
+	inString := false
+	escape := false
+	for i := start; i < len(text); i++ {
+		ch := text[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if inString {
+			switch ch {
+			case '\\':
+				escape = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return text[start : i+1]
+			}
+		}
+	}
+	return ""
+}
+
 // parseCreateTaskDirectives extracts CREATE_TASK directives from a Planner response.
 // Supports two patterns:
 //   1. CREATE_TASK: { json } — inline directives
@@ -2072,16 +2122,43 @@ func extractJSONContaining(text, marker string) string {
 // counts let callers distinguish "Planner didn't try" from "Planner tried and
 // produced malformed JSON" — a critical difference when debugging LLM drift.
 func parseCreateTaskDirectives(content string) (tasks []TaskDef, markersFound int, firstFailPreview string, pattern2Used bool) {
-	for _, match := range createTaskInlineRegex.FindAllStringSubmatch(content, -1) {
-		if len(match) < 2 {
+	// Locate every `CREATE_TASK:` marker, then read the next balanced
+	// `{...}` block with string-aware brace counting. Naive `[^}]+` regex
+	// breaks on any `}` in the description (Python dict literals, function
+	// bodies, code examples) — see the comment on createTaskMarkerRegex.
+	for _, locs := range createTaskMarkerRegex.FindAllStringIndex(content, -1) {
+		// locs[1] is the index immediately after the marker + whitespace.
+		// The JSON object starts at the first `{` we find from there.
+		braceIdx := strings.IndexByte(content[locs[1]:], '{')
+		if braceIdx < 0 {
+			// Marker present but no JSON follows — count it as a malformed
+			// marker so the caller can distinguish "Planner didn't try" from
+			// "Planner emitted half of one".
+			markersFound++
+			if firstFailPreview == "" {
+				firstFailPreview = "(no `{` after CREATE_TASK: marker)"
+			}
+			continue
+		}
+		start := locs[1] + braceIdx
+		jsonStr := extractBalancedJSONFrom(content, start)
+		if jsonStr == "" {
+			markersFound++
+			if firstFailPreview == "" {
+				preview := content[start:]
+				if len(preview) > 200 {
+					preview = preview[:200] + "..."
+				}
+				firstFailPreview = preview
+			}
 			continue
 		}
 		markersFound++
 		var t TaskDef
-		if err := json.Unmarshal([]byte(match[1]), &t); err == nil {
+		if err := json.Unmarshal([]byte(jsonStr), &t); err == nil {
 			tasks = append(tasks, t)
 		} else if firstFailPreview == "" {
-			preview := match[1]
+			preview := jsonStr
 			if len(preview) > 200 {
 				preview = preview[:200] + "..."
 			}
