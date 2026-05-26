@@ -30,34 +30,36 @@
   },
   "agents": {
     "_comment": "Tier 1 = Planner / Observer / Assurance / QA. Tier 2 = swarm developer / frontend_dev / backend_dev / qa_engineer / researcher.",
-    "_comment_acp": "ALPHA OPTION — back Tier 1 with Claude Code instead of free-tier LLMs. Replace provider/model on each Tier 1 role with: \"backend\": \"claude-code\". Symmetric with Tier 2 — same vocabulary across both tiers. Requires Node.js so `npx` can fetch @agentclientprotocol/claude-agent-acp on first launch. Uses your Claude Code subscription — no API tokens spent here. Toggle from the TUI any time with /backend <role> claude-code (or /backend all claude-code).",
     "planner": {
       "_comment": "Most important model. Project decomposition + task creation + context engineering for swarm agents. Don't skimp.",
+      "backend": "",
       "provider": "openrouter",
       "model": "z-ai/glm-4.5-air:free",
       "maxTokens": 8000
     },
     "observer": {
       "_comment": "Watchdog. Monitors swarm and Tier 1 agent activity. Identifies anomalies, conflicts, bottlenecks, hung agents, etc.",
+      "backend": "",
       "provider": "openrouter",
       "model": "openai/gpt-oss-120b:free",
       "maxTokens": 2000
     },
     "assurance": {
       "_comment": "Validates that swarm-completed tasks meet @success_criteria + @constraints with tools. Passes only when all criteria are >=95% met.",
+      "backend": "",
       "provider": "openrouter",
       "model": "minimax/minimax-m2.5:free",
       "maxTokens": 5000
     },
     "qa_synthesizer": {
       "_comment": "Only accepts tasks that pass assurance. Assembles validated work into the final deliverable.",
+      "backend": "",
       "provider": "openrouter",
       "model": "openai/gpt-oss-120b:free",
       "maxTokens": 5000
     },
     "developer": {
       "_comment": "Default swarm role. Multiple instances each retain their own context — all handled by ACT.",
-      "_comment_backend": "If backend is set to claude-code, leave provider+model empty and ACT uses your Claude Code subscription (no API tokens spent, no token spoofing).",
       "backend": "claude-code"
     },
     "frontend_dev": {
