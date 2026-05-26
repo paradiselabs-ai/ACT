@@ -8,15 +8,18 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/act"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/acp"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/format"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/history"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
@@ -77,17 +80,46 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	cfg := config.Get()
 	for _, role := range tier1Roles {
 		agentName := config.AgentConfigForRole(role)
-		roleTools := agent.Tier1ToolsForRole(
-			role,
-			app.Permissions,
-			app.Sessions,
-			app.Messages,
-			app.History,
-			app.LSPClients,
+
+		// Per-role backend dispatch. Backend value IS the host name —
+		// "claude-code" (alpha), future "codex" / "gemini" / "opencode" —
+		// or the default "act-agent" (empty == in-process LLM). The wire-level
+		// mechanism (ACP for Tier 1 here) is invisible to the user.
+		var backendChoice string
+		var acpCfg *config.ACPConfig
+		if cfg != nil {
+			if ac, ok := cfg.Agents[agentName]; ok {
+				backendChoice = ac.Backend
+				acpCfg = ac.ACP
+			}
+		}
+
+		var (
+			agentSvc agent.Service
+			err      error
+			toolsN   int
 		)
-		agentSvc, err := agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools)
+		switch backendChoice {
+		case "claude-code", "codex", "gemini", "opencode":
+			// External CLI agent → drive over ACP. The acp package decides
+			// the spawn argv from the backend name; codex/gemini/opencode
+			// return explicit unimplemented errors for the alpha.
+			withShim := withTier1ShimPath(role, acpCfg)
+			agentSvc, err = acp.NewACPAgent(role, backendChoice, withShim, app.Sessions, app.Messages, makePrimingInjector(role))
+		default:
+			roleTools := agent.Tier1ToolsForRole(
+				role,
+				app.Permissions,
+				app.Sessions,
+				app.Messages,
+				app.History,
+				app.LSPClients,
+			)
+			toolsN = len(roleTools)
+			agentSvc, err = agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools)
+		}
 		if err != nil {
-			logging.Warn("tier1_agent_wire_failed", "role", role, "config_key", string(agentName), "error", err)
+			logging.Warn("tier1_agent_wire_failed", "role", role, "config_key", string(agentName), "backend", backendChoice, "error", err)
 			continue
 		}
 		app.Agents[role] = agentSvc
@@ -104,13 +136,18 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 				maxTokens = fmt.Sprintf("%d", ac.MaxTokens)
 			}
 		}
+		resolvedBackend := backendChoice
+		if resolvedBackend == "" {
+			resolvedBackend = "act-agent"
+		}
 		logging.Info("tier1_agent_wired",
 			"role", role,
 			"config_key", string(agentName),
 			"config_fallback", fallback,
+			"backend", resolvedBackend,
 			"model", modelID,
 			"max_tokens", maxTokens,
-			"tools", len(roleTools),
+			"tools", toolsN,
 		)
 		if role == "planner" && fallback {
 			logging.Warn("planner_config_fallback",
@@ -136,6 +173,76 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	app.Orchestrator = NewOrchestrator(app)
 
 	return app, nil
+}
+
+// withTier1ShimPath returns a copy of cfg with cfg.Env["PATH"] prepended with
+// a directory that exposes only this role's act-tier1-<role> symlink. The
+// ACP-backed Tier 1 agent's native Bash tool can then invoke
+// `act-tier1-planner status` (etc.) and the call is gated by the shim's
+// role-aware whitelist — same enforcement the in-process tool has via
+// internal/llm/tools.IsAllowed.
+//
+// Locating the install dir: walk from this process's binary path. The build
+// script (per the plan) lands act-tier1-shim alongside the act-agent binary,
+// so os.Executable's parent dir is where the symlinks live.
+func withTier1ShimPath(role string, base *config.ACPConfig) *config.ACPConfig {
+	var out config.ACPConfig
+	if base != nil {
+		out = *base // shallow copy — Env is a map, we re-make below.
+	}
+	srcEnv := map[string]string(nil)
+	if base != nil {
+		srcEnv = base.Env
+	}
+	out.Env = make(map[string]string, len(srcEnv)+1)
+	maps.Copy(out.Env, srcEnv)
+
+	exe, err := os.Executable()
+	if err != nil {
+		logging.Warn("acp_tier1_shim_path_skipped",
+			"role", role,
+			"reason", "os.Executable failed",
+			"error", err,
+		)
+		return &out
+	}
+	binDir := filepath.Dir(exe)
+
+	// Carry the parent process's PATH through (it already has node/npx and the
+	// system tools the agent needs), and prepend the act-agent install dir so
+	// `act` and `act-tier1-<role>` resolve.
+	parentPath := os.Getenv("PATH")
+	if existing, ok := out.Env["PATH"]; ok {
+		parentPath = existing
+	}
+	out.Env["PATH"] = binDir + string(os.PathListSeparator) + parentPath
+	return &out
+}
+
+// makePrimingInjector returns the priming-prompt closure for a Tier 1 role.
+// It is invoked once per ACP session (lazy, at first Run for each ACT
+// sessionID). The text is the role's static system prompt — the same one
+// shipped to the in-process LLM today — plus the shim-binary instructions.
+//
+// The role prompts live in internal/llm/prompt/<role>.go but are wired up
+// through the prompt dispatcher (GetAgentPrompt). We use that here so the
+// ACP backend stays in lockstep with the in-process backend on prompt
+// content — no second copy to maintain.
+func makePrimingInjector(role string) acp.SystemPromptInjector {
+	return func(_ string) string {
+		// Provider doesn't shape Tier 1 prompts (the role prompts are
+		// provider-agnostic prose). Pass the synthetic ACP provider so the
+		// dispatcher takes a deterministic branch.
+		base := prompt.GetAgentPrompt(config.AgentName(role), acp.ProviderACP)
+		if base == "" {
+			return ""
+		}
+		// Append a one-line note about the shim binary so the ACP-backed
+		// agent knows the role-scoped CLI is on PATH. The shim itself
+		// enforces the allowlist — this is just discoverability.
+		shimNote := "\n\n[ACT] The CLI `act-tier1-" + role + "` is on your PATH. Use it via Bash for all ACT-coordination subcommands (status, log, etc.). It enforces this role's allowed subcommand set."
+		return base + shimNote
+	}
 }
 
 // buildSwarmSpecs walks the configured agents and produces a SwarmRoleSpec

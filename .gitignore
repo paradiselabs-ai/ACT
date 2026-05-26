@@ -80,7 +80,11 @@ build/
 out/
 
 # ── Logs ─────────────────────────────────────
-logs/
+# Anchor to repo root + common runtime dirs so we don't accidentally ignore
+# the TUI's logs/ source component at internal/tui/components/logs/.
+/logs/
+/server/logs/
+/server/data/logs/
 *.log
 lerna-debug.log*
 

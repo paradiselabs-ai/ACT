@@ -43,6 +43,8 @@ func (a *App) HandleSlashCommand(input string) (response string, handled bool) {
 		return a.slashStatus(), true
 	case "/swarm":
 		return a.slashSwarm(args), true
+	case "/backend":
+		return a.slashBackend(args), true
 	case "/nomik":
 		return a.slashNomik(args), true
 	case "/quit", "/exit":
@@ -67,6 +69,11 @@ func slashHelp() string {
 		"  /swarm restart <role>                  Restart one runner",
 		"  /swarm restart all                     Restart the whole swarm",
 		"  /swarm status                          Show live runner PIDs and state",
+		"",
+		"  /backend                               List Tier 1 role backends",
+		"  /backend list                          (alias)",
+		"  /backend <role> <act-agent|claude-code>  Switch one Tier 1 role's backend",
+		"  /backend all <act-agent|claude-code>     Switch all four Tier 1 roles",
 		"",
 		"  /nomik                                 Show Nomik graph status (alias of /nomik status)",
 		"  /nomik enable                          Enable Nomik for this project (runs initial scan)",
@@ -253,6 +260,98 @@ func (a *App) swarmSetBackend(role, backend string) string {
 		return fmt.Sprintf("Swarm role %q backend set to %q. Restarting %s...", role, backend, spec.AgentID)
 	}
 	return fmt.Sprintf("no spec found for role %q", role)
+}
+
+// ─── /backend subcommands (Tier 1 only) ────────────────────────────────────────
+
+var tier1Roles = []string{"planner", "observer", "assurance", "qa_synthesizer"}
+
+// slashBackend implements `/backend` for Tier 1 role backend selection.
+// Same vocabulary as `/swarm` — the backend value IS the agent name.
+//
+// Forms:
+//   /backend                              — list current backends
+//   /backend list                         — alias
+//   /backend <role> <act-agent|claude-code>  — switch one Tier 1 role
+//   /backend all    <act-agent|claude-code>  — bulk switch all four Tier 1 roles
+//
+// On success the config write lands in ~/.act.json. The change applies to
+// the NEXT TUI launch — hot-rebuild of Tier 1 agents is out of scope for
+// the alpha (manual restart keeps the failure surface visible per plan).
+func (a *App) slashBackend(args []string) string {
+	if len(args) == 0 || args[0] == "list" {
+		return a.backendList()
+	}
+	if len(args) < 2 {
+		return "usage: /backend <role|all> <act-agent|claude-code>"
+	}
+	role := args[0]
+	backend := args[1]
+
+	if !isValidTier1Backend(backend) {
+		return fmt.Sprintf("invalid backend %q (valid: act-agent, claude-code)", backend)
+	}
+
+	if role == "all" {
+		updated := 0
+		for _, r := range tier1Roles {
+			if err := config.WriteAgentBackend(r, backend); err != nil {
+				logging.Warn("Failed to persist Tier 1 backend", "role", r, "error", err)
+				continue
+			}
+			updated++
+		}
+		return fmt.Sprintf("Set backend=%s for %d Tier 1 roles. Restart ACT to apply.",
+			backend, updated)
+	}
+
+	if !isTier1Role(role) {
+		return fmt.Sprintf("/backend only applies to Tier 1 roles (%s). For swarm roles, use /swarm.",
+			strings.Join(tier1Roles, ", "))
+	}
+	if err := config.WriteAgentBackend(role, backend); err != nil {
+		return fmt.Sprintf("backend change failed to persist: %v", err)
+	}
+	return fmt.Sprintf("Tier 1 role %q backend set to %s. Restart ACT to apply.",
+		role, backend)
+}
+
+func (a *App) backendList() string {
+	var sb strings.Builder
+	sb.WriteString("## Tier 1 backends\n\n")
+	sb.WriteString(fmt.Sprintf("  %-18s %s\n", "ROLE", "BACKEND"))
+	cfg := config.Get()
+	for _, r := range tier1Roles {
+		backend := "act-agent"
+		if cfg != nil {
+			if ac, ok := cfg.Agents[config.AgentName(r)]; ok && ac.Backend != "" {
+				backend = ac.Backend
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  %-18s %s\n", r, backend))
+	}
+	return sb.String()
+}
+
+func isTier1Role(s string) bool {
+	for _, r := range tier1Roles {
+		if r == s {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidTier1Backend reports whether the given value is a known Tier 1
+// backend identifier. Kept narrow on purpose — adding "codex" / "gemini" /
+// "opencode" here is the same gesture as wiring them up in
+// internal/acp/agent.go's buildCommand switch.
+func isValidTier1Backend(s string) bool {
+	switch s {
+	case "act-agent", "claude-code":
+		return true
+	}
+	return false
 }
 
 // ─── /nomik subcommands ────────────────────────────────────────────────────────
