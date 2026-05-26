@@ -913,7 +913,13 @@ func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromConte
 	}
 	logging.Info("autoroute_planner", "from", fromRole, "consecutive_turns", turns, "content_bytes", len(fromContent))
 	prompt := fmt.Sprintf(
-		"The %s agent just sent the following report. React by taking action — emit CREATE_TASK: directives if work needs to be created or reassigned, or only write a chat reply if you need to inform the human. Do NOT echo this report back. Stay silent in chat unless you have something for the human.\n\n[%s]: %s",
+		"The %s agent just sent the following report. React by taking action.\n\n"+
+			"Decide ONE of these, do not combine:\n"+
+			"  (a) Emit one or more CREATE_TASK: directives IF AND ONLY IF actual new work needs dispatching or a failed task needs reassignment. Every directive must include a non-empty title, a description carrying @task and @success_criteria SPIL sections, and explicit requiredCapabilities. NEVER emit a placeholder, empty, or acknowledgement CREATE_TASK — passing the verdict along is not a task. If the verdict was a pass and no new work is implied, do nothing.\n"+
+			"  (b) Write a short chat reply IF AND ONLY IF the human needs to be informed of something.\n"+
+			"  (c) Stay silent (empty response) if neither applies. Silence is the correct response to a routine pass verdict.\n\n"+
+			"Never write the literal string 'CREATE_TASK:' in conversational prose — it is reserved for actual directives and will be flagged as malformed output.\n"+
+			"Do not echo the report back.\n\n[%s]: %s",
 		fromRole, fromRole, fromContent,
 	)
 	// Wait for any in-flight Planner turn to finish before firing. Hitting

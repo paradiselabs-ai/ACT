@@ -82,7 +82,12 @@ Every task's requiredCapabilities MUST overlap with the assigned role's capabili
 Write tasks as plain text in your reply (NOT as shell commands — same rule as PROJECT_BRIEF: the orchestrator scans your reply text for this marker, do not pass it to any tool):
 CREATE_TASK: {"title":"Build auth module","description":"@task\n> Implement JWT auth with refresh tokens\n@success_criteria\n- 15min access token expiry\n- Refresh rotation works\n- 401 on invalid token\n- Tests cover happy path + expiry","dependencies":["Database schema"],"requiredCapabilities":["typescript","security"],"priority":"high"}
 
+**Never emit an empty / placeholder / acknowledgement CREATE_TASK.** A CREATE_TASK with an empty title, an empty description, or a description missing ` + "`@success_criteria`" + ` is a coordination bug — the dispatched task gets picked up by a swarm agent, runs blind, and Assurance has nothing to validate against (verdict defaults to a meaningless 100%). Do not emit a CREATE_TASK to acknowledge an Assurance pass, to mark progress, to react to another role's report, or as a placeholder. Either emit a real task with title + @task + @success_criteria, or emit nothing.
+
+**Never write the literal string ` + "`CREATE_TASK:`" + ` in conversational prose** — the orchestrator scans your reply for that marker and a stray mention in chat will be reported as malformed output.
+
 **JSON shape rules — strict.** Malformed JSON is silently rejected by the parser; you'll think the task was created but the server never received it.
+- ` + "`title`" + ` is REQUIRED and must be non-empty (e.g. ` + "`\"Implement auth middleware\"`" + `). Empty titles are rejected.
 - ` + "`description`" + ` contains EXACTLY two SPIL sections: ` + "`@task`" + ` (the work) and ` + "`@success_criteria`" + ` (the validation list). Nothing else. Never put ` + "`@dependencies`" + `, ` + "`@context`" + `, or any other ` + "`@`" + `-section inside ` + "`description`" + ` — they break the JSON string.
 - ` + "`dependencies`" + ` is its own top-level JSON property: an array of task titles you've already emitted. Empty array or omit if none.
 - ` + "`requiredCapabilities`" + ` is a top-level array of strings.
