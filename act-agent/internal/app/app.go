@@ -81,10 +81,10 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 	for _, role := range tier1Roles {
 		agentName := config.AgentConfigForRole(role)
 
-		// Per-role backend dispatch. The backend choice lives on the resolved
-		// agent config (cfg.Agents[agentName].Backend). "acp" routes to a
-		// subprocess-backed agent.Service; anything else (default "") keeps
-		// the in-process LLM path the project has shipped since pre-ACP.
+		// Per-role backend dispatch. Backend value IS the host name —
+		// "claude-code" (alpha), future "codex" / "gemini" / "opencode" —
+		// or the default "act-agent" (empty == in-process LLM). The wire-level
+		// mechanism (ACP for Tier 1 here) is invisible to the user.
 		var backendChoice string
 		var acpCfg *config.ACPConfig
 		if cfg != nil {
@@ -100,12 +100,12 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 			toolsN   int
 		)
 		switch backendChoice {
-		case "acp":
-			if acpCfg == nil {
-				acpCfg = &config.ACPConfig{Host: "claude-code"}
-			}
-			withShimEnv := withTier1ShimPath(role, acpCfg)
-			agentSvc, err = acp.NewACPAgent(role, withShimEnv, app.Sessions, app.Messages, makePrimingInjector(role))
+		case "claude-code", "codex", "gemini", "opencode":
+			// External CLI agent → drive over ACP. The acp package decides
+			// the spawn argv from the backend name; codex/gemini/opencode
+			// return explicit unimplemented errors for the alpha.
+			withShim := withTier1ShimPath(role, acpCfg)
+			agentSvc, err = acp.NewACPAgent(role, backendChoice, withShim, app.Sessions, app.Messages, makePrimingInjector(role))
 		default:
 			roleTools := agent.Tier1ToolsForRole(
 				role,
@@ -186,9 +186,16 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 // script (per the plan) lands act-tier1-shim alongside the act-agent binary,
 // so os.Executable's parent dir is where the symlinks live.
 func withTier1ShimPath(role string, base *config.ACPConfig) *config.ACPConfig {
-	out := *base // shallow copy — Env is a map, we re-make below.
-	out.Env = make(map[string]string, len(base.Env)+1)
-	maps.Copy(out.Env, base.Env)
+	var out config.ACPConfig
+	if base != nil {
+		out = *base // shallow copy — Env is a map, we re-make below.
+	}
+	srcEnv := map[string]string(nil)
+	if base != nil {
+		srcEnv = base.Env
+	}
+	out.Env = make(map[string]string, len(srcEnv)+1)
+	maps.Copy(out.Env, srcEnv)
 
 	exe, err := os.Executable()
 	if err != nil {

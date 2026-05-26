@@ -75,64 +75,6 @@ func WriteAgentBackend(role, backend string) error {
 	return nil
 }
 
-// WriteAgentACPBackend sets backend="acp" and writes an `acp.host` field for
-// the given Tier 1 role in ~/.act.json. Wraps WriteAgentBackend with a follow-up
-// pass that also embeds the ACP host (default "claude-code") so users get a
-// usable config from one slash-command call. host may be "" to leave the
-// existing acp.host untouched.
-func WriteAgentACPBackend(role, host string) error {
-	if err := WriteAgentBackend(role, "acp"); err != nil {
-		return err
-	}
-	if host == "" {
-		return nil
-	}
-	path, err := userConfigPath()
-	if err != nil {
-		return err
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	var data map[string]any
-	if jerr := json.Unmarshal(raw, &data); jerr != nil {
-		return fmt.Errorf("parse %s: %w", path, jerr)
-	}
-	agentsRaw, _ := data["agents"].(map[string]any)
-	roleRaw, _ := agentsRaw[role].(map[string]any)
-	acpRaw, ok := roleRaw["acp"].(map[string]any)
-	if !ok {
-		acpRaw = map[string]any{}
-		roleRaw["acp"] = acpRaw
-	}
-	acpRaw["host"] = host
-	out, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
-	}
-	out = append(out, '\n')
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".act.json.*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp: %w", err)
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return fmt.Errorf("write temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("close temp: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename: %w", err)
-	}
-	return nil
-}
-
 // userConfigPath returns the path to the user-level ACT config. Prefers
 // ~/.act.json; falls back to ~/.opencode.json if only the legacy file exists.
 // Always returns a path; the caller decides whether to read or create.

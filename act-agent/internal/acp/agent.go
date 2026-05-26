@@ -79,21 +79,25 @@ type SystemPromptInjector func(role string) string
 // Returns a ready ACPAgent, or an error if the subprocess failed to start
 // or the agent rejected initialization. The subprocess is killed by Close.
 //
-// primingPrompt, if non-empty, is sent as the first user message in any new
-// ACP session created later (lazy — at first Run for each ACT sessionID).
-// This is how the role's static system prompt gets in without requiring the
-// ACP host to implement an ACT-specific config protocol.
+// host is the user-facing backend identifier ("claude-code", future: "codex",
+// "gemini", "opencode") — same vocabulary the user types in ~/.act.json
+// under agents.<role>.backend. cfg is optional power-user overrides for the
+// subprocess spawn (Command/Args/Env/Cwd); pass nil for the default spawn
+// derived from host.
+//
+// priming, if non-nil, is invoked once per ACT sessionID to produce the
+// role's static system prompt — sent as the first user message in each new
+// ACP session. This is how Planner/Observer/Assurance/QA role behaviour
+// gets into a host that doesn't speak ACT-specific config.
 func NewACPAgent(
 	role string,
+	host string,
 	cfg *config.ACPConfig,
 	sessions session.Service,
 	messages message.Service,
 	priming SystemPromptInjector,
 ) (*ACPAgent, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("acp: nil ACPConfig for role %q", role)
-	}
-	cmd, err := buildCommand(role, cfg)
+	cmd, err := buildCommand(role, host, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("acp: build command for role %q: %w", role, err)
 	}
@@ -479,32 +483,38 @@ func (a *ACPAgent) errEvent(err error) agent.AgentEvent {
 
 // ─── Subprocess command + log plumbing ──────────────────────────────────────
 
-func buildCommand(role string, cfg *config.ACPConfig) (*exec.Cmd, error) {
-	command := cfg.Command
-	args := cfg.Args
+func buildCommand(role, host string, cfg *config.ACPConfig) (*exec.Cmd, error) {
+	var command string
+	var args []string
+	if cfg != nil {
+		command = cfg.Command
+		args = cfg.Args
+	}
 	if command == "" {
 		// Default by host. Only claude-code is implemented for alpha; other
 		// hosts return an explicit unimplemented error so misconfiguration
 		// fails loudly at startup, not at the first prompt.
-		switch cfg.Host {
+		switch host {
 		case "claude-code", "":
 			command, args = claudeCodeDefaults()
 		case "codex", "gemini", "opencode":
-			return nil, fmt.Errorf("acp: host %q is not implemented for the alpha (claude-code only)", cfg.Host)
+			return nil, fmt.Errorf("acp: backend %q is not implemented for the alpha (claude-code only)", host)
 		default:
-			return nil, fmt.Errorf("acp: unknown host %q", cfg.Host)
+			return nil, fmt.Errorf("acp: unknown backend %q", host)
 		}
 	}
 	cmd := exec.Command(command, args...)
-	if cfg.Cwd != "" {
-		cmd.Dir = cfg.Cwd
-	}
-	if len(cfg.Env) > 0 {
-		env := os.Environ()
-		for k, v := range cfg.Env {
-			env = append(env, k+"="+v)
+	if cfg != nil {
+		if cfg.Cwd != "" {
+			cmd.Dir = cfg.Cwd
 		}
-		cmd.Env = env
+		if len(cfg.Env) > 0 {
+			env := os.Environ()
+			for k, v := range cfg.Env {
+				env = append(env, k+"="+v)
+			}
+			cmd.Env = env
+		}
 	}
 	// The PATH-prepend for the role's shim binary happens in app.go::New()
 	// (it needs to know the install dir of act-tier1-shim, which is tied to

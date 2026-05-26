@@ -86,32 +86,34 @@ type Agent struct {
 	MaxTokens       int64                `json:"maxTokens"`
 	ReasoningEffort string               `json:"reasoningEffort,omitempty"` // low|medium|high — passed through if set
 
-	// Backend selects how the agent is executed.
-	//   Tier 2 roles (developer/frontend_dev/backend_dev/qa_engineer/researcher):
-	//     "act-agent" (default, in-process LLM) | "claude-code" (Claude Code CLI subprocess)
-	//   Tier 1 roles (planner/observer/assurance/qa_synthesizer):
-	//     "act-agent" (default, in-process LLM) | "acp" (Agent Client Protocol subprocess)
+	// Backend selects which CLI agent (or in-process LLM) backs this role.
+	// One symmetric vocabulary across Tier 1 and Tier 2:
+	//   "act-agent" (default) — in-process LLM, configured by Provider/Model above
+	//   "claude-code"         — Claude Code (Tier 1 via ACP; Tier 2 via direct subprocess)
+	//   future: "codex", "gemini", "opencode" — added incrementally
 	// An unset Backend means the in-process LLM path, unchanged from pre-ACP behaviour.
+	//
+	// The wire-level mechanism (ACP for Tier 1, direct CLI for Tier 2) is an
+	// implementation detail — the user just names the agent they want.
 	Backend string `json:"backend,omitempty"`
 
-	// ACP is only read when Backend == "acp" (Tier 1). Identifies the ACP
-	// host and how to launch it. Tier 2 ignores this field.
+	// ACP carries optional power-user overrides for ACP-backed Tier 1 roles
+	// (Command/Args/Env/Cwd for the subprocess spawn). The host is derived
+	// from Backend — this struct exists only so advanced users can pin a
+	// custom binary path, swap to a forked adapter, or set env vars. Empty
+	// in the common case. Ignored for Tier 2.
 	ACP *ACPConfig `json:"acp,omitempty"`
 }
 
-// ACPConfig configures the Agent Client Protocol subprocess that backs a
-// Tier 1 role. Only Host is required; the rest carry sensible defaults
-// derived from Host (see internal/acp/claude_code.go for claude-code).
+// ACPConfig — optional overrides for ACP subprocess spawn. The default spawn
+// argv is derived from the Agent.Backend value (see internal/acp/claude_code.go
+// for the claude-code preset). Most users leave this nil.
 type ACPConfig struct {
-	// Host identifies the ACP server implementation. Alpha supports
-	// "claude-code" only; future values: "codex", "gemini", "opencode".
-	Host string `json:"host"`
-
-	// Command overrides the spawn binary. If empty, derived from Host.
+	// Command overrides the spawn binary. If empty, derived from Backend.
 	Command string `json:"command,omitempty"`
 
 	// Args overrides the spawn argv tail. If empty (and Command is empty),
-	// derived from Host. If Command is set, Args is used verbatim — no
+	// derived from Backend. If Command is set, Args is used verbatim — no
 	// implicit defaults — so users can fully control the spawn.
 	Args []string `json:"args,omitempty"`
 

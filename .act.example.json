@@ -30,7 +30,7 @@
   },
   "agents": {
     "_comment": "Tier 1 = Planner / Observer / Assurance / QA. Tier 2 = swarm developer / frontend_dev / backend_dev / qa_engineer / researcher.",
-    "_comment_acp": "ALPHA OPTION — back Tier 1 with Claude Code via ACP instead of free-tier LLMs. Replace provider/model on each Tier 1 role with: \"backend\": \"acp\", \"acp\": {\"host\": \"claude-code\"}. Requires Node.js so `npx` can fetch @agentclientprotocol/claude-agent-acp on first launch. Uses your Claude Code subscription — no API tokens spent here. Toggle from the TUI any time with /backend <role> acp (or /backend all acp).",
+    "_comment_acp": "ALPHA OPTION — back Tier 1 with Claude Code instead of free-tier LLMs. Replace provider/model on each Tier 1 role with: \"backend\": \"claude-code\". Symmetric with Tier 2 — same vocabulary across both tiers. Requires Node.js so `npx` can fetch @agentclientprotocol/claude-agent-acp on first launch. Uses your Claude Code subscription — no API tokens spent here. Toggle from the TUI any time with /backend <role> claude-code (or /backend all claude-code).",
     "planner": {
       "_comment": "Most important model. Project decomposition + task creation + context engineering for swarm agents. Don't skimp.",
       "provider": "openrouter",
