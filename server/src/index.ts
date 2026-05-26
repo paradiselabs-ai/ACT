@@ -79,6 +79,24 @@ const getProjectStatusSummary = () => {
 // NOTE: PVM indexing is started AFTER restore in the startup block at the bottom.
 // Do NOT initialize chronologicalLog here — single init path only.
 
+// queryProject reads the project-scope filter from a request, accepting both
+// `?projectName=` (the canonical form used elsewhere in the codebase — agent
+// runner, orchestrator client, slash commands) and `?project=` (legacy). Both
+// keys are honored so callers using either name see consistent filtering. An
+// empty result means "no scope — return everything," not "project named ''".
+//
+// One helper instead of N copies prevents the per-endpoint drift this codebase
+// already paid for once (the F-G filter bugs in caafe6f — /api/log accepted
+// `?project=` only, while runners passed `projectName=`, producing silent
+// cross-project bleed in PVM views).
+function queryProject(req: express.Request): string | undefined {
+  const pn = req.query.projectName;
+  if (typeof pn === 'string' && pn !== '') return pn;
+  const p = req.query.project;
+  if (typeof p === 'string' && p !== '') return p;
+  return undefined;
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -94,9 +112,9 @@ app.get('/health', (req, res) => {
 // without it, old unrelated projects' tasks leak into the current session's
 // Planner view and trigger false "critical issues in other projects" replies.
 app.get('/api/status', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
-  const allAgents = agentRegistry.getAllAgents(project || undefined);
-  const allTasks = taskCoordinator.getAllTasks(project || undefined);
+  const project = queryProject(req);
+  const allAgents = agentRegistry.getAllAgents(project);
+  const allTasks = taskCoordinator.getAllTasks(project);
 
   const tasksByStatus: Record<string, number> = {};
   for (const task of allTasks) {
@@ -236,11 +254,11 @@ app.post('/api/agents/:agentId/tasks', async (req, res) => {
 });
 
 // ─── Agent management endpoints ─────────────────────────────────────────────
-// Scope with ?project=NAME so cross-project agents stay invisible. Without
-// the filter, returns all agents (useful for server-level tooling).
+// Scope with ?projectName=NAME (or legacy ?project=NAME, via queryProject)
+// so cross-project agents stay invisible. Without the filter, returns all
+// agents (useful for server-level tooling).
 app.get('/api/agents', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
-  res.json(agentRegistry.getAllAgents(project || undefined));
+  res.json(agentRegistry.getAllAgents(queryProject(req)));
 });
 
 // REST-based agent registration (for MCP bridge - no socket required)
@@ -473,7 +491,7 @@ app.get('/api/projects/:name/briefs/:agentId', (req, res) => {
 // projects' tasks return (useful for server-level tooling, dangerous for
 // a Planner asking "what's on my plate?").
 app.get('/api/tasks', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = queryProject(req);
   let tasks = taskCoordinator.getAllTasks();
   if (project) {
     tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
@@ -521,8 +539,8 @@ app.post('/api/tasks', async (req, res) => {
 // Get permanently failed tasks (retryCount >= MAX_TASK_RETRIES) — polled by REPL.
 // Scoped by ?project=NAME to mirror the rest of the tasks endpoints.
 app.get('/api/tasks/failed-permanently', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
-  const tasks = taskCoordinator.getAllTasks(project || undefined).filter(
+  const project = queryProject(req);
+  const tasks = taskCoordinator.getAllTasks(project).filter(
     t => t.status === 'failed' && t.retryCount >= MAX_TASK_RETRIES
   );
   res.json({ success: true, tasks });
@@ -535,7 +553,7 @@ app.get('/api/tasks/failed-permanently', (req, res) => {
 // assigned to the same agent ID. Always pass ?project= from the runner.
 app.get('/api/tasks/assigned', (req, res) => {
   const agentId = req.query.agent_id as string;
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = queryProject(req);
   if (!agentId) return res.status(400).json({ success: false, error: 'agent_id is required' });
 
   let tasks = taskCoordinator.getTasksByAgent(agentId);
@@ -552,7 +570,7 @@ app.get('/api/tasks/assigned', (req, res) => {
 // ran — Assurance ends up validating work for a project the user isn't even
 // looking at. Runners + orchestrator should always pass the project filter.
 app.get('/api/tasks/pending-validation', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = queryProject(req);
   let tasks = taskCoordinator.getTasksByStatus('submitted_for_validation');
   if (project) {
     tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
@@ -568,7 +586,7 @@ app.get('/api/tasks/pending-validation', (req, res) => {
 // pending-validation — prevents QA/Synthesizer from assembling outputs for
 // a project other than the one the TUI is attached to.
 app.get('/api/tasks/validated', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = queryProject(req);
   let tasks = taskCoordinator.getTasksByStatus('validated');
   if (project) {
     tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
@@ -580,7 +598,7 @@ app.get('/api/tasks/:taskId', (req, res) => {
   const task = taskCoordinator.getTask(req.params.taskId);
   if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
   // Optional ?project= scope: 404 if the task belongs to a different project.
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = queryProject(req);
   if (project && (task.metadata?.projectName as string | undefined) !== project) {
     return res.status(404).json({ success: false, error: 'Task not found in this project' });
   }
@@ -1021,7 +1039,7 @@ app.post('/api/files/release', (req, res) => {
 // Get current file lock state. Scope with ?project=NAME to see only that
 // project's locks; without it returns the whole registry (useful for tooling).
 app.get('/api/files/locks', (req, res) => {
-  const project = typeof req.query.project === 'string' ? req.query.project : '';
+  const project = queryProject(req);
   let locks = Array.from(fileLocks.values());
   if (project) {
     locks = locks.filter(l => l.projectName === project);
