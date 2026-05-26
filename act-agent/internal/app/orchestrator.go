@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/acp"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/act"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
@@ -417,6 +418,9 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 func humanReadableAgentError(err error) string {
 	if err == nil {
 		return "unknown error"
+	}
+	if errors.Is(err, acp.ErrACPSubprocessExited) {
+		return "ACP agent subprocess exited — relaunch ACT (in-place restart not supported in the alpha)"
 	}
 	msg := err.Error()
 	lower := strings.ToLower(msg)

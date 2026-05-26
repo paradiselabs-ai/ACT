@@ -85,7 +85,43 @@ type Agent struct {
 	Model           models.ModelID       `json:"model"`                     // upstream model string, passed verbatim
 	MaxTokens       int64                `json:"maxTokens"`
 	ReasoningEffort string               `json:"reasoningEffort,omitempty"` // low|medium|high — passed through if set
-	Backend         string               `json:"backend,omitempty"`         // Tier 2 only: "act-agent" | "claude-code"
+
+	// Backend selects how the agent is executed.
+	//   Tier 2 roles (developer/frontend_dev/backend_dev/qa_engineer/researcher):
+	//     "act-agent" (default, in-process LLM) | "claude-code" (Claude Code CLI subprocess)
+	//   Tier 1 roles (planner/observer/assurance/qa_synthesizer):
+	//     "act-agent" (default, in-process LLM) | "acp" (Agent Client Protocol subprocess)
+	// An unset Backend means the in-process LLM path, unchanged from pre-ACP behaviour.
+	Backend string `json:"backend,omitempty"`
+
+	// ACP is only read when Backend == "acp" (Tier 1). Identifies the ACP
+	// host and how to launch it. Tier 2 ignores this field.
+	ACP *ACPConfig `json:"acp,omitempty"`
+}
+
+// ACPConfig configures the Agent Client Protocol subprocess that backs a
+// Tier 1 role. Only Host is required; the rest carry sensible defaults
+// derived from Host (see internal/acp/claude_code.go for claude-code).
+type ACPConfig struct {
+	// Host identifies the ACP server implementation. Alpha supports
+	// "claude-code" only; future values: "codex", "gemini", "opencode".
+	Host string `json:"host"`
+
+	// Command overrides the spawn binary. If empty, derived from Host.
+	Command string `json:"command,omitempty"`
+
+	// Args overrides the spawn argv tail. If empty (and Command is empty),
+	// derived from Host. If Command is set, Args is used verbatim — no
+	// implicit defaults — so users can fully control the spawn.
+	Args []string `json:"args,omitempty"`
+
+	// Env adds environment variables to the subprocess. PATH is augmented
+	// separately by app.go to expose the role's act-tier1-<role> shim.
+	Env map[string]string `json:"env,omitempty"`
+
+	// Cwd sets the subprocess working directory. Defaults to ACT's project
+	// root (the directory ACT itself was launched from).
+	Cwd string `json:"cwd,omitempty"`
 }
 
 // Provider defines configuration for an LLM provider. BaseURL overrides

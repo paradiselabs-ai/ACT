@@ -43,6 +43,8 @@ func (a *App) HandleSlashCommand(input string) (response string, handled bool) {
 		return a.slashStatus(), true
 	case "/swarm":
 		return a.slashSwarm(args), true
+	case "/backend":
+		return a.slashBackend(args), true
 	case "/nomik":
 		return a.slashNomik(args), true
 	case "/quit", "/exit":
@@ -67,6 +69,11 @@ func slashHelp() string {
 		"  /swarm restart <role>                  Restart one runner",
 		"  /swarm restart all                     Restart the whole swarm",
 		"  /swarm status                          Show live runner PIDs and state",
+		"",
+		"  /backend                               List Tier 1 role backends",
+		"  /backend list                          (alias)",
+		"  /backend <role> <act-agent|acp> [host] Switch one Tier 1 role's backend; ACP host defaults to claude-code",
+		"  /backend all <act-agent|acp> [host]    Switch all four Tier 1 roles",
 		"",
 		"  /nomik                                 Show Nomik graph status (alias of /nomik status)",
 		"  /nomik enable                          Enable Nomik for this project (runs initial scan)",
@@ -253,6 +260,123 @@ func (a *App) swarmSetBackend(role, backend string) string {
 		return fmt.Sprintf("Swarm role %q backend set to %q. Restarting %s...", role, backend, spec.AgentID)
 	}
 	return fmt.Sprintf("no spec found for role %q", role)
+}
+
+// ─── /backend subcommands (Tier 1 only) ────────────────────────────────────────
+
+var tier1Roles = []string{"planner", "observer", "assurance", "qa_synthesizer"}
+
+// slashBackend implements `/backend` for Tier 1 role backend selection.
+// Mirrors the shape of `/swarm <role> <backend>` so users see one mental model.
+//
+// Forms:
+//   /backend                        — list current backends
+//   /backend list                   — alias
+//   /backend <role>  act-agent      — switch role to in-process LLM (Backend="" persisted)
+//   /backend <role>  acp [host]     — switch role to ACP, host defaults to claude-code
+//   /backend all     <backend>      — bulk switch all four Tier 1 roles
+//
+// On success the config write lands in ~/.act.json. The change applies to
+// the NEXT TUI launch — hot-rebuild of Tier 1 agents is out of scope for
+// the alpha (manual restart keeps the failure surface visible per plan).
+func (a *App) slashBackend(args []string) string {
+	if len(args) == 0 || args[0] == "list" {
+		return a.backendList()
+	}
+	if len(args) < 2 {
+		return "usage: /backend <role|all> <act-agent|acp> [host]"
+	}
+	role := args[0]
+	backend := args[1]
+	host := ""
+	if len(args) >= 3 {
+		host = args[2]
+	}
+
+	if backend != "act-agent" && backend != "acp" {
+		return fmt.Sprintf("invalid backend %q (valid: act-agent, acp)", backend)
+	}
+	if backend == "acp" && host == "" {
+		host = "claude-code"
+	}
+
+	if role == "all" {
+		updated := 0
+		for _, r := range tier1Roles {
+			if err := writeTier1Backend(r, backend, host); err != nil {
+				logging.Warn("Failed to persist Tier 1 backend", "role", r, "error", err)
+				continue
+			}
+			updated++
+		}
+		return fmt.Sprintf("Set backend=%s%s for %d Tier 1 roles. Restart ACT to apply.",
+			backend, hostSuffix(backend, host), updated)
+	}
+
+	if !isTier1Role(role) {
+		return fmt.Sprintf("/backend only applies to Tier 1 roles (%s). For swarm roles, use /swarm.",
+			strings.Join(tier1Roles, ", "))
+	}
+	if err := writeTier1Backend(role, backend, host); err != nil {
+		return fmt.Sprintf("backend change failed to persist: %v", err)
+	}
+	return fmt.Sprintf("Tier 1 role %q backend set to %s%s. Restart ACT to apply.",
+		role, backend, hostSuffix(backend, host))
+}
+
+func (a *App) backendList() string {
+	var sb strings.Builder
+	sb.WriteString("## Tier 1 backends\n\n")
+	sb.WriteString(fmt.Sprintf("  %-18s %-12s %s\n", "ROLE", "BACKEND", "ACP HOST"))
+	cfg := config.Get()
+	for _, r := range tier1Roles {
+		backend := "act-agent"
+		host := "—"
+		if cfg != nil {
+			if ac, ok := cfg.Agents[config.AgentName(r)]; ok && ac.Backend != "" {
+				backend = ac.Backend
+				if ac.ACP != nil && ac.ACP.Host != "" {
+					host = ac.ACP.Host
+				}
+			}
+		}
+		sb.WriteString(fmt.Sprintf("  %-18s %-12s %s\n", r, backend, host))
+	}
+	return sb.String()
+}
+
+func isTier1Role(s string) bool {
+	for _, r := range tier1Roles {
+		if r == s {
+			return true
+		}
+	}
+	return false
+}
+
+func hostSuffix(backend, host string) string {
+	if backend == "acp" && host != "" {
+		return " (host=" + host + ")"
+	}
+	return ""
+}
+
+// writeTier1Backend persists backend (and optional host) for one Tier 1 role.
+// "act-agent" maps to backend="" (the canonical "unset, use in-process LLM"
+// state). "acp" calls WriteAgentACPBackend which also sets acp.host.
+func writeTier1Backend(role, backend, host string) error {
+	switch backend {
+	case "act-agent":
+		// WriteAgentBackend with empty string clears the field — but the helper
+		// always writes the string verbatim. For the act-agent default we
+		// write "act-agent" explicitly; the dispatch in app.go::New() treats
+		// anything other than "acp" as the in-process path.
+		return config.WriteAgentBackend(role, "act-agent")
+	case "acp":
+		return config.WriteAgentACPBackend(role, host)
+	default:
+		return fmt.Errorf("unknown backend %q", backend)
+	}
 }
 
 // ─── /nomik subcommands ────────────────────────────────────────────────────────
