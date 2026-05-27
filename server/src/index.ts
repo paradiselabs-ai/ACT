@@ -582,15 +582,20 @@ app.get('/api/tasks/pending-validation', (req, res) => {
   res.json({ tasks: enriched });
 });
 
-// Get validated tasks (must be before /:taskId). Same project scoping as
-// pending-validation — prevents QA/Synthesizer from assembling outputs for
-// a project other than the one the TUI is attached to.
+// Get validated tasks awaiting synthesis. Excludes tasks that QA already
+// synthesized (metadata.synthesizedAt is set) so a TUI restart doesn't
+// trigger re-synthesis of already-shipped work — the QA poll loop sees an
+// empty queue when there's nothing new to do.
+//
+// Same project scoping as pending-validation — prevents QA/Synthesizer from
+// assembling outputs for a project other than the one the TUI is attached to.
 app.get('/api/tasks/validated', (req, res) => {
   const project = queryProject(req);
   let tasks = taskCoordinator.getTasksByStatus('validated');
   if (project) {
     tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
   }
+  tasks = tasks.filter(t => !t.metadata?.synthesizedAt);
   res.json({ tasks });
 });
 
@@ -841,13 +846,19 @@ app.post('/api/tasks/:taskId/synthesis', async (req, res) => {
 
     const ts = new Date().toISOString();
     if (kind === 'complete') {
+      // Stamp the task so /api/tasks/validated stops returning it on the
+      // next QA poll. Without this marker the in-memory `alreadySeen` set
+      // on the orchestrator is the only guard — wiped on TUI restart,
+      // causing re-synthesis loops on every relaunch.
+      if (!task.metadata) task.metadata = {};
+      task.metadata.synthesizedAt = ts;
       const msg = summary ? `synthesized: ${summary}` : `synthesized ${taskId}`;
       chronologicalLog.append({
         timestamp: ts,
         agent: agentId || 'qa_synthesizer',
         message: msg,
         type: 'synthesis_complete',
-        data: { taskId, summary }
+        data: { taskId, summary, synthesizedAt: ts }
       });
       io.emit('synthesis_complete', { taskId, summary, timestamp: ts });
     } else if (kind === 'need_clarification') {

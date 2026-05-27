@@ -606,6 +606,20 @@ export class ChronologicalLog {
               }
               break;
             }
+            case 'synthesis_complete': {
+              // Restore the synthesizedAt marker so the validated-tasks
+              // endpoint filter survives a server restart. Without this,
+              // the QA poll loop sees every previously-shipped task as
+              // unsynthesized and re-runs synthesis on relaunch.
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  if (!task.metadata) task.metadata = {};
+                  task.metadata.synthesizedAt = d.synthesizedAt || event.timestamp;
+                }
+              }
+              break;
+            }
             case 'agent_registered': {
               if (d && d.agentId && d.projectName) {
                 agents.set(d.agentId, {
