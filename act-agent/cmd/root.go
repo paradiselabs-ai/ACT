@@ -21,6 +21,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/format"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
+	promptpkg "github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
 	actserver "github.com/paradiselabs-ai/ACT/act-agent/internal/server"
@@ -458,6 +459,31 @@ func isCLISubcommand(arg string) bool {
 	return cliSubcommands[arg]
 }
 
+// runPromptSection prints the named Planner reference section to stdout.
+// Exits non-zero with an error to stderr on missing arg, unknown section,
+// or empty section. The complete set of valid names lives in
+// prompt.SectionRegistry — invocations from the ACP shim binary are
+// gated by tools.IsAllowed("planner", "prompt-section"); section-name
+// validity is enforced here.
+func runPromptSection(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: act-agent prompt-section <name> — known names: %v", promptpkg.SectionNames())
+	}
+	name := args[0]
+	content, ok := promptpkg.GetSection(name)
+	if !ok {
+		return fmt.Errorf("unknown section %q — known names: %v", name, promptpkg.SectionNames())
+	}
+	if content == "" {
+		return fmt.Errorf("section %q is currently empty", name)
+	}
+	fmt.Print(content)
+	if !strings.HasSuffix(content, "\n") {
+		fmt.Println()
+	}
+	return nil
+}
+
 // runReset asks for explicit confirmation then POSTs to /api/dev/reset.
 func runReset() error {
 	fmt.Println()
@@ -648,6 +674,21 @@ func Execute() {
 		if first == "reset" {
 			if err := runReset(); err != nil {
 				fmt.Fprintf(os.Stderr, "reset failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
+		// `act-agent prompt-section <name>` — handled natively. Section
+		// content is static text compiled into the binary. This is the ACP
+		// equivalent of the in-process expand_prompt_section tool so both
+		// backends read from the same registry (prompt.SectionRegistry).
+		// Allowlisted for the Planner role in act_cli_whitelist.go; the
+		// shim binary's IsAllowed check gates whether ACP-backed Planners
+		// can invoke it.
+		if first == "prompt-section" {
+			if err := runPromptSection(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "prompt-section: %v\n", err)
 				os.Exit(1)
 			}
 			return

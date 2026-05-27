@@ -127,4 +127,6 @@ You have an ` + "`expand_prompt_section`" + ` tool. This base prompt is intentio
 - "validation" — Assurance/QA pipeline (when reacting to failures or stuck queues)
 - "examples" — full worked CREATE_TASK and PROJECT_BRIEF examples (when shape is unclear)
 
-Pull a section ONLY when you need it. Most turns don't.`
+Pull a section ONLY when you need it. Most turns don't.
+
+When running under an ACP backend (no native ` + "`expand_prompt_section`" + ` tool registered), use act_cli the same way: ` + "`{\"subcommand\":\"prompt-section\",\"args\":[\"<name>\"]}`" + `. Same registry, same content — the prompt list above is the source of truth for both paths.`

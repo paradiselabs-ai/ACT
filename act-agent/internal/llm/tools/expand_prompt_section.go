@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
@@ -13,16 +12,6 @@ import (
 // ExpandPromptSectionToolName is the public tool name. Kept short because
 // it appears in every Tier 1 tool catalog the LLM sees.
 const ExpandPromptSectionToolName = "expand_prompt_section"
-
-// expandSectionRegistry maps section names to their content provider.
-// Adding a new section is a one-line entry — no schema changes.
-var expandSectionRegistry = map[string]func() string{
-	"evidence_routing":  prompt.PlannerSectionEvidenceRouting,
-	"success_criteria":  prompt.PlannerSectionSuccessCriteria,
-	"nomik":             prompt.PlannerSectionNomik,
-	"validation":        prompt.PlannerSectionValidation,
-	"examples":          prompt.PlannerSectionExamples,
-}
 
 // expandPromptSectionTool returns reference material on demand. The
 // Planner's base prompt stays small; deeper guidance is pulled only
@@ -42,11 +31,7 @@ func NewExpandPromptSectionTool() BaseTool {
 }
 
 func (t *expandPromptSectionTool) Info() ToolInfo {
-	names := make([]string, 0, len(expandSectionRegistry))
-	for k := range expandSectionRegistry {
-		names = append(names, k)
-	}
-	sort.Strings(names)
+	names := prompt.SectionNames()
 
 	return ToolInfo{
 		Name: ExpandPromptSectionToolName,
@@ -96,13 +81,9 @@ func (t *expandPromptSectionTool) Run(ctx context.Context, call ToolCall) (ToolR
 		return NewTextErrorResponse("section parameter is required"), nil
 	}
 
-	provider, ok := expandSectionRegistry[params.Section]
+	content, ok := prompt.GetSection(params.Section)
 	if !ok {
-		names := make([]string, 0, len(expandSectionRegistry))
-		for k := range expandSectionRegistry {
-			names = append(names, k)
-		}
-		sort.Strings(names)
+		names := prompt.SectionNames()
 		logging.Warn("expand_prompt_section.unknown",
 			"session_id", sessionID,
 			"section", params.Section,
@@ -111,7 +92,6 @@ func (t *expandPromptSectionTool) Run(ctx context.Context, call ToolCall) (ToolR
 		return NewTextErrorResponse(fmt.Sprintf("unknown section %q. Available: %v", params.Section, names)), nil
 	}
 
-	content := provider()
 	if content == "" {
 		logging.Warn("expand_prompt_section.empty",
 			"session_id", sessionID,

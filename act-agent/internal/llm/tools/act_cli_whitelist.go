@@ -19,15 +19,16 @@ import "strings"
 // + `"task abandon"` keeps the surface narrow.
 var RoleSubcommands = map[string][]string{
 	"planner": {
-		"status",       // high-level overview
-		"context",      // project snapshot (agents, tasks, locks)
-		"log",          // recent coordination events
-		"graph",        // graph unverified | graph conflicts (routing evidence)
-		"pvm",          // pvm search — past coordination patterns
-		"message",      // send a coord message to another agent
-		"codebase",     // codebase rules | communities | onboard (read-only intel)
-		"task retry",   // re-dispatch a failed task to a new agent
-		"task abandon", // mark a task permanently failed (skips retry)
+		"status",         // high-level overview
+		"context",        // project snapshot (agents, tasks, locks)
+		"log",            // recent coordination events
+		"graph",          // graph unverified | graph conflicts (routing evidence)
+		"pvm",            // pvm search — past coordination patterns
+		"message",        // send a coord message to another agent
+		"codebase",       // codebase rules | communities | onboard (read-only intel)
+		"task retry",     // re-dispatch a failed task to a new agent
+		"task abandon",   // mark a task permanently failed (skips retry)
+		"prompt-section", // fetch on-demand Planner reference section (ACP parity for expand_prompt_section)
 	},
 	"observer": {
 		"status",
