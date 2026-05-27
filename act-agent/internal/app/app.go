@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/history"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
@@ -237,12 +239,30 @@ func makePrimingInjector(role string) acp.SystemPromptInjector {
 		if base == "" {
 			return ""
 		}
-		// Append a one-line note about the shim binary so the ACP-backed
-		// agent knows the role-scoped CLI is on PATH. The shim itself
-		// enforces the allowlist — this is just discoverability.
-		shimNote := "\n\n[ACT] The CLI `act-tier1-" + role + "` is on your PATH. Use it via Bash for all ACT-coordination subcommands (status, log, etc.). It enforces this role's allowed subcommand set."
-		return base + shimNote
+		// Append the shim-binary discoverability note. The allowed subcommand
+		// list is generated from tools.AllowedFor(role) — NOT hand-written —
+		// so adding a new entry to the allowlist automatically updates the
+		// priming text. Audit Fix 7 (entry 5.4): the old version had
+		// "(status, log, etc.)" hand-coded as examples and never picked up
+		// task retry / task abandon / prompt-section.
+		return base + renderShimNote(role)
 	}
+}
+
+// renderShimNote builds the [ACT] discoverability footer appended to the
+// ACP priming text. The allowed list is read live from the canonical
+// whitelist so this note can't drift out of sync. Bare entries render as
+// "<name>"; compound entries (e.g. "task retry") render verbatim so the
+// LLM sees the full sub-subcommand form it must use.
+func renderShimNote(role string) string {
+	allowed := tools.AllowedFor(role)
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n\n[ACT] The CLI `act-tier1-%s` is on your PATH. Use it via Bash for all ACT-coordination subcommands. It enforces this role's allowed subcommand set:\n", role)
+	for _, entry := range allowed {
+		fmt.Fprintf(&b, "  - %s\n", entry)
+	}
+	b.WriteString("Anything outside this list will be rejected at the shim boundary.")
+	return b.String()
 }
 
 // buildSwarmSpecs walks the configured agents and produces a SwarmRoleSpec
