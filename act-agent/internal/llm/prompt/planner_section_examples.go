@@ -30,7 +30,7 @@ EXAMPLE_TASK: {"title":"Implement Snake game core loop","description":"@task\n> 
 
 ### Task with dependencies
 
-EXAMPLE_TASK: {"title":"Add Pygame rendering layer","description":"@task\n> Render the existing Snake game state with Pygame. Read state from the Snake class — do not modify it.\n@dependencies\n- Snake game core loop must be complete\n@success_criteria\n- 30fps rendering on CPU\n- Snake, food, and walls all visible\n- Score displayed in corner\n- Window closes cleanly on quit","requiredCapabilities":["python","pygame"],"priority":"medium"}
+EXAMPLE_TASK: {"title":"Add Pygame rendering layer","description":"@task\n> Render the existing Snake game state with Pygame. Read state from the Snake class — do not modify it.\n@success_criteria\n- 30fps rendering on CPU\n- Snake, food, and walls all visible\n- Score displayed in corner\n- Window closes cleanly on quit","dependencies":["Snake game core loop"],"requiredCapabilities":["python","pygame"],"priority":"medium"}
 
 ### Research/spike
 

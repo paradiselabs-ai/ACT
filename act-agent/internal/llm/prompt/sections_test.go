@@ -74,6 +74,31 @@ func extractAdvertisedSectionNames(t *testing.T, src string) []string {
 	return out
 }
 
+// TestNoSectionEmitsForbiddenDependenciesShape asserts that no registered
+// section body contains the forbidden inline @dependencies SPIL section form.
+// The base planner prompt (planner.go:78) explicitly prohibits putting
+// @dependencies inside the description string — dependencies belong in the
+// top-level JSON "dependencies" array. This test walks every section in
+// sectionRegistry so the lint catches future drift in any section, not just
+// "examples".
+//
+// The forbidden pattern is `@dependencies\n` (the SPIL section header followed
+// by a newline). A bare occurrence of the word "dependencies" or the JSON key
+// "dependencies" is fine — only the @-section header form is prohibited.
+func TestNoSectionEmitsForbiddenDependenciesShape(t *testing.T) {
+	for name, provider := range SectionRegistry() {
+		content := provider()
+		if strings.Contains(content, "@dependencies\n") {
+			t.Errorf("section %q contains the forbidden @dependencies inline-section form "+
+				"(the literal string '@dependencies\\n'). "+
+				"The Planner's base prompt forbids @dependencies inside the description string — "+
+				"dependencies belong in the top-level JSON \"dependencies\" array. "+
+				"This example is actively teaching the wrong shape and contradicts planner.go:78.",
+				name)
+		}
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
