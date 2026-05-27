@@ -40,11 +40,11 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**Fix:** Verify the wiring exists; if not, either implement the dispatcher or strip the advertisement.~~
 - **Resolution (c853932):** Investigation found the dispatcher IS wired natively (`tools/expand_prompt_section.go` registered via `Tier1ToolsForRole` at `agent/tools.go:84`) — sub1 missed it because the audit was scoped to prompt fragments, not the tool layer. BUT the gap was real for ACP-backed Planners (they can't reach Go-side tools, only the act-tier1-* shim). Per user direction (build the tool, don't strip the prompt — same as Fix 2): extracted the registry into `prompt/sections.go` as a single source of truth; added `act-agent prompt-section <name>` Go-side CLI subcommand (no TS roundtrip, content is static); allowlisted `prompt-section` for Planner so the shim binary's IsAllowed gate passes; added `TestPromptSectionAdvertisementMatchesRegistry` regex-locking the prompt's "Available sections:" list to `SectionNames()` — drift-prevention test. Same registry now serves both backends.
 
-### 1.2b ~~[FIXED in 4e1052b] `section_examples` teaches `@dependencies` inside description string (Round 5 — CRITICAL)~~
+### 1.2b ~~[FIXED in 4f7fc3e] `section_examples` teaches `@dependencies` inside description string (Round 5 — CRITICAL)~~
 - ~~**Sources:** Round 5 Path A sub2 + sub3 synthesizer — *"section_examples shows @dependencies inside the description string in violation of the base prompt's shape rule."*~~
 - ~~**Where:** `planner_section_examples.go:33` — the "Task with dependencies" EXAMPLE_TASK~~
 - ~~**What:** The "Task with dependencies" example had `@dependencies\n- Snake game core loop must be complete` inside the JSON description string. planner.go:78 explicitly forbids this: *"Do NOT use @context, @dependencies, or any other @-section in the description string."* The examples section is the exact surface the Planner pulls when unsure about directive shape — it was actively teaching the wrong form. This also identifies the *source* of the malformed dependency shapes that Fix 6.4 (eabcc9b) installed a forgiving parser to defend against: the example modeled the forbidden shape.~~
-- **Resolution (4e1052b):** rewrote the example to use top-level `"dependencies":["Snake game core loop"]` JSON property; description now goes directly `@task` → `@success_criteria` with no `@dependencies` block. Added `TestNoSectionEmitsForbiddenDependenciesShape` in `sections_test.go` — iterates every section via `SectionRegistry()` and asserts none contain `@dependencies\n` (the inline-section form). Catches future drift in any section body, not just `examples`.
+- **Resolution (4f7fc3e):** rewrote the example to use top-level `"dependencies":["Snake game core loop"]` JSON property; description now goes directly `@task` → `@success_criteria` with no `@dependencies` block. Added `TestNoSectionEmitsForbiddenDependenciesShape` in `sections_test.go` — iterates every section via `SectionRegistry()` and asserts none contain `@dependencies\n` (the inline-section form). Catches future drift in any section body, not just `examples`.
 
 ### 1.3 [ACTIVE] `act_cli_commands_fragment` enumerates commands the base prompt later forbids
 - **Sources:** sub1 only
@@ -303,6 +303,20 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 14. ~~**[FIXED 0b5129b] 8.3 — Surface dispatch-hash dedup events.** When `checkAndRecordDispatchHash` drops a duplicate, fires a chat banner AND an autoroute with `variantSystemEscalation` carrying `dedupAutorouteText` ("change a title and re-emit, or stop trying"). Closes the silent-rejection blind spot the audit flagged as the same systemic class as the pre-Fix-6 cap-bypass loops.~~
 
 When each fix is committed + tested, strike through its entry above and add a `[FIXED in commit <sha>]` annotation.
+
+---
+
+---
+
+## Outside-JSON-scope findings
+
+Findings that surfaced during Round 5 audits but fall outside `planner-prompts.json`'s scope (which covers Planner-facing prompt injection points only). Tracked here so the full audit history is in one place.
+
+### O.1 ~~[FIXED in 2a1cc53] `ValidationScore` always 0 in QA synthesis prompt~~
+- ~~**Sources:** Round 5 scope-boundary finding — missed by both audit paths because `buildSynthesisPrompt` feeds the QA-Synthesizer, not the Planner. Surfaced during Round 5a implementation.~~
+- ~~**Where:** `orchestrator.go:2370` (routeToQA) — `ValidatedOutput` struct literal; `orchestrator.go:2758` (buildSynthesisPrompt) — `"Validation score: %d/100"` format string~~
+- ~~**What:** `routeToQA` constructs `ValidatedOutput` without setting `ValidationScore`. Go zero-initializes `int` fields to 0. `buildSynthesisPrompt` emits `"Validation score: 0/100"` to the QA-Synthesizer on every synthesis turn, even when Assurance scored 100. The QA-Synthesizer reads a misleading signal ("0/100") on fully-validated work and may treat it as low-quality during assembly. The real score IS available: the server writes `task.metadata.validationScore` on `task_validated` events (ChronologicalLog.ts:610); `GetValidatedTasks()` returns tasks with that metadata populated.~~
+- **Resolution (2a1cc53):** reads `t.Metadata["validationScore"]` before constructing the struct; handles both `int` and `float64` (Go JSON unmarshal decodes all numbers into `map[string]any` as `float64`). Populates `ValidatedOutput.ValidationScore` from the metadata value. Test: `TestBuildSynthesisPrompt_IncludesValidationScore` in `orchestrator_test.go` — feeds `ValidatedOutput{ValidationScore: 100}`, asserts prompt contains `"Validation score: 100/100"` not `"Validation score: 0/100"`.
 
 ---
 

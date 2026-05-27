@@ -781,3 +781,31 @@ func TestParseCreateTaskDirectives_DependenciesNumberDoesNotSilentlyDropTask(t *
 		t.Errorf("expected non-empty firstFailPreview surfacing the bad JSON; got empty")
 	}
 }
+
+// --- buildSynthesisPrompt tests ---
+
+// TestBuildSynthesisPrompt_IncludesValidationScore locks the wiring from
+// ValidatedOutput.ValidationScore → the "Validation score: N/100" line the
+// QA-Synthesizer reads. The bug this guards against: routeToQA (orchestrator.go)
+// used to construct ValidatedOutput without setting ValidationScore, so Go
+// zero-initialised the int to 0. The QA-Synthesizer received "Validation score:
+// 0/100" even when Assurance gave a task a 100 — risking low-quality assembly
+// decisions on fully-validated work.
+func TestBuildSynthesisPrompt_IncludesValidationScore(t *testing.T) {
+	o := ValidatedOutput{
+		TaskID:          "task-abc",
+		TaskTitle:       "Implement auth middleware",
+		AgentID:         "dev-1",
+		Result:          "auth module complete with tests",
+		ValidationScore: 100,
+	}
+	prompt := buildSynthesisPrompt(o)
+
+	if !strings.Contains(prompt, "Validation score: 100/100") {
+		t.Errorf("expected prompt to contain 'Validation score: 100/100' when ValidationScore=100;\ngot:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Validation score: 0/100") {
+		t.Errorf("prompt must NOT contain 'Validation score: 0/100' when ValidationScore=100 — "+
+			"this is the zero-value bug: routeToQA forgot to populate ValidatedOutput.ValidationScore;\ngot:\n%s", prompt)
+	}
+}

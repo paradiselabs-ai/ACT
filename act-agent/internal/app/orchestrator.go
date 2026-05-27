@@ -2367,12 +2367,29 @@ func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 			result = r
 		}
 	}
+	// Read the validation score from task metadata. The server writes
+	// task.metadata.validationScore on the task_validated event
+	// (ChronologicalLog.ts:610); GetValidatedTasks returns tasks with
+	// that metadata populated. JSON unmarshal into map[string]any decodes
+	// all JSON numbers as float64, so handle both int and float64.
+	score := 0
+	if t.Metadata != nil {
+		if s, ok := t.Metadata["validationScore"]; ok {
+			switch v := s.(type) {
+			case int:
+				score = v
+			case float64:
+				score = int(v)
+			}
+		}
+	}
 	output := ValidatedOutput{
-		TaskID:    t.ID,
-		TaskTitle: t.Title,
-		AgentID:   t.AssignedAgent,
-		Result:    result,
-		AddedAt:   time.Now().UTC().Format(time.RFC3339),
+		TaskID:          t.ID,
+		TaskTitle:       t.Title,
+		AgentID:         t.AssignedAgent,
+		Result:          result,
+		ValidationScore: score,
+		AddedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 	prompt := buildSynthesisPrompt(output)
 	o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt)
