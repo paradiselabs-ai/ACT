@@ -80,7 +80,9 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 - act-agent codebase onboard            High-level architecture overview (Nomik)
 - act-agent codebase communities        Functional clusters / module boundaries (Nomik)
 - act-agent status                      Show server status (agents, tasks, locks)
-- act-agent log --tail 20               Show recent coordination log entries`
+- act-agent log --tail 20               Show recent coordination log entries
+- act-agent task retry <id>             Re-dispatch a failed task to a new agent (uses next retry attempt)
+- act-agent task abandon <id> --reason "<text>"   Mark a task permanently failed; skips retry. Use when the task is unrecoverable or no longer needed.`
 
 	case "observer":
 		base = `## ACT CLI Commands (available to you)

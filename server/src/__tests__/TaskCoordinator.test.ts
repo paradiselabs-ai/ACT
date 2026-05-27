@@ -136,3 +136,37 @@ describe('TaskCoordinator terminal-state guard', () => {
     expect(coordinator.getTask(task.id)?.status).toBe('failed');
   });
 });
+
+describe('TaskCoordinator.abandonTask', () => {
+  let agentRegistry: AgentRegistry;
+  let coordinator: TaskCoordinator;
+
+  beforeEach(() => {
+    agentRegistry = new AgentRegistry();
+    coordinator = new TaskCoordinator(agentRegistry);
+  });
+
+  it('marks a pending task as failed with abandoned metadata', async () => {
+    const task = await coordinator.createTask({ description: 'will be abandoned' });
+
+    const abandoned = await coordinator.abandonTask(task.id, 'spec changed, no longer needed');
+
+    expect(abandoned.status).toBe('failed');
+    expect(abandoned.metadata?.abandoned).toBe(true);
+    expect(abandoned.metadata?.abandonReason).toBe('spec changed, no longer needed');
+    expect(typeof abandoned.metadata?.abandonedAt).toBe('string');
+    expect(abandoned.retryCount).toBeGreaterThanOrEqual(3); // permanent-failed semantics
+  });
+
+  it('refuses to abandon a completed task', async () => {
+    const task = await coordinator.createTask({ description: 'already done' });
+    await coordinator.updateTaskProgress(task.id, { status: 'completed', progress: 100 });
+
+    await expect(coordinator.abandonTask(task.id, 'too late')).rejects.toThrow(/cannot abandon task/);
+    expect(coordinator.getTask(task.id)?.status).toBe('completed');
+  });
+
+  it('throws on unknown task id', async () => {
+    await expect(coordinator.abandonTask('nope-id', 'why')).rejects.toThrow(/not found/);
+  });
+});

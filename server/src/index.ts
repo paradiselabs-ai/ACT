@@ -766,6 +766,29 @@ app.post('/api/tasks/:taskId/retry', async (req, res) => {
   }
 });
 
+// Abandon a task — Planner escalation path. Marks the task permanently
+// failed with metadata.abandoned=true so retry-eligibility skips it.
+// Distinct from /retry (which resets to pending and re-dispatches).
+app.post('/api/tasks/:taskId/abandon', async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const reason = (req.body?.reason as string | undefined)?.trim() || 'no reason provided';
+
+    const task = taskCoordinator.getTask(taskId);
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+
+    const abandoned = await taskCoordinator.abandonTask(taskId, reason);
+    io.emit('task_abandoned', { taskId, reason, timestamp: new Date().toISOString() });
+    res.json({ success: true, task: abandoned });
+  } catch (error: any) {
+    // abandonTask throws on already-terminal-success — return 409 conflict.
+    if (error.message?.startsWith('cannot abandon task')) {
+      return res.status(409).json({ success: false, error: error.message });
+    }
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ─── Assurance Validation Endpoints ────────────────────────────────────────
 
 // Submit task for Assurance validation

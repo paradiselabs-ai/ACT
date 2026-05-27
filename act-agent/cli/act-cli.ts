@@ -847,6 +847,30 @@ async function cmdTaskRetry(client: ACTClient, args: Record<string, any>): Promi
   console.log(`Task ${taskId} reset for retry (attempt ${result.task?.retryCount ?? '?'}/3)`);
 }
 
+async function cmdTaskAbandon(client: ACTClient, args: Record<string, any>): Promise<void> {
+  const taskId = args['<task-id>'];
+  const reason = (args['--reason'] || '').trim();
+
+  if (!taskId) {
+    printError('Error: task-id is required');
+    printError('Usage: act-agent task abandon <task-id> --reason "..."');
+    process.exit(1);
+  }
+  if (!reason) {
+    printError('Error: --reason is required (audit trail for why the task was abandoned)');
+    printError('Usage: act-agent task abandon <task-id> --reason "..."');
+    process.exit(1);
+  }
+
+  const result = await client.abandonTask(taskId, reason);
+  if (!result.success) {
+    printError(result.error || 'Failed to abandon task');
+    process.exit(1);
+  }
+
+  console.log(`Task ${taskId} abandoned (reason: ${reason})`);
+}
+
 async function cmdValidationQueue(client: ACTClient): Promise<void> {
   const tasks = await client.getValidationQueue();
 
@@ -871,6 +895,7 @@ async function main(): Promise<void> {
     'task complete': 'Mark a task as complete',
     'task progress': 'Update task progress percentage',
     'task retry': 'Retry a failed task (resets to pending)',
+    'task abandon': 'Mark a task permanently failed (skips retry, takes --reason)',
     'task submit-for-validation': 'Submit completed task for Assurance review',
     'brief update': 'Update agent brief for a project',
     'pvm search': 'Search coordination memory (PVM)',
@@ -1030,6 +1055,19 @@ async function main(): Promise<void> {
       // act task retry <task-id>
       const retryTaskId = args[2] || '';
       await cmdTaskRetry(client, { '<task-id>': retryTaskId });
+    } else if (command === 'task' && subcommand === 'abandon') {
+      // act task abandon <task-id> --reason "..."
+      const abandonArgs = parseArgs({
+        options: {
+          'reason': { type: 'string' }
+        },
+        strict: false,
+        allowPositionals: true
+      });
+      await cmdTaskAbandon(client, {
+        '<task-id>': args[2] || '',
+        '--reason': abandonArgs.values['reason'],
+      });
     } else if (command === 'task' && subcommand === 'submit-for-validation') {
       const valArgs = parseArgs({
         options: {

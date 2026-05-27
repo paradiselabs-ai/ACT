@@ -341,6 +341,50 @@ export class TaskCoordinator extends EventEmitter {
     return task;
   }
 
+  /**
+   * Abandon a task: mark it permanently failed and tag metadata.abandoned=true
+   * so retry-eligibility checks skip it cleanly. The Planner uses this when a
+   * task is unrecoverable — distinct from `retryTask` (which re-dispatches).
+   *
+   * Reuses the `failed` status rather than introducing a new state so existing
+   * `checkDependencies` / replay / switch-statements keep working without a
+   * schema migration. The `abandoned` flag in metadata is the discriminator
+   * for "failed and not eligible for retry."
+   */
+  public async abandonTask(taskId: string, reason: string): Promise<Task> {
+    const task = this.tasks.get(taskId);
+    if (!task) throw new Error(`Task ${taskId} not found`);
+
+    // Refuse to abandon tasks that already succeeded — `validated` and
+    // `completed` are downstream consumers' contracts; flipping them to
+    // `failed` would corrupt dependent task gating + QA assembly.
+    if (task.status === 'validated' || task.status === 'completed') {
+      throw new Error(`cannot abandon task ${taskId}: already in terminal-success state ${task.status}`);
+    }
+
+    const previousAgent = task.assignedAgent;
+    task.status = 'failed';
+    task.completedAt = new Date();
+    task.retryCount = MAX_TASK_RETRIES; // forces permanently-failed semantics
+    task.metadata = {
+      ...(task.metadata || {}),
+      abandoned: true,
+      abandonReason: reason,
+      abandonedAt: new Date().toISOString(),
+    };
+
+    if (previousAgent) {
+      const agent = this.agentRegistry.getAgent(previousAgent);
+      if (agent && agent.status !== 'offline') {
+        await this.agentRegistry.updateAgentStatus(previousAgent, 'online');
+      }
+    }
+
+    logger.warn(`Task ${taskId} abandoned reason="${reason}"`);
+    this.emit('task_abandoned', task);
+    return task;
+  }
+
   async detectConflicts(): Promise<ConflictDetection[]> {
     const conflicts: ConflictDetection[] = [];
 

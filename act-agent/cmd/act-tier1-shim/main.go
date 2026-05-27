@@ -65,10 +65,14 @@ func main() {
 	subcommand := os.Args[1]
 	args := os.Args[2:]
 
-	if !tools.IsAllowed(role, subcommand) {
+	if !tools.IsAllowed(role, subcommand, args...) {
+		got := subcommand
+		if len(args) > 0 && args[0] != "" {
+			got = subcommand + " " + args[0]
+		}
 		fail(exitNotAllowed,
-			"act-tier1-%s: subcommand %q is not allowed for role %s.\nAllowed: %s",
-			role, subcommand, role, strings.Join(tools.AllowedFor(role), ", "))
+			"act-tier1-%s: %q is not allowed for role %s.\nAllowed: %s",
+			role, got, role, strings.Join(tools.AllowedFor(role), ", "))
 	}
 
 	for _, a := range args {

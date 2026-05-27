@@ -339,6 +339,26 @@ export class ACTClient {
     }
   }
 
+  /** Abandon a task — marks it permanently failed with metadata.abandoned=true.
+   *  Distinct from retry: the task is NOT re-dispatched. Reason is required for
+   *  audit. Server returns 409 if the task is already validated/completed. */
+  async abandonTask(taskId: string, reason: string): Promise<{ success: boolean; task?: any; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/abandon`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return data;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   /** Get the currently assigned task for an agent */
   async getAssignedTask(agentId: string): Promise<any | null> {
     try {

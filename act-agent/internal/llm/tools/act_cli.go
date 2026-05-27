@@ -87,9 +87,9 @@ type actCLIPermissionsParams struct {
 
 type actCLITool struct {
 	permissions permission.Service
-	role        string          // owning Tier 1 role; drives whitelist
-	allowed     map[string]bool // precomputed whitelist for O(1) check
-	allowedList []string        // preserved order for Info().Description
+	role        string   // owning Tier 1 role; drives whitelist
+	allowedList []string // preserved order for Info().Description (full entries inc. compound)
+	enumHeads   []string // deduped first-token list for JSON-schema enum
 }
 
 // NewActCLITool returns a BaseTool that runs the `act` coordination CLI with
@@ -102,31 +102,31 @@ type actCLITool struct {
 // treat "tools not correctly wired" as a config bug and fix it rather than
 // fail at runtime.
 func NewActCLITool(role string, permissions permission.Service) BaseTool {
-	list := AllowedFor(role)
-	allowed := make(map[string]bool, len(list))
-	for _, s := range list {
-		allowed[s] = true
-	}
 	return &actCLITool{
 		permissions: permissions,
 		role:        role,
-		allowed:     allowed,
-		allowedList: list,
+		allowedList: AllowedFor(role),
+		enumHeads:   AllowedSubcommandHeads(role),
 	}
 }
 
 func (t *actCLITool) Info() ToolInfo {
 	allowedStr := strings.Join(t.allowedList, ", ")
+	enumStr := strings.Join(t.enumHeads, ", ")
 	desc := fmt.Sprintf(`Call the ACT coordination CLI. Runs "act-agent <subcommand> [args]" and returns stdout.
 
-ALLOWED subcommands for role %q: %s
+ALLOWED entries for role %q: %s
 
-The subcommand you pass is the FIRST positional token after "act-agent". Sub-sub commands (like "pvm search" or "graph unverified") go into args. Examples:
+Most entries are bare subcommands. A few are compound (e.g. "task retry") — those mean ONLY that sub-subcommand of an otherwise-restricted command is allowed. For "task retry" pass {"subcommand":"task","args":["retry","<id>"]}; "task complete" and similar will be rejected.
+
+The subcommand you pass is the FIRST positional token after "act-agent". Sub-sub commands go into args. Examples:
 - Check system status: {"subcommand":"status"}
 - Get log: {"subcommand":"log","args":["--limit","20"]}
 - PVM search: {"subcommand":"pvm","args":["search","markdown URL extraction"]}
 - Graph unverified tasks: {"subcommand":"graph","args":["unverified"]}
 - Project context: {"subcommand":"context","args":["--project","checklinks"]}
+- Retry a failed task: {"subcommand":"task","args":["retry","task-abc"]}
+- Abandon an unrecoverable task: {"subcommand":"task","args":["abandon","task-abc","--reason","duplicate"]}
 
 Do NOT attempt subcommands outside the allowed list — they will be rejected. Do NOT include shell metacharacters (;, |, &, $(), backticks) in args.
 
@@ -138,8 +138,8 @@ Timeout defaults to 30000ms (30s), max 120000ms (2m).`, t.role, allowedStr)
 		Parameters: map[string]any{
 			"subcommand": map[string]any{
 				"type":        "string",
-				"description": "The act CLI subcommand (one of: " + allowedStr + ")",
-				"enum":        t.allowedList,
+				"description": "The act CLI subcommand head (one of: " + enumStr + ")",
+				"enum":        t.enumHeads,
 			},
 			"args": map[string]any{
 				"type":        "array",
@@ -169,13 +169,19 @@ func (t *actCLITool) Run(ctx context.Context, call ToolCall) (ToolResponse, erro
 
 	// Whitelist check — this is the core of KI-02. Subcommands outside the
 	// role's whitelist are rejected with an actionable error so the model
-	// can correct on the same turn.
-	if !t.allowed[params.Subcommand] {
+	// can correct on the same turn. Compound entries ("task retry") are
+	// checked against subcommand+args[0]; the variadic IsAllowed handles
+	// both bare and compound matches.
+	if !IsAllowed(t.role, params.Subcommand, params.Args...) {
+		got := params.Subcommand
+		if len(params.Args) > 0 && params.Args[0] != "" {
+			got = params.Subcommand + " " + params.Args[0]
+		}
 		return NewTextErrorResponse(fmt.Sprintf(
-			"subcommand %q is not allowed for role %q. Allowed: %s. "+
+			"%q is not allowed for role %q. Allowed: %s. "+
 				"Do NOT attempt ls, cat, go, git, or other shell commands — "+
 				"this tool only runs the act coordination CLI.",
-			params.Subcommand, t.role, strings.Join(t.allowedList, ", "),
+			got, t.role, strings.Join(t.allowedList, ", "),
 		)), nil
 	}
 
