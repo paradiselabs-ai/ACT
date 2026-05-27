@@ -939,6 +939,20 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 					go o.handlePlannerTaskDirectives(ctx, content)
 
 				case "observer", "assurance", "qa", "qa_synthesizer":
+					// Audit Fix 11 (entry 6.2): when QA emits
+					// `NEED_CLARIFICATION: @<agent> <question>` targeted at a
+					// swarm agent, forward the question to that agent's inbox
+					// and skip the Planner autoroute. Previously the whole QA
+					// message wrapped for the Planner, who would either ignore
+					// (correct), answer out-of-role (wrong), or fabricate a
+					// CREATE_TASK to forward (wrong). Only routes when the
+					// addressee is a non-Planner; addressee=planner or no
+					// marker present falls through to the normal autoroute.
+					if normalizeRole(role) == "qa_synthesizer" {
+						if o.maybeRouteQAClarification(ctx, content) {
+							continue
+						}
+					}
 					// Auto-route Tier 1 reports into a Planner turn so the
 					// Planner can react (typically by emitting CREATE_TASK
 					// directives, occasionally by speaking to the human). The
@@ -2353,6 +2367,47 @@ var (
 	createTaskMarkerRegex = regexp.MustCompile(`CREATE_TASK:\s*`)
 	clarificationRegex    = regexp.MustCompile(`(?s)NEED_CLARIFICATION:\s*@(\S+)\s+(.*)`)
 )
+
+// maybeRouteQAClarification inspects a QA message for the
+// NEED_CLARIFICATION marker. If present and the addressee is NOT the
+// Planner (i.e. it's a swarm agent or other Tier 1 role), forward the
+// message to that agent via the coord message bus and return true to
+// suppress the default Planner autoroute. Returns false when:
+//   - no NEED_CLARIFICATION marker is present (a SYNTHESIS_COMPLETE or
+//     freeform QA message — normal autoroute applies)
+//   - the addressee is "planner" or empty (Planner correctly needs the
+//     autoroute)
+//   - the SendMessage call fails (fall back to Planner so the question
+//     doesn't silently vanish — audit-Fix-12 sibling principle)
+//
+// Audit Fix 11 (entry 6.2).
+func (o *Orchestrator) maybeRouteQAClarification(ctx context.Context, content string) bool {
+	m := clarificationRegex.FindStringSubmatch(content)
+	if m == nil {
+		return false
+	}
+	addressee := strings.TrimSpace(m[1])
+	if addressee == "" || normalizeRole(addressee) == "planner" {
+		return false
+	}
+	// Forward the verbatim QA text so the named agent's inbox sees the
+	// original @-mention + question; the message bus is broadcast-shaped
+	// (server/api/messages) and downstream agents filter by @<agent_id>.
+	client := act.NewClient("qa_synthesizer", o.projectName)
+	if err := client.SendMessage(content); err != nil {
+		logging.Warn("qa_clarification_forward_failed",
+			"addressee", addressee, "error", err,
+			"fallback", "delegating to Planner autoroute so the question is not silently dropped")
+		return false
+	}
+	// Surface the routing so the human sees what happened. The
+	// emitSystemMessage helper writes a system-role chat line that the
+	// TUI renders as a banner, not Planner output.
+	o.emitSystemMessage(ctx, o.sessionID, fmt.Sprintf("📨 QA clarification routed to @%s (no Planner turn fired)", addressee))
+	logging.Info("qa_clarification_routed",
+		"addressee", addressee, "content_bytes", len(content))
+	return true
+}
 
 // extractJSONContaining finds the smallest JSON object in text that contains
 // the given substring (typically a JSON key like `"criteriaResults"`).

@@ -656,6 +656,54 @@ func TestParseCreateTaskDirectives_DependenciesShapes(t *testing.T) {
 	}
 }
 
+// --- maybeRouteQAClarification tests (Fix 11) ---
+
+// TestClarificationRegex_AddresseeExtraction is the upstream contract
+// maybeRouteQAClarification depends on. Locks the regex against
+// reshape — if NEED_CLARIFICATION parse changes, Fix 11's routing
+// breaks silently.
+func TestClarificationRegex_AddresseeExtraction(t *testing.T) {
+	cases := []struct {
+		name, input, wantAddr, wantQ string
+	}{
+		{"swarm_agent", "NEED_CLARIFICATION: @dev-1 What encoding?", "dev-1", "What encoding?"},
+		{"compound_id", "NEED_CLARIFICATION: @backend_dev-2 DB schema?", "backend_dev-2", "DB schema?"},
+		{"planner_addressee", "NEED_CLARIFICATION: @planner override?", "planner", "override?"},
+		{"multiline_question", "NEED_CLARIFICATION: @dev-1 Why does\nthis fail?", "dev-1", "Why does\nthis fail?"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := clarificationRegex.FindStringSubmatch(c.input)
+			if m == nil {
+				t.Fatalf("regex did not match %q", c.input)
+			}
+			if m[1] != c.wantAddr {
+				t.Errorf("addressee = %q; want %q", m[1], c.wantAddr)
+			}
+			if m[2] != c.wantQ {
+				t.Errorf("question = %q; want %q", m[2], c.wantQ)
+			}
+		})
+	}
+}
+
+// TestClarificationRegex_NoMarker confirms freeform / SYNTHESIS_COMPLETE
+// content does NOT match — Fix 11 must fall through to the autoroute in
+// that case.
+func TestClarificationRegex_NoMarker(t *testing.T) {
+	cases := []string{
+		"SYNTHESIS_COMPLETE: assembled all 4 outputs",
+		"plain freeform message with no marker",
+		"NEED_CLARIFICATION without colon @dev-1 q",  // no colon — regex requires `:`
+		"NEED_CLARIFICATION: @dev-1",                 // no whitespace-then-question — regex requires `\s+(.*)`
+	}
+	for i, in := range cases {
+		if m := clarificationRegex.FindStringSubmatch(in); m != nil {
+			t.Errorf("case %d %q must NOT match; got %v", i, in, m)
+		}
+	}
+}
+
 // TestNormalizeRole locks the canonical-role mapping (Fix 13a, entry 6.1).
 // `qa` → `qa_synthesizer`; everything else passes through unchanged.
 func TestNormalizeRole(t *testing.T) {

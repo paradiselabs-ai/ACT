@@ -48,6 +48,8 @@ SYNTHESIS_COMPLETE: <brief summary of what was assembled and the current state o
 ## When you need clarification:
 NEED_CLARIFICATION: @<agent-id> <your specific question about their output>
 
+The orchestrator routes the question DIRECTLY to the named @agent-id's inbox — name it precisely (the swarm agent's ID like ` + "`dev-1`" + ` or ` + "`backend_dev-2`" + `, not "planner") unless you actually need the Planner. A wrong addressee means your question reaches no one.
+
 ## When reporting progress:
 Describe what you've integrated so far and what's pending. Use @planner to report.
 
