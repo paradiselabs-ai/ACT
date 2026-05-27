@@ -575,10 +575,10 @@ func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
 					result = result[:400] + "..."
 				}
 				summary := fmt.Sprintf(
-					"Task %s just failed (agent %s). Error: %s\n\nDecide: POST /api/tasks/%s/retry to retry with the same agent, or emit CREATE_TASK: to reassign to a different role, or ask the human if this looks unrecoverable.",
-					truncate(taskID, 36), ev.Agent, result, taskID,
+					"Task %s just failed (agent %s). Error: %s",
+					truncate(taskID, 36), ev.Agent, result,
 				)
-				go o.autoRoutePlanner(ctx, "system", summary)
+				go o.autoRoutePlannerV(ctx, "system", summary, variantSystemEscalation)
 			} else if firstFailedSummary == "" {
 				taskID, _ := ev.Data["taskId"].(string)
 				firstFailedSummary = fmt.Sprintf("task %s (agent %s)", truncate(taskID, 36), ev.Agent)
@@ -591,10 +591,10 @@ func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
 	}
 
 	if batchMode && failedTaskCount > 0 {
-		go o.autoRoutePlanner(ctx, "system", fmt.Sprintf(
-			"%d task(s) failed in the last burst (e.g. %s). Check /api/tasks for full state and decide how to handle them.",
+		go o.autoRoutePlannerV(ctx, "system", fmt.Sprintf(
+			"%d task(s) failed in the last burst (e.g. %s). Use act_cli context --project <name> to see current task state, then retry/abandon/reassign as appropriate.",
 			failedTaskCount, firstFailedSummary,
-		))
+		), variantSystemEscalation)
 	}
 
 	if batchMode {
@@ -887,17 +887,75 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 					// directives, occasionally by speaking to the human). The
 					// chain stops at Planner — Planner replies are NOT
 					// auto-routed anywhere, breaking the loop.
-					go o.autoRoutePlanner(ctx, role, content)
+					//
+					// Variant selection (Fix 3): Assurance posts parse-able
+					// verdicts that classify cleanly into pass/fail; everything
+					// else (Observer anomalies, QA reports, unparseable
+					// Assurance content) uses the classic anomaly tree.
+					variant := variantAnomaly
+					if role == "assurance" {
+						if v := parseValidationVerdict("", content); v != nil {
+							if v.Passed {
+								variant = variantPassVerdict
+							} else {
+								variant = variantFailVerdict
+							}
+						}
+					}
+					go o.autoRoutePlannerV(ctx, role, content, variant)
 				}
 			}
 		}
 	}
 }
 
-// autoRoutePlanner forwards a non-Planner Tier 1 message into a Planner turn.
-// Recursion-safe via consecutiveAutoTurns: at most autoTurnCap chained turns
-// per human input. Reset by HandleHumanInput.
+// autoRouteVariant picks the prompt template autoRoutePlannerV uses. Each
+// variant is shaped around what the Planner can actually do for that trigger
+// — silence is the default for routine Assurance passes, system events get
+// the new act_cli task retry/abandon affordances, etc. Differentiating these
+// is audit Fix 3 (replaces the previous one-template-for-everything envelope
+// at orchestrator.go:915, the documented #1 drift surface per commits
+// 7156822, c237c0e, f522d1c).
+type autoRouteVariant int
+
+const (
+	// variantAnomaly — Observer reports + default fallthrough. The classic
+	// (a)/(b)/(c) tree because Observer messages span "real anomaly worth
+	// dispatching new work" through "informational, nothing to do."
+	variantAnomaly autoRouteVariant = iota
+
+	// variantPassVerdict — Assurance posted a passing verdict. Silence is
+	// the default; (a) and (b) are escape hatches for "the next step is
+	// obvious" or "the human asked for status." No "react by taking action"
+	// framing — that's exactly what creates the empty-CREATE_TASK loop.
+	variantPassVerdict
+
+	// variantFailVerdict — Assurance posted a failing verdict. Gap analysis
+	// is auto-routed to the swarm agent already, so the Planner rarely needs
+	// to dispatch new work. The variant nudges toward "stay silent unless
+	// repeated failures suggest reassignment."
+	variantFailVerdict
+
+	// variantSystemEscalation — task_failed / task_burst / validation_stuck /
+	// synthesis_stuck. Silence is wrong; the Planner must act. Binary fork:
+	// use act_cli task retry/abandon for known-failed task management, or
+	// emit CREATE_TASK to reassign, or message the human.
+	variantSystemEscalation
+)
+
+// autoRoutePlanner is the legacy entry point — equivalent to
+// autoRoutePlannerV with variantAnomaly. Kept for the agent-message handler
+// at orchestrator.go:884 which still uses the Observer template by default;
+// the call there picks a variant inline before invoking the V form.
 func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromContent string) {
+	o.autoRoutePlannerV(ctx, fromRole, fromContent, variantAnomaly)
+}
+
+// autoRoutePlannerV forwards a non-Planner Tier 1 message into a Planner
+// turn using the given prompt variant.  Recursion-safe via
+// consecutiveAutoTurns: at most autoTurnCap chained turns per human input.
+// Reset by HandleHumanInput.
+func (o *Orchestrator) autoRoutePlannerV(ctx context.Context, fromRole, fromContent string, variant autoRouteVariant) {
 	o.mu.Lock()
 	if o.consecutiveAutoTurns >= autoTurnCap {
 		o.mu.Unlock()
@@ -911,22 +969,67 @@ func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromConte
 	if sid == "" {
 		return
 	}
-	logging.Info("autoroute_planner", "from", fromRole, "consecutive_turns", turns, "content_bytes", len(fromContent))
-	prompt := fmt.Sprintf(
-		"The %s agent just sent the following report. React by taking action.\n\n"+
-			"Decide ONE of these, do not combine:\n"+
-			"  (a) Emit one or more CREATE_TASK: directives IF AND ONLY IF actual new work needs dispatching or a failed task needs reassignment. Every directive must include a non-empty title, a description carrying @task and @success_criteria SPIL sections, and explicit requiredCapabilities. NEVER emit a placeholder, empty, or acknowledgement CREATE_TASK — passing the verdict along is not a task. If the verdict was a pass and no new work is implied, do nothing.\n"+
-			"  (b) Write a short chat reply IF AND ONLY IF the human needs to be informed of something.\n"+
-			"  (c) Stay silent (empty response) if neither applies. Silence is the correct response to a routine pass verdict.\n\n"+
-			"Never write the literal string 'CREATE_TASK:' in conversational prose — it is reserved for actual directives and will be flagged as malformed output.\n"+
-			"Do not echo the report back.\n\n[%s]: %s",
-		fromRole, fromRole, fromContent,
-	)
+	logging.Info("autoroute_planner", "from", fromRole, "variant", variant, "consecutive_turns", turns, "content_bytes", len(fromContent))
+	prompt := renderAutoRoutePrompt(variant, fromRole, fromContent)
 	// Wait for any in-flight Planner turn to finish before firing. Hitting
 	// runAgentTurn synchronously here races with a Planner mid-tool-call
 	// and returns "session is currently processing another request",
 	// silently dropping the autoroute prompt.
 	o.fireWhenPlannerIdle(ctx, sid, prompt, "autoroute_from_"+fromRole)
+}
+
+// renderAutoRoutePrompt builds the per-variant text the Planner sees. Split
+// out for testability — callers in orchestrator_test.go can probe each
+// variant's wording independently of the goroutine + session-state plumbing.
+func renderAutoRoutePrompt(variant autoRouteVariant, fromRole, fromContent string) string {
+	switch variant {
+	case variantPassVerdict:
+		return fmt.Sprintf(
+			"The Assurance agent posted a PASS verdict. No action is required by default.\n\n"+
+				"Options (pick AT MOST one):\n"+
+				"  (a) If the verdict unblocks an obvious next step (e.g. a dependent task), emit CREATE_TASK directives for that next step. Every directive must include a non-empty title, @task + @success_criteria SPIL sections, and requiredCapabilities. NEVER emit a placeholder or acknowledgement CREATE_TASK.\n"+
+				"  (b) Stay silent (empty response). This is the correct default.\n\n"+
+				"Do NOT acknowledge the pass in chat. Do NOT echo the verdict back.\n"+
+				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
+			fromRole, fromContent,
+		)
+
+	case variantFailVerdict:
+		return fmt.Sprintf(
+			"The Assurance agent posted a FAIL verdict. Gap analysis has already been auto-routed to the swarm agent — they will re-attempt the task without your involvement.\n\n"+
+				"Options (pick AT MOST one):\n"+
+				"  (a) If this is a repeated failure (3+ attempts) suggesting the agent is stuck, use act_cli task abandon <id> --reason \"<short why>\" and emit a CREATE_TASK to reassign to a different role.\n"+
+				"  (b) Write a short chat reply IF AND ONLY IF the human needs to be informed (e.g. major blocker).\n"+
+				"  (c) Stay silent. This is the correct default for a first or second failure — the swarm agent's retry will run.\n\n"+
+				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
+			fromRole, fromContent,
+		)
+
+	case variantSystemEscalation:
+		return fmt.Sprintf(
+			"The orchestrator surfaced a system event that requires Planner action. Silence is WRONG here.\n\n"+
+				"Pick ONE concrete action:\n"+
+				"  (a) act_cli task retry <id> — re-dispatch a failed task to the same role (uses next retry attempt).\n"+
+				"  (b) act_cli task abandon <id> --reason \"<short why>\" — mark the task permanently failed when unrecoverable.\n"+
+				"  (c) Emit a CREATE_TASK: directive to reassign the work to a different role.\n"+
+				"  (d) Write a short chat reply to inform the human if the situation is unrecoverable and needs a decision.\n\n"+
+				"act_cli is the JSON tool you already use for status/log/graph — call it the same way: {\"subcommand\":\"task\",\"args\":[\"retry\",\"<id>\"]}.\n"+
+				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
+			fromRole, fromContent,
+		)
+
+	default: // variantAnomaly
+		return fmt.Sprintf(
+			"The %s agent just sent the following report. React by taking action.\n\n"+
+				"Decide ONE of these, do not combine:\n"+
+				"  (a) Emit one or more CREATE_TASK: directives IF AND ONLY IF actual new work needs dispatching or a failed task needs reassignment. Every directive must include a non-empty title, a description carrying @task and @success_criteria SPIL sections, and explicit requiredCapabilities. NEVER emit a placeholder, empty, or acknowledgement CREATE_TASK — passing the verdict along is not a task.\n"+
+				"  (b) Write a short chat reply IF AND ONLY IF the human needs to be informed of something.\n"+
+				"  (c) Stay silent (empty response) if neither applies.\n\n"+
+				"Never write the literal string 'CREATE_TASK:' in conversational prose — it is reserved for actual directives and will be flagged as malformed output.\n"+
+				"Do not echo the report back.\n\n[%s]: %s",
+			fromRole, fromRole, fromContent,
+		)
+	}
 }
 
 // autoTurnCap is the maximum number of consecutive auto-routed Planner turns
@@ -1853,7 +1956,7 @@ func (o *Orchestrator) checkPendingValidation(ctx context.Context) {
 			o.mu.RUnlock()
 			if sid != "" {
 				o.emitSystemMessage(ctx, sid, fmt.Sprintf("⚠  validation stuck on %q after %d attempts — escalating to Planner", taskLabel(t), maxValidationAttempts))
-				go o.autoRoutePlanner(ctx, "system", fmt.Sprintf("validation stuck on task %q (id=%s) after %d attempts; decide: force-retry, reassign, or abandon", taskLabel(t), t.ID, maxValidationAttempts))
+				go o.autoRoutePlannerV(ctx, "system", fmt.Sprintf("validation stuck on task %q (id=%s) after %d attempts; the swarm agent has retried the gap analysis without success", taskLabel(t), t.ID, maxValidationAttempts), variantSystemEscalation)
 			}
 			continue
 		}
@@ -1975,7 +2078,7 @@ func (o *Orchestrator) checkValidatedTasks(ctx context.Context) {
 			o.mu.RUnlock()
 			if sid != "" {
 				o.emitSystemMessage(ctx, sid, fmt.Sprintf("⚠  synthesis stuck on %q after %d attempts — escalating to Planner", taskLabel(t), maxSynthesisAttempts))
-				go o.autoRoutePlanner(ctx, "system", fmt.Sprintf("synthesis stuck on task %q (id=%s) after %d attempts; decide how to proceed", taskLabel(t), t.ID, maxSynthesisAttempts))
+				go o.autoRoutePlannerV(ctx, "system", fmt.Sprintf("synthesis stuck on task %q (id=%s) after %d attempts; QA cannot assemble the deliverable", taskLabel(t), t.ID, maxSynthesisAttempts), variantSystemEscalation)
 			}
 			continue
 		}

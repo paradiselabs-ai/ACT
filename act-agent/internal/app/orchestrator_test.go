@@ -327,3 +327,56 @@ func TestDispatchDedup_ExpiredEntryDispatches(t *testing.T) {
 		t.Fatalf("expired entry should be GC'd and re-dispatch allowed")
 	}
 }
+
+// --- renderAutoRoutePrompt tests (Fix 3) ---
+
+func TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction(t *testing.T) {
+	got := renderAutoRoutePrompt(variantPassVerdict, "assurance", `{"score":100}`)
+	if strings.Contains(got, "React by taking action") {
+		t.Errorf("variantPassVerdict must NOT carry the anomaly framing; got:\n%s", got)
+	}
+	if !strings.Contains(got, "Stay silent") {
+		t.Errorf("variantPassVerdict must instruct silence as default; got:\n%s", got)
+	}
+	if !strings.Contains(got, "PASS verdict") {
+		t.Errorf("variantPassVerdict must explicitly name the verdict as PASS; got:\n%s", got)
+	}
+	if !strings.Contains(got, "[assurance]") {
+		t.Errorf("variantPassVerdict must carry the source role tag; got:\n%s", got)
+	}
+}
+
+func TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis(t *testing.T) {
+	got := renderAutoRoutePrompt(variantFailVerdict, "assurance", `{"score":40}`)
+	if !strings.Contains(got, "auto-routed") {
+		t.Errorf("variantFailVerdict must tell the Planner gap analysis is auto-routed (so it doesn't intervene); got:\n%s", got)
+	}
+	if !strings.Contains(got, "task abandon") {
+		t.Errorf("variantFailVerdict must mention task abandon for repeated-failure path; got:\n%s", got)
+	}
+}
+
+func TestRenderAutoRoutePrompt_SystemEscalationPointsAtActCli(t *testing.T) {
+	got := renderAutoRoutePrompt(variantSystemEscalation, "system", "Task t-1 failed (agent dev-1).")
+	for _, want := range []string{
+		"act_cli task retry",
+		"act_cli task abandon",
+		"Silence is WRONG",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("variantSystemEscalation must contain %q; got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "POST /api/tasks") {
+		t.Errorf("variantSystemEscalation must NOT reference the unimplemented POST verb anymore; got:\n%s", got)
+	}
+}
+
+func TestRenderAutoRoutePrompt_AnomalyIsTheLegacyTree(t *testing.T) {
+	got := renderAutoRoutePrompt(variantAnomaly, "observer", "two agents writing the same file")
+	for _, want := range []string{"React by taking action", "(a)", "(b)", "(c)", "[observer]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("variantAnomaly must contain %q (legacy tree preserved for Observer); got:\n%s", want, got)
+		}
+	}
+}
