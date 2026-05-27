@@ -72,11 +72,12 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**Fix:** Fold into base; move JSON-shape rule adjacent to the command list.~~
 - **Resolution (9707f9a):** the redundant "Allowed subcommands: status, context, log, graph, pvm, message, codebase, task" line was deleted from basePlannerPrompt; the fragment (with descriptions) is the single source. Anti-pattern reminder ("Do NOT attempt ls, cat, sqlite3, go, git, or raw shell") preserved — it's not in the fragment and is genuinely useful. JSON-shape co-location deferred (the `args ALWAYS array` rule still sits separately; revisit if drift surfaces). Net savings: ~104 bytes per Planner turn.
 
-### 2.4 [ACTIVE] `project_context_fragment` runtime substitution dominates fragment cost
-- **Sources:** sub1
-- **Where:** `prompt.go:50` (template ~80 bytes); runtime expansion injects ACT.md + ACT.local.md verbatim every turn.
-- **What:** CLAUDE.md Phase 3 deltas note Tier 1 requests dropped 22K→5-7K by trimming `defaultContextPaths`. The injection has no diffing — full files every turn.
-- **Fix:** Consider conditional injection or content hashing to skip if unchanged from previous turn.
+### 2.4 ~~[FIXED in a8577d2] `project_context_fragment` runtime substitution dominates fragment cost~~
+- ~~**Sources:** sub1~~
+- ~~**Where:** `prompt.go:50` (template ~80 bytes); runtime expansion injects ACT.md + ACT.local.md verbatim every turn.~~
+- ~~**What:** CLAUDE.md Phase 3 deltas note Tier 1 requests dropped 22K→5-7K by trimming `defaultContextPaths`. The injection has no diffing — full files every turn.~~
+- ~~**Fix:** Consider conditional injection or content hashing to skip if unchanged from previous turn.~~
+- **Resolution (a8577d2):** investigation showed the audit's framing was partially inaccurate — `getContextFromPaths` already caches in-memory across turns, and `internal/llm/provider/anthropic.go:190` already wraps the system block in `CacheControlEphemeralParam{Type: "ephemeral"}`. What was actually missing: stability across `InvalidateContextCache` cycles that don't correspond to real file changes. Added `contextHash` (SHA-256) to the package-level cache; `InvalidateContextCache` no longer clears `contextContent`/`contextHash` — the next rebuild compares the new hash to the prior and reuses the previously-cached string if identical. Same bytes → same provider cache key → no needless cache miss. Test: `TestGetContextFromPaths_HashSkipReusesContent`.
 
 ---
 
@@ -178,23 +179,26 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 
 ## Category 6 — Parser/prompt mismatches
 
-### 6.1 [ACTIVE] QA role-name case ambiguity ('qa' vs 'qa_synthesizer')
-- **Sources:** sub3 + Path B
-- **Where:** `orchestrator.go:915` messageOwnershipLoop case-matches both
-- **What:** If only `qa_synthesizer` is the agent map key (per config.RoleQASynthesizer), and a stray emit tags `qa`, downstream `getAgent()` lookup fails silently.
-- **Fix:** Normalize to one canonical role name on read.
+### 6.1 ~~[FIXED in 805fd4e] QA role-name case ambiguity ('qa' vs 'qa_synthesizer')~~
+- ~~**Sources:** sub3 + Path B~~
+- ~~**Where:** `orchestrator.go:915` messageOwnershipLoop case-matches both~~
+- ~~**What:** If only `qa_synthesizer` is the agent map key (per config.RoleQASynthesizer), and a stray emit tags `qa`, downstream `getAgent()` lookup fails silently.~~
+- ~~**Fix:** Normalize to one canonical role name on read.~~
+- **Resolution (805fd4e):** new `normalizeRole(role)` helper folded into `getAgent` so `qa` resolves to `qa_synthesizer` at the read boundary. Also reused by Fix 11's `maybeRouteQAClarification` to keep addressee normalization consistent. Test: `TestNormalizeRole` (8 cases including passthroughs).
 
-### 6.2 [ACTIVE] NEED_CLARIFICATION addressing — wrong audience
-- **Sources:** sub3 + Path B
-- **Where:** `autoroute_from_qa_synthesizer`
-- **What:** QA emits `NEED_CLARIFICATION: @<agent_id> <question>` targeted at a **swarm agent**. autoroute wraps it for **Planner**. Planner sees a question for someone else; ignores, mis-answers, or fabricates a CREATE_TASK to forward.
-- **Fix:** Parse the @-mention BEFORE wrapping; route to the named swarm agent's inbox, only Planner-autoroute if the @-mention is the Planner.
+### 6.2 ~~[FIXED in b3cc2b7] NEED_CLARIFICATION addressing — wrong audience~~
+- ~~**Sources:** sub3 + Path B~~
+- ~~**Where:** `autoroute_from_qa_synthesizer`~~
+- ~~**What:** QA emits `NEED_CLARIFICATION: @<agent_id> <question>` targeted at a **swarm agent**. autoroute wraps it for **Planner**. Planner sees a question for someone else; ignores, mis-answers, or fabricates a CREATE_TASK to forward.~~
+- ~~**Fix:** Parse the @-mention BEFORE wrapping; route to the named swarm agent's inbox, only Planner-autoroute if the @-mention is the Planner.~~
+- **Resolution (b3cc2b7):** new `maybeRouteQAClarification(ctx, content)` runs the existing `clarificationRegex` BEFORE the QA branch's default autoroute. If the addressee normalizes to anything other than `planner` (and is non-empty), the verbatim QA text goes to the broadcast inbox via `client.SendMessage` (sender=`qa_synthesizer` for inbox attribution) AND a system banner surfaces the routing; the Planner autoroute is skipped. Empty/planner addressee or unknown SendMessage failure falls through to the normal autoroute so questions are never silently dropped. Prompt-side: qa_synthesizer.go updated with an addressee-precision note. Tests: `TestClarificationRegex_AddresseeExtraction` (4 sub-cases) + `TestClarificationRegex_NoMarker`.
 
-### 6.3 [ACTIVE] taskID truncation discrepancy in failed-task autoroute
-- **Sources:** sub3 + Path B
-- **Where:** `orchestrator.go:577`
-- **What:** Visible body shows `truncate(taskID, 36)`; URL template uses full taskID. If Planner constructs URL from visible ID → 404. Compounds with the no-HTTP-tool issue (1.1).
-- **Fix:** Show the full ID OR don't suggest URL-based action OR change action to ID-based act_cli subcommand.
+### 6.3 ~~[FIXED in 805fd4e] taskID truncation discrepancy in failed-task autoroute~~
+- ~~**Sources:** sub3 + Path B~~
+- ~~**Where:** `orchestrator.go:577`~~
+- ~~**What:** Visible body shows `truncate(taskID, 36)`; URL template uses full taskID. If Planner constructs URL from visible ID → 404. Compounds with the no-HTTP-tool issue (1.1).~~
+- ~~**Fix:** Show the full ID OR don't suggest URL-based action OR change action to ID-based act_cli subcommand.~~
+- **Resolution (805fd4e):** dropped the `truncate(taskID, 36)` from the failed-task autoroute summary text (and the batch-mode firstFailedSummary fallback). After Fix 3 the autoroute prompt instructs the Planner to use `act_cli task retry <id>` / `task abandon <id>` — a truncated visible ID would cause those calls to fail. Task IDs are short UUIDs (~24 bytes), no display concern. Compounding issue 1.1 (POST verb) was already resolved by Fix 2 + Fix 3.
 
 ### 6.4 ~~[FIXED in eabcc9b] `dependencies` field accepts multiple shapes; prompt says "empty array or omit"~~
 - ~~**Sources:** sub1~~
@@ -203,11 +207,12 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**Fix:** Specify one canonical empty form, reject the others.~~
 - **Resolution (eabcc9b):** belt + suspenders. (1) Prompt tightened to one canonical shape: "ALWAYS an array. Use [] when none — do NOT use null, do NOT use \"\", do NOT omit." (2) `TaskDef.Dependencies` changed from `[]string` to a new `dependencyList` named type with forgiving `UnmarshalJSON`: array → []string; null/missing/"" → nil; single string → []string{single}; number/object → error (surfaces in firstFailPreview). The previous failure mode — `""` causes the WHOLE TaskDef unmarshal to fail and the directive silently disappears — now lands the task. Tests: `TestParseCreateTaskDirectives_DependenciesShapes` (6 sub-cases) + `TestParseCreateTaskDirectives_DependenciesNumberDoesNotSilentlyDropTask`.
 
-### 6.5 [ACTIVE] Role-count "usually" loophole
-- **Sources:** sub1
-- **Where:** `basePlannerPrompt` (planner.go:24): *"Single-file CLI → 1 role (usually developer or backend_dev)"*
-- **What:** "Usually" is the loophole. Smaller models pick backend_dev for a 50-line Go script because backend_dev's capability list includes `go`.
-- **Fix:** Tighten language to "always developer for single-file scripts unless explicitly server/API."
+### 6.5 ~~[FIXED in 805fd4e] Role-count "usually" loophole~~
+- ~~**Sources:** sub1~~
+- ~~**Where:** `basePlannerPrompt` (planner.go:24): *"Single-file CLI → 1 role (usually developer or backend_dev)"*~~
+- ~~**What:** "Usually" is the loophole. Smaller models pick backend_dev for a 50-line Go script because backend_dev's capability list includes `go`.~~
+- ~~**Fix:** Tighten language to "always developer for single-file scripts unless explicitly server/API."~~
+- **Resolution (805fd4e):** rewrote to "ALWAYS `developer`, unless the script is explicitly an HTTP server or DB-backed API (then `backend_dev`). Do not pick `backend_dev` just because the language is Go/Python/etc. — `backend_dev` is for server/API work, not generic scripts." Explicit ALWAYS + concrete carve-out + reasoning closes the loophole.
 
 ---
 
@@ -219,11 +224,12 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - **What:** User sees raw `[SYSTEM]` plumbing in chat history on every resume. Same pattern for build_mode_trigger.
 - **Fix:** Give Planner its own InternalPromptMarker for orchestrator-authored prompts, OR render as styled system banners instead of user-role messages.
 
-### 7.2 [ACTIVE] `CREATE_TASK:` literal in system messages violates the rule it enforces
-- **Sources:** Path B + sub2 (Finding 5c)
-- **Where:** `resume_context_prepended`, `build_mode_trigger` both contain literal `CREATE_TASK:` string
-- **What:** basePlannerPrompt and autoroute envelope both forbid "writing CREATE_TASK in conversational prose." Yet orchestrator's own system messages do exactly that. Currently harmless (parser tolerates the no-`{`-follow case) but a parser-coupling tripwire.
-- **Fix:** Refer to the marker by description ("emit task-creation directives") rather than literal name in user-facing system messages.
+### 7.2 ~~[FIXED in 805fd4e] `CREATE_TASK:` literal in system messages violates the rule it enforces~~
+- ~~**Sources:** Path B + sub2 (Finding 5c)~~
+- ~~**Where:** `resume_context_prepended`, `build_mode_trigger` both contain literal `CREATE_TASK:` string~~
+- ~~**What:** basePlannerPrompt and autoroute envelope both forbid "writing CREATE_TASK in conversational prose." Yet orchestrator's own system messages do exactly that. Currently harmless (parser tolerates the no-`{`-follow case) but a parser-coupling tripwire.~~
+- ~~**Fix:** Refer to the marker by description ("emit task-creation directives") rather than literal name in user-facing system messages.~~
+- **Resolution (805fd4e):** scrubbed the two orchestrator-authored surfaces (`renderBriefContext` build trigger + task-list guard) to use "task-creation directives" / "you know the shape" instead of the literal `CREATE_TASK:` marker. Autoroute variant templates kept their `CREATE_TASK:` mentions because those are instruction surfaces (telling the Planner what to emit) — different from the conversational-prose prohibition. Existing `TestRenderBriefContext_AllFieldsAndTaskLists` updated to match.
 
 ### 7.3 [ACTIVE] project_context_fragment file content can silently override base rules
 - **Sources:** sub1
@@ -235,23 +241,26 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 
 ## Category 8 — Single-finding observations worth tracking
 
-### 8.1 [ACTIVE] Date format US M/D/YYYY without timezone
-- **Sources:** Path B
-- **Where:** `env_block_fragment` (common.go:17)
-- **What:** Borderline confusing for absolute-time reasoning. Not currently causing drift but worth noting.
-- **Fix:** Switch to ISO 8601 with timezone.
+### 8.1 ~~[FIXED in 805fd4e] Date format US M/D/YYYY without timezone~~
+- ~~**Sources:** Path B~~
+- ~~**Where:** `env_block_fragment` (common.go:17)~~
+- ~~**What:** Borderline confusing for absolute-time reasoning. Not currently causing drift but worth noting.~~
+- ~~**Fix:** Switch to ISO 8601 with timezone.~~
+- **Resolution (805fd4e):** `time.Now().Format("1/2/2006")` → `time.Now().UTC().Format(time.RFC3339)`. One-line change in `getEnvironmentInfo`. Date now shows as e.g. `2026-05-27T14:30:00Z`.
 
-### 8.2 [ACTIVE] Concurrent file walk in project_context produces non-deterministic ordering
-- **Sources:** sub1
-- **Where:** `processContextPaths` goroutine fan-out
-- **What:** Two consecutive starts can produce file blocks in different orders → defeats prefix-cache on provider side.
-- **Fix:** Sort results by path before assembling.
+### 8.2 ~~[FIXED in a8577d2] Concurrent file walk in project_context produces non-deterministic ordering~~
+- ~~**Sources:** sub1~~
+- ~~**Where:** `processContextPaths` goroutine fan-out~~
+- ~~**What:** Two consecutive starts can produce file blocks in different orders → defeats prefix-cache on provider side.~~
+- ~~**Fix:** Sort results by path before assembling.~~
+- **Resolution (a8577d2):** `processContextPaths` rewritten sequential — paths in argument order, directory walks `sort.Strings`'d by full path, dedup case-insensitive. Same output as the parallel form on the existing test (which already expected sorted order); now deterministic by construction. Provider-side prompt-cache breakpoint (Anthropic ephemeral) hits stable keys across launches. The parallelism wasn't buying much for the typical 2-3 ContextPaths anyway. Test: `TestProcessContextPaths_DeterministicOrdering` (8 consecutive runs, byte-identical).
 
-### 8.3 [ACTIVE] Re-emission dedup is invisible to the Planner
-- **Sources:** sub1 + Path B + synthesizer
-- **Where:** orchestrator.go::checkAndRecordDispatchHash (defense exists); base prompt (no mention of why batches get silently dropped)
-- **What:** Model never learns its second emission was rejected. Same systemic pattern as `firstPlannerTurn` and `consecutiveAutoTurns` — orchestrator-side enforcement the LLM has no observability into.
-- **Fix:** Emit a system message to the Planner when dedup fires.
+### 8.3 ~~[FIXED in 0b5129b] Re-emission dedup is invisible to the Planner~~
+- ~~**Sources:** sub1 + Path B + synthesizer~~
+- ~~**Where:** orchestrator.go::checkAndRecordDispatchHash (defense exists); base prompt (no mention of why batches get silently dropped)~~
+- ~~**What:** Model never learns its second emission was rejected. Same systemic pattern as `firstPlannerTurn` and `consecutiveAutoTurns` — orchestrator-side enforcement the LLM has no observability into.~~
+- ~~**Fix:** Emit a system message to the Planner when dedup fires.~~
+- **Resolution (0b5129b):** new `notifyDispatchDedup(hash, taskCount, age)` fires on the drop path with two channels: (a) chat banner `⏭  Skipped duplicate task batch (N tasks, hash=..., last dispatched Ns ago)` for the human, (b) autoroute with `variantSystemEscalation` + `dedupAutorouteText(taskCount, age)` body for the Planner — explicit guidance to either change a title/description and re-emit, or stop trying. Reused the existing variant (matches the "Silence is WRONG" semantics) rather than introducing a dedicated one. Tests: `TestDedupAutorouteText` + `TestDedupAutorouteText_WrappedByVariantSystemEscalation`.
 
 ### 8.4 [ACTIVE] Burst-mode autoroute shows only first failure in detail
 - **Sources:** sub3 + Path B
@@ -279,6 +288,13 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 8. ~~**[FIXED afaf0c3] 5.2 + 5.3 — ACP priming hygiene.** Spec investigation confirmed no system-message channel exists in ACP. Mitigations: `InternalPromptMarker` prefix for log scrapers + explicit `[ACT priming — do not respond]` header for the LLM + `stopReason` switch routing host hallucinations / refusals to WARN instead of silent discard.~~
 9. ~~**[FIXED 9707f9a] 2.2 + 2.3 — Trim basePlannerPrompt duplication.** Removed the redundant "Allowed subcommands:" enumeration line and the "Reacting to other roles" arrow-bullet block; the shared fragments still ship those (now without competing framings in the same prompt). Net savings: ~104 bytes per Planner turn. Locked by `TestBasePlannerPromptNoFragmentDuplication`.~~
 10. ~~**[FIXED eabcc9b] 6.4 — Lock dependencies shape + forgiving parse.** Belt + suspenders: prompt tightened to one canonical "always array, [] for none" shape; new `dependencyList` named type with forgiving `UnmarshalJSON` coerces recoverable shapes (null, "", single-string) to empty/single-element so the WHOLE TaskDef no longer silently disappears when a smaller model emits `"dependencies": ""`. Number/object shapes still error loudly so novel hallucinations surface.~~
+
+## Top 4 fixes — Round 4 (shipped)
+
+11. ~~**[FIXED a8577d2] 2.4 + 8.2 — Deterministic context-walk + content-hash skip.** `processContextPaths` rewritten sequential so two consecutive runs over the same files produce byte-identical output (deterministic-by-construction). Added `contextHash` (SHA-256) to the in-memory cache so post-`InvalidateContextCache` rebuilds on unchanged files reuse the prior string — keeps the Anthropic ephemeral-cache key stable across spurious invalidations. Audit's "no diffing every turn" framing was partly inaccurate; this is the narrow real fix.~~
+12. ~~**[FIXED 805fd4e] 6.1 + 6.3 + 6.5 + 7.2 + 8.1 — Cluster of 5 small prompt + normalization fixes.** `normalizeRole(qa)→qa_synthesizer` at the `getAgent` boundary; dropped `truncate(taskID,36)` from failed-task autoroutes; tightened the role-count "usually" loophole with explicit ALWAYS + carve-out; scrubbed literal `CREATE_TASK:` from orchestrator-authored system messages (kept it where it's legitimately instructional); switched env-block date format to ISO 8601 UTC.~~
+13. ~~**[FIXED b3cc2b7] 6.2 — Route `NEED_CLARIFICATION: @<agent>` to the named addressee.** `maybeRouteQAClarification` parses BEFORE the Planner autoroute; non-Planner addressees get the verbatim QA text forwarded via `client.SendMessage` (broadcast inbox + @-mention filtering) with a chat banner showing the routing. Planner addressee or SendMessage failure falls through to the normal autoroute so questions are never silently dropped.~~
+14. ~~**[FIXED 0b5129b] 8.3 — Surface dispatch-hash dedup events.** When `checkAndRecordDispatchHash` drops a duplicate, fires a chat banner AND an autoroute with `variantSystemEscalation` carrying `dedupAutorouteText` ("change a title and re-emit, or stop trying"). Closes the silent-rejection blind spot the audit flagged as the same systemic class as the pre-Fix-6 cap-bypass loops.~~
 
 When each fix is committed + tested, strike through its entry above and add a `[FIXED in commit <sha>]` annotation.
 
