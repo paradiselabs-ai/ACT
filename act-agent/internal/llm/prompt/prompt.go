@@ -1,9 +1,12 @@
 package prompt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -57,6 +60,13 @@ var (
 	contextMu      sync.Mutex
 	contextLoaded  bool
 	contextContent string
+	// contextHash is the SHA-256 of the most-recently-built contextContent.
+	// On rebuild (post-InvalidateContextCache), we recompute the hash and
+	// reuse the prior contextContent string if the hash matches — keeps the
+	// provider-side prompt-cache breakpoint (Anthropic ephemeral cache,
+	// anthropic.go:190) stable when InvalidateContextCache fires but the
+	// files didn't actually change. Audit Fix 14 (entry 2.4).
+	contextHash string
 )
 
 func getContextFromPaths() string {
@@ -66,92 +76,95 @@ func getContextFromPaths() string {
 		return contextContent
 	}
 	cfg := config.Get()
-	contextContent = processContextPaths(cfg.WorkingDir, cfg.ContextPaths)
+	rebuilt := processContextPaths(cfg.WorkingDir, cfg.ContextPaths)
+	rebuiltHash := hashString(rebuilt)
+	if contextHash != "" && rebuiltHash == contextHash {
+		// Content unchanged from last cached state — discard the new
+		// string and reuse the prior one. Same bytes either way; reusing
+		// keeps any downstream identity-equality (provider cache keys) stable.
+		contextLoaded = true
+		return contextContent
+	}
+	contextContent = rebuilt
+	contextHash = rebuiltHash
 	contextLoaded = true
 	return contextContent
 }
 
-// InvalidateContextCache clears the cached contextPaths content. The next call
-// to getContextFromPaths re-reads every file. The orchestrator calls this
-// after writing AGENTS.md from a fresh PROJECT_BRIEF so Tier 1 agents, whose
-// system messages were baked at TUI startup before AGENTS.md existed, can pick
-// up the new content via RebindSystemPrompt.
+// InvalidateContextCache clears the loaded-flag so the next call to
+// getContextFromPaths re-reads every file. NOT cleared: contextContent and
+// contextHash, so the rebuild can compare against them and reuse the prior
+// string if the files happen to be unchanged (audit Fix 14, entry 2.4). The
+// orchestrator calls this after writing AGENTS.md from a fresh PROJECT_BRIEF
+// so Tier 1 agents whose system messages were baked at TUI startup before
+// AGENTS.md existed can pick up the new content via RebindSystemPrompt.
 func InvalidateContextCache() {
 	contextMu.Lock()
 	defer contextMu.Unlock()
 	contextLoaded = false
-	contextContent = ""
 }
 
+// hashString returns a hex-encoded SHA-256 of s. Used by the cache to skip
+// unnecessary content-string churn when a rebuild produces identical bytes.
+func hashString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// processContextPaths reads every path (file or directory) under workDir
+// and assembles their contents into one string. Output is deterministic:
+// (1) paths visited in argument order, (2) directory walks sorted by
+// file path, (3) duplicates suppressed case-insensitively. Determinism
+// matters because the assembled string lands in the system prompt and
+// hits the provider-side prompt-cache; non-deterministic ordering poisons
+// the cache key and forces a full re-process every turn. Audit Fix 14
+// (entry 8.2) — used to fan out across goroutines with channel-order
+// collection, producing different bytes for the same files on different
+// runs.
+//
+// The parallelism that was here didn't buy much: context paths is
+// typically 2-3 entries (per CLAUDE.md "defaultContextPaths reduced to
+// ['ACT.md', 'ACT.local.md']"). Sequential read is simpler AND
+// deterministic by construction.
 func processContextPaths(workDir string, paths []string) string {
-	var (
-		wg       sync.WaitGroup
-		resultCh = make(chan string)
-	)
+	processed := make(map[string]bool) // case-insensitive seen-set
+	var parts []string
 
-	// Track processed files to avoid duplicates
-	processedFiles := make(map[string]bool)
-	var processedMutex sync.Mutex
+	consume := func(fullPath string) {
+		key := strings.ToLower(fullPath)
+		if processed[key] {
+			return
+		}
+		processed[key] = true
+		if result := processFile(fullPath); result != "" {
+			parts = append(parts, result)
+		}
+	}
 
-	for _, path := range paths {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
-
-			if strings.HasSuffix(p, "/") {
-				filepath.WalkDir(filepath.Join(workDir, p), func(path string, d os.DirEntry, err error) error {
-					if err != nil {
-						return err
-					}
-					if !d.IsDir() {
-						// Check if we've already processed this file (case-insensitive)
-						processedMutex.Lock()
-						lowerPath := strings.ToLower(path)
-						if !processedFiles[lowerPath] {
-							processedFiles[lowerPath] = true
-							processedMutex.Unlock()
-
-							if result := processFile(path); result != "" {
-								resultCh <- result
-							}
-						} else {
-							processedMutex.Unlock()
-						}
-					}
+	for _, p := range paths {
+		if strings.HasSuffix(p, "/") {
+			root := filepath.Join(workDir, p)
+			// Collect file paths first, sort, then read in order — keeps
+			// directory contributions deterministic even if the OS returns
+			// filesystem-order entries (typical on macOS/Linux).
+			var files []string
+			_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+				if err != nil || d.IsDir() {
 					return nil
-				})
-			} else {
-				fullPath := filepath.Join(workDir, p)
-
-				// Check if we've already processed this file (case-insensitive)
-				processedMutex.Lock()
-				lowerPath := strings.ToLower(fullPath)
-				if !processedFiles[lowerPath] {
-					processedFiles[lowerPath] = true
-					processedMutex.Unlock()
-
-					result := processFile(fullPath)
-					if result != "" {
-						resultCh <- result
-					}
-				} else {
-					processedMutex.Unlock()
 				}
+				files = append(files, path)
+				return nil
+			})
+			sort.Strings(files)
+			for _, f := range files {
+				consume(f)
 			}
-		}(path)
+			continue
+		}
+		consume(filepath.Join(workDir, p))
 	}
 
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
-	results := make([]string, 0)
-	for result := range resultCh {
-		results = append(results, result)
-	}
-
-	return strings.Join(results, "\n")
+	return strings.Join(parts, "\n")
 }
 
 func processFile(filePath string) string {
