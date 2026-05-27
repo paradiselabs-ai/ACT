@@ -501,6 +501,34 @@ app.get('/api/tasks', (req, res) => {
 
 app.post('/api/tasks', async (req, res) => {
   try {
+    // Fail-closed guard against Planner placeholder/empty CREATE_TASK
+    // emissions (observed live: Claude Code occasionally fires an
+    // empty-body CREATE_TASK as an acknowledgement after Assurance
+    // returns a pass verdict, despite the planner prompt explicitly
+    // forbidding it). Without this server-side gate, downstream gets:
+    //   1. an "Untitled task" with empty description in the dispatch queue
+    //   2. dev-1 picks it up and runs whatever it thinks fits
+    //   3. Assurance auto-passes it at 100% (no criteria to fail)
+    //   4. the project's deliverable looks "done" via the wrong path
+    // Rejecting at task creation surfaces the malformed input immediately
+    // and forces the Planner to either re-emit a real CREATE_TASK or
+    // stay silent (the correct behavior for a routine pass).
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'task title is required (empty or missing title rejected — likely a placeholder CREATE_TASK from the Planner)',
+        code: 'empty_title',
+      });
+    }
+    if (!description) {
+      return res.status(400).json({
+        success: false,
+        error: 'task description is required (empty or missing description rejected — likely a placeholder CREATE_TASK from the Planner)',
+        code: 'empty_description',
+      });
+    }
     const task = await taskCoordinator.createTask(req.body);
     chronologicalLog.append({
       timestamp: new Date().toISOString(),
