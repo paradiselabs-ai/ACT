@@ -415,7 +415,7 @@ func TestRenderBriefContext_AllFieldsAndTaskLists(t *testing.T) {
 		"@completedTasks",
 		"id=t-3 status=completed",
 		"id=t-4 status=validated",
-		"Do NOT re-emit CREATE_TASK directives for the task IDs above",
+		"Do NOT re-emit task-creation directives for the task IDs above",
 		"act_cli task retry/abandon for failed tasks",
 	}
 	for _, w := range wantStrs {
@@ -653,6 +653,26 @@ func TestParseCreateTaskDirectives_DependenciesShapes(t *testing.T) {
 				t.Errorf("deps[0] = %q; want %q", deps[0], tc.want.depsFirst)
 			}
 		})
+	}
+}
+
+// TestNormalizeRole locks the canonical-role mapping (Fix 13a, entry 6.1).
+// `qa` → `qa_synthesizer`; everything else passes through unchanged.
+func TestNormalizeRole(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"qa", "qa_synthesizer"},
+		{"qa_synthesizer", "qa_synthesizer"},
+		{"planner", "planner"},
+		{"observer", "observer"},
+		{"assurance", "assurance"},
+		{"developer", "developer"},
+		{"unknown-role", "unknown-role"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := normalizeRole(c.in); got != c.want {
+			t.Errorf("normalizeRole(%q) = %q; want %q", c.in, got, c.want)
+		}
 	}
 }
 

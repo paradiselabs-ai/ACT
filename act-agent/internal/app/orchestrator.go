@@ -609,14 +609,19 @@ func (o *Orchestrator) pollCoordinationEvents(ctx context.Context) {
 				if len(result) > 400 {
 					result = result[:400] + "..."
 				}
+				// Full taskID — the Planner needs it verbatim to call
+				// `act_cli task retry <id>` / `task abandon <id>`. Audit
+				// Fix 13b (entry 6.3): previously truncated to 36 chars,
+				// which the Planner would then copy into a failing
+				// act_cli call.
 				summary := fmt.Sprintf(
 					"Task %s just failed (agent %s). Error: %s",
-					truncate(taskID, 36), ev.Agent, result,
+					taskID, ev.Agent, result,
 				)
 				go o.autoRoutePlannerV(ctx, "system", summary, variantSystemEscalation)
 			} else if firstFailedSummary == "" {
 				taskID, _ := ev.Data["taskId"].(string)
-				firstFailedSummary = fmt.Sprintf("task %s (agent %s)", truncate(taskID, 36), ev.Agent)
+				firstFailedSummary = fmt.Sprintf("task %s (agent %s)", taskID, ev.Agent)
 			}
 		}
 
@@ -777,12 +782,29 @@ func (o *Orchestrator) emitSystemMessage(ctx context.Context, sessionID, text st
 	}
 }
 
-// getAgent returns the agent service for a given role.
+// getAgent returns the agent service for a given role. Role names are
+// normalized first so stray aliases (e.g. "qa" emitted by an older
+// surface vs "qa_synthesizer" in the agent map) resolve to the same
+// registered service. Audit Fix 13a (entry 6.1) — without this the
+// lookup returns nil and the message goes nowhere.
 func (o *Orchestrator) getAgent(role string) agent.Service {
 	if o.app.Agents == nil {
 		return nil
 	}
-	return o.app.Agents[role]
+	return o.app.Agents[normalizeRole(role)]
+}
+
+// normalizeRole maps legacy / shorthand role names to their canonical
+// form. Currently just `qa` → `qa_synthesizer`. Unknown names pass
+// through unchanged. Keep this list short — every entry is a latent
+// place an upstream caller can drift from the canonical taxonomy.
+func normalizeRole(role string) string {
+	switch role {
+	case "qa":
+		return "qa_synthesizer"
+	default:
+		return role
+	}
 }
 
 // SetOwner records which role produced a given message.
@@ -1139,7 +1161,7 @@ func renderBriefContext(kind string, b BriefView, tasks []TaskSummary) string {
 	case "resume":
 		fmt.Fprintf(&sb, "[SYSTEM] Resuming project %q. A project brief already exists on the server — do NOT run intake. Switch immediately to BUILD mode.\n\n", b.ProjectName)
 	case "build":
-		fmt.Fprintf(&sb, "[SYSTEM] Project %q has been created. Switch to BUILD mode now: decompose the brief below into tasks and emit CREATE_TASK: directives for each one. Do not ask for confirmation — start creating tasks immediately.\n\n", b.ProjectName)
+		fmt.Fprintf(&sb, "[SYSTEM] Project %q has been created. Switch to BUILD mode now: decompose the brief below into tasks and emit task-creation directives for each one (you know the shape). Do not ask for confirmation — start creating tasks immediately.\n\n", b.ProjectName)
 	default:
 		fmt.Fprintf(&sb, "[SYSTEM] Project %q context:\n\n", b.ProjectName)
 	}
@@ -1192,7 +1214,7 @@ func renderBriefContext(kind string, b BriefView, tasks []TaskSummary) string {
 			fmt.Fprintf(&sb, "  - id=%s status=%s title=%q\n", t.ID, t.Status, t.Title)
 		}
 	}
-	sb.WriteString("\nDo NOT re-emit CREATE_TASK directives for the task IDs above — they already exist on the server. Decompose only NEW work, or use act_cli task retry/abandon for failed tasks above.\n")
+	sb.WriteString("\nDo NOT re-emit task-creation directives for the task IDs above — they already exist on the server. Decompose only NEW work, or use act_cli task retry/abandon for failed tasks above.\n")
 	return sb.String()
 }
 

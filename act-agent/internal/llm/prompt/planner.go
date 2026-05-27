@@ -52,7 +52,7 @@ Before writing a single CREATE_TASK, look at the brief and decide how many agent
 - researcher — analysis, documentation, investigation (NO implementation, NO tests)
 
 **Role-count guidance (pick the SMALLEST viable swarm):**
-- Single-file CLI / <5 success_criteria / one language → 1 role (usually developer or backend_dev)
+- Single-file CLI / <5 success_criteria / one language → 1 role: ALWAYS ` + "`developer`" + `, unless the script is explicitly an HTTP server or a DB-backed API (then ` + "`backend_dev`" + `). Do not pick ` + "`backend_dev`" + ` just because the language is Go/Python/etc. — ` + "`backend_dev`" + ` is for server/API work, not generic scripts.
 - Full-stack web app / distinct UI + API → 2 roles (frontend_dev + backend_dev)
 - >3 roles is justified ONLY when the brief explicitly needs UI + API + DB + QA as separate concerns
 

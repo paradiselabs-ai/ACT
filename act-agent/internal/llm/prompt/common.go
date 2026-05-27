@@ -18,7 +18,11 @@ func getEnvironmentInfo() string {
 	cwd := config.WorkingDirectory()
 	isGit := isGitRepo(cwd)
 	platform := runtime.GOOS
-	date := time.Now().Format("1/2/2006")
+	// ISO 8601 with explicit UTC timezone — unambiguous for absolute-time
+	// reasoning across locales. Audit Fix 13e (entry 8.1): the prior
+	// `1/2/2006` US format was borderline confusing for deadlines / "is
+	// this recent?" reasoning, and lacked timezone entirely.
+	date := time.Now().UTC().Format(time.RFC3339)
 	return fmt.Sprintf(`<env>
 cwd: %s
 git: %s
