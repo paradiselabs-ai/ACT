@@ -150,6 +150,72 @@ func TestClient_StreamingChunksAccumulate(t *testing.T) {
 	}
 }
 
+func TestACPAgent_RebindSystemPromptDiscardsSessions(t *testing.T) {
+	tr := newMemTransport()
+	c := NewClient(tr, nil)
+	defer c.Close()
+
+	a := &ACPAgent{
+		role:         "planner",
+		client:       c,
+		acpSessions:  map[string]string{"act-1": "acp-A", "act-2": "acp-B"},
+	}
+
+	if err := a.RebindSystemPrompt(); err != nil {
+		t.Fatalf("RebindSystemPrompt: %v", err)
+	}
+	if len(a.acpSessions) != 0 {
+		t.Fatalf("expected acpSessions emptied, got %d entries", len(a.acpSessions))
+	}
+	// Both ACP session IDs should have been Cancel'd. Order is map-iteration so
+	// we check the set, not the sequence.
+	sent := tr.Sent()
+	got := map[string]bool{}
+	for _, f := range sent {
+		if f.Method != MethodCancel {
+			t.Fatalf("expected only cancel frames, got method=%q", f.Method)
+		}
+		var p struct {
+			SessionID string `json:"sessionId"`
+		}
+		if err := json.Unmarshal(f.Params, &p); err != nil {
+			t.Fatalf("decode cancel params: %v", err)
+		}
+		got[p.SessionID] = true
+	}
+	if !got["acp-A"] || !got["acp-B"] {
+		t.Fatalf("expected cancel for both acp-A and acp-B, got %v", got)
+	}
+}
+
+func TestACPAgent_RebindSystemPromptRefusesWhenBusy(t *testing.T) {
+	tr := newMemTransport()
+	c := NewClient(tr, nil)
+	defer c.Close()
+
+	a := &ACPAgent{
+		role:        "planner",
+		client:      c,
+		acpSessions: map[string]string{"act-1": "acp-A"},
+	}
+	// Mark a turn in flight.
+	a.activeRequests.Store("act-1", func() {})
+
+	err := a.RebindSystemPrompt()
+	if err == nil {
+		t.Fatalf("expected error when busy, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot rebind") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(a.acpSessions) != 1 {
+		t.Fatalf("sessions must NOT be discarded on busy refusal, got %d", len(a.acpSessions))
+	}
+	if len(tr.Sent()) != 0 {
+		t.Fatalf("expected no cancel frames on busy refusal, got %d", len(tr.Sent()))
+	}
+}
+
 func TestClient_PromptCancelEmitsNotification(t *testing.T) {
 	tr := newMemTransport()
 	c := NewClient(tr, nil)

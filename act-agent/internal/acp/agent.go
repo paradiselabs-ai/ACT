@@ -451,10 +451,34 @@ func (a *ACPAgent) Update(_ config.AgentName, _ models.ModelID) (models.Model, e
 	return a.Model(), fmt.Errorf("acp: model selection is configured by the ACP host (edit ~/.act.json agents.%s.acp.*)", a.role)
 }
 
-// RebindSystemPrompt is a no-op. ACP hosts own their system prompts; ACT's
-// role prompts go in via the priming injection at session/new time, not via
-// rebinding at runtime.
-func (a *ACPAgent) RebindSystemPrompt() error { return nil }
+// RebindSystemPrompt refreshes the role's system prompt by discarding the
+// cached ACP sessions. The next runTurn for any ACT sessionID will call
+// ensureACPSession, which opens a fresh ACP session and fires the priming
+// injector — which calls prompt.GetAgentPrompt at invocation time and picks
+// up the freshly-invalidated AGENTS.md / ACT.md / ACT.local.md content.
+//
+// Refuses to run while a turn is in flight so we don't yank the session out
+// from under an active prompt. The caller (orchestrator) is expected to
+// invalidate prompt.GetAgentPrompt's cache BEFORE calling this so the next
+// session/new request carries the new content.
+func (a *ACPAgent) RebindSystemPrompt() error {
+	if a.IsBusy() {
+		return fmt.Errorf("acp: cannot rebind system prompt while processing requests")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	// Best-effort cancel of any lingering ACP sessions before we forget them.
+	// The ACP host (claude-agent-acp) garbage-collects orphaned sessions when
+	// the subprocess exits, so this is belt + suspenders against stragglers.
+	for actSID, acpSID := range a.acpSessions {
+		if err := a.client.Cancel(acpSID); err != nil {
+			logging.Warn("acp_rebind_cancel_failed",
+				"role", a.role, "act_session", actSID, "acp_session", acpSID, "error", err)
+		}
+	}
+	a.acpSessions = make(map[string]string)
+	return nil
+}
 
 // Summarize is intentionally unsupported for the alpha. Tier 1 summarisation
 // (the agent.Summarize feature) is not on the alpha-blocker list.
