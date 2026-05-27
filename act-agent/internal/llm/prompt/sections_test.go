@@ -111,6 +111,48 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
+// TestActCLICommandsFragmentMatchesAllowlist asserts the hand-written Planner
+// fragment in actCLICommands("planner") (common.go) enumerates every
+// subcommand that RoleSubcommands["planner"] in tools/act_cli_whitelist.go
+// allows. The drift risk: AllowedFor("planner") is the enforcement gate —
+// if the fragment silently omits an allowed subcommand, in-process Planners
+// never learn the capability exists, even though ACP Planners see it via the
+// renderShimNote auto-generation.
+//
+// Note on circular import: tools/expand_prompt_section.go imports this prompt
+// package, so prompt cannot import tools without a cycle. wantBareHeads
+// hard-codes the AllowedFor("planner") bare subcommands with a pointer to the
+// authoritative source. Update both when adding new Planner subcommands.
+//
+// "message" is in AllowedFor("planner") but intentionally omitted from the
+// fragment because the in-process Planner speaks via reply text and message
+// is only relevant for ACP-backed Planners (who see it via renderShimNote).
+// It is excluded from wantBareHeads to avoid a false failure on that
+// intentional omission.
+func TestActCLICommandsFragmentMatchesAllowlist(t *testing.T) {
+	// Mirrors RoleSubcommands["planner"] bare entries (tools/act_cli_whitelist.go).
+	wantBareHeads := []string{
+		"status", "context", "log", "graph", "pvm", "codebase", "prompt-section",
+	}
+	wantCompounds := []string{"task retry", "task abandon"}
+
+	fragment := actCLICommands("planner")
+	for _, head := range wantBareHeads {
+		if !strings.Contains(fragment, "act-agent "+head) {
+			t.Errorf("actCLICommands(\"planner\") missing subcommand head %q — "+
+				"add it to the fragment in common.go and verify it is in "+
+				"RoleSubcommands[\"planner\"] in tools/act_cli_whitelist.go", head)
+		}
+	}
+	for _, compound := range wantCompounds {
+		if !strings.Contains(fragment, "act-agent "+compound) {
+			t.Errorf("actCLICommands(\"planner\") missing compound form %q — "+
+				"add it to the fragment in common.go and verify the compound entry "+
+				"exists in RoleSubcommands[\"planner\"] in tools/act_cli_whitelist.go", compound)
+		}
+	}
+}
+
 // TestBasePlannerPromptNoFragmentDuplication locks the trim that audit
 // Fix 9 (entries 2.2 + 2.3) performed: basePlannerPrompt must not
 // re-enumerate the act_cli allowed subcommands (that lives in the

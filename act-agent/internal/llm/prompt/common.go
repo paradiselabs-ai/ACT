@@ -86,7 +86,8 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 - act-agent status                      Show server status (agents, tasks, locks)
 - act-agent log --tail 20               Show recent coordination log entries
 - act-agent task retry <id>             Re-dispatch a failed task to a new agent (uses next retry attempt)
-- act-agent task abandon <id> --reason "<text>"   Mark a task permanently failed; skips retry. Use when the task is unrecoverable or no longer needed.`
+- act-agent task abandon <id> --reason "<text>"   Mark a task permanently failed; skips retry. Use when the task is unrecoverable or no longer needed.
+- act-agent prompt-section <name>       Pull on-demand Planner reference section (evidence_routing, success_criteria, nomik, validation, examples)`
 
 	case "observer":
 		base = `## ACT CLI Commands (available to you)
