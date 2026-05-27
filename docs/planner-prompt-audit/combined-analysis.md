@@ -58,17 +58,19 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**Sub3's fix:** differentiate per source (see 4.1 below). Synthesizer concurs as Top-5 #3.~~
 - **Resolution (ac87a1f):** introduced `autoRouteVariant` (variantAnomaly / variantPassVerdict / variantFailVerdict / variantSystemEscalation) + `renderAutoRoutePrompt` + `autoRoutePlannerV`. Each source uses its own tighter template; Assurance posts parse via `parseValidationVerdict` to pick pass-vs-fail. The legacy one-template envelope is now only emitted for Observer + default. Net per-fire token shrinkage varies by source — system-event prompts drop ~60% (no more (a)/(b)/(c) tree + no dead POST verb), pass-verdict drops ~40% (silence-default framing is much shorter than the action tree).
 
-### 2.2 [ACTIVE] `coordination_constraints_fragment` duplicates basePlannerPrompt role boundaries
-- **Sources:** sub1 + Path B
-- **Where:** `common.go:187` vs `planner.go:24` "Reacting to other roles" section
-- **What:** Both fragments tell the Planner "Assurance validates, QA assembles, you decide." Two slightly-different framings. ~50 tokens duplicated per turn × every Tier 1 call. Sub1 confirms: *"duplication that costs ~50 tokens every turn and gives the model two slightly-different framings of the same rule."*
-- **Fix:** Collapse into base prompt; drop the fragment.
+### 2.2 ~~[FIXED in 9707f9a] `coordination_constraints_fragment` duplicates basePlannerPrompt role boundaries~~
+- ~~**Sources:** sub1 + Path B~~
+- ~~**Where:** `common.go:187` vs `planner.go:24` "Reacting to other roles" section~~
+- ~~**What:** Both fragments tell the Planner "Assurance validates, QA assembles, you decide." Two slightly-different framings. ~50 tokens duplicated per turn × every Tier 1 call. Sub1 confirms: *"duplication that costs ~50 tokens every turn and gives the model two slightly-different framings of the same rule."*~~
+- ~~**Fix:** Collapse into base prompt; drop the fragment.~~
+- **Resolution (9707f9a):** opposite direction taken — fragment stays (shared across 9 roles, can't delete), and the duplicate "Reacting to other roles" block in basePlannerPrompt was removed instead. coordinationConstraints("planner") NEVER-list is now the single source. Locked by `TestBasePlannerPromptNoFragmentDuplication`.
 
-### 2.3 [ACTIVE] `act_cli_commands_fragment` enumeration duplicated in basePlannerPrompt
-- **Sources:** sub1
-- **Where:** `common.go:71` enumerates CLI commands; `planner.go:24` redescribes act_cli usage rules.
-- **What:** ~700 bytes of enumeration with another ~200 bytes of restated rules in the base prompt. Plus the JSON-shape rule (`"args ALWAYS array"`) sits ~5K tokens away from the command enumeration — model adherence drops when affordance and constraint are far apart.
-- **Fix:** Fold into base; move JSON-shape rule adjacent to the command list.
+### 2.3 ~~[FIXED in 9707f9a] `act_cli_commands_fragment` enumeration duplicated in basePlannerPrompt~~
+- ~~**Sources:** sub1~~
+- ~~**Where:** `common.go:71` enumerates CLI commands; `planner.go:24` redescribes act_cli usage rules.~~
+- ~~**What:** ~700 bytes of enumeration with another ~200 bytes of restated rules in the base prompt. Plus the JSON-shape rule (`"args ALWAYS array"`) sits ~5K tokens away from the command enumeration — model adherence drops when affordance and constraint are far apart.~~
+- ~~**Fix:** Fold into base; move JSON-shape rule adjacent to the command list.~~
+- **Resolution (9707f9a):** the redundant "Allowed subcommands: status, context, log, graph, pvm, message, codebase, task" line was deleted from basePlannerPrompt; the fragment (with descriptions) is the single source. Anti-pattern reminder ("Do NOT attempt ls, cat, sqlite3, go, git, or raw shell") preserved — it's not in the fragment and is genuinely useful. JSON-shape co-location deferred (the `args ALWAYS array` rule still sits separately; revisit if drift surfaces). Net savings: ~104 bytes per Planner turn.
 
 ### 2.4 [ACTIVE] `project_context_fragment` runtime substitution dominates fragment cost
 - **Sources:** sub1
@@ -151,23 +153,26 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**Fix:** See plan file. Either send a fresh `session/new` with refreshed priming (loses conversation), or push a "context update" user message the ACP host treats as canonical. Latter cheaper.~~
 - **Resolution (770a290):** discard-sessions approach. Best-effort Cancel each ACP session ID, then clear `acpSessions` map. Next `ensureACPSession` opens a fresh session and the priming injector re-reads `prompt.GetAgentPrompt`, picking up the freshly invalidated context. Refuses to run while IsBusy. Unit tests: `TestACPAgent_RebindSystemPromptDiscardsSessions`, `TestACPAgent_RebindSystemPromptRefusesWhenBusy`.
 
-### 5.2 [ACTIVE] ACP priming is a USER message, not a system message
-- **Sources:** sub2 + Path B
-- **Where:** `acp/agent.go:340-346` — `client.Prompt(ctx, id, prime)` sends as user-role
-- **What:** ACP hosts treating user messages as conversation-level surface the role prompt as if the human said it. Anyone watching the Claude Code session would see the entire planner.go prompt rendered as the first chat bubble.
-- **Fix:** Investigate ACP spec for system-message equivalent (some hosts have a "developer message" or "system prompt" surface separate from user messages).
+### 5.2 ~~[FIXED in afaf0c3] ACP priming is a USER message, not a system message~~
+- ~~**Sources:** sub2 + Path B~~
+- ~~**Where:** `acp/agent.go:340-346` — `client.Prompt(ctx, id, prime)` sends as user-role~~
+- ~~**What:** ACP hosts treating user messages as conversation-level surface the role prompt as if the human said it. Anyone watching the Claude Code session would see the entire planner.go prompt rendered as the first chat bubble.~~
+- ~~**Fix:** Investigate ACP spec for system-message equivalent (some hosts have a "developer message" or "system prompt" surface separate from user messages).~~
+- **Resolution (afaf0c3):** ACP spec investigation (acp/types.go:147-161) confirmed no system-message channel exists — `ContentBlock.Type` is `text|image|resource` only. So priming HAS to be a user message. Mitigations: (1) prepend `InternalPromptMarker` so our log scrapers can filter primer noise from real Planner output; (2) prepend explicit `[ACT priming — do not respond. This is one-time configuration injected by the orchestrator. Acknowledge silently by emitting no text.]` so the LLM has SOME handle on "this isn't chat." The host UI bubble still exists (can't fix from our side without protocol changes) but is now clearly labeled. Test: `TestACPPrimingComposition_MarkerAndHeader`.
 
-### 5.3 [ACTIVE] ACP priming reply is discarded with no instruction to stay silent
-- **Sources:** sub2
-- **Where:** `acp/agent.go:344` — `if _, err := a.client.Prompt(...)` only checks error
-- **What:** Model burns first turn on a useless acknowledgement that gets thrown away. No feedback loop — if host hallucinates or misunderstands, we never see it.
-- **Fix:** Prepend "Do not respond; this is configuration." to the priming message.
+### 5.3 ~~[FIXED in afaf0c3] ACP priming reply is discarded with no instruction to stay silent~~
+- ~~**Sources:** sub2~~
+- ~~**Where:** `acp/agent.go:344` — `if _, err := a.client.Prompt(...)` only checks error~~
+- ~~**What:** Model burns first turn on a useless acknowledgement that gets thrown away. No feedback loop — if host hallucinates or misunderstands, we never see it.~~
+- ~~**Fix:** Prepend "Do not respond; this is configuration." to the priming message.~~
+- **Resolution (afaf0c3):** captured alongside 5.2. `acp/agent.go` now captures `stopReason, err := client.Prompt(...)` and routes through a switch: `end_turn` → INFO `acp_priming_completed`; anything else (refusal, empty, error) → WARN with a hint about host misbehavior. So a misbehaving ACP host or smaller-model refusal is now visible in `~/.act/runners/*.log` instead of silent. Plus the do-not-respond header from 5.2 reduces the rate of acks landing in the first place.
 
-### 5.4 [ACTIVE] Shim allowlist drift between priming advertisement and enforcement
-- **Sources:** sub2 + Path B
-- **Where:** `app.go:231` (priming advertises `act-tier1-planner`); `act_cli_whitelist.go` (real allowlist)
-- **What:** Priming says shim is on PATH; real allowlist enforces what subcommands the shim accepts. If they drift, Planner gets permission errors for commands the priming claimed were allowed.
-- **Fix:** Generate priming text from `act_cli_whitelist.go` at construction, not hand-write.
+### 5.4 ~~[FIXED in de479f4] Shim allowlist drift between priming advertisement and enforcement~~
+- ~~**Sources:** sub2 + Path B~~
+- ~~**Where:** `app.go:231` (priming advertises `act-tier1-planner`); `act_cli_whitelist.go` (real allowlist)~~
+- ~~**What:** Priming says shim is on PATH; real allowlist enforces what subcommands the shim accepts. If they drift, Planner gets permission errors for commands the priming claimed were allowed.~~
+- ~~**Fix:** Generate priming text from `act_cli_whitelist.go` at construction, not hand-write.~~
+- **Resolution (de479f4):** the hand-coded `(status, log, etc.)` example list became `renderShimNote(role)` which reads `tools.AllowedFor(role)` live and renders the full allowed list as a bullet list. Adding a new entry to the allowlist now automatically updates the priming. Tests: `TestACPPrimingMatchesAllowlist` (4 roles) + `TestACPPrimingShimNote_NoParentheticalPlaceholders` (regression guard against re-introducing open-ended placeholders).
 
 ---
 
@@ -191,11 +196,12 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - **What:** Visible body shows `truncate(taskID, 36)`; URL template uses full taskID. If Planner constructs URL from visible ID → 404. Compounds with the no-HTTP-tool issue (1.1).
 - **Fix:** Show the full ID OR don't suggest URL-based action OR change action to ID-based act_cli subcommand.
 
-### 6.4 [ACTIVE] `dependencies` field accepts multiple shapes; prompt says "empty array or omit"
-- **Sources:** sub1
-- **Where:** `basePlannerPrompt` (planner.go:24)
-- **What:** Two valid encodings advertised. Models may pick null, [], omit, or "" depending on prior turn. Parser accepts only specific forms; the prompt never specifies which.
-- **Fix:** Specify one canonical empty form, reject the others.
+### 6.4 ~~[FIXED in eabcc9b] `dependencies` field accepts multiple shapes; prompt says "empty array or omit"~~
+- ~~**Sources:** sub1~~
+- ~~**Where:** `basePlannerPrompt` (planner.go:24)~~
+- ~~**What:** Two valid encodings advertised. Models may pick null, [], omit, or "" depending on prior turn. Parser accepts only specific forms; the prompt never specifies which.~~
+- ~~**Fix:** Specify one canonical empty form, reject the others.~~
+- **Resolution (eabcc9b):** belt + suspenders. (1) Prompt tightened to one canonical shape: "ALWAYS an array. Use [] when none — do NOT use null, do NOT use \"\", do NOT omit." (2) `TaskDef.Dependencies` changed from `[]string` to a new `dependencyList` named type with forgiving `UnmarshalJSON`: array → []string; null/missing/"" → nil; single string → []string{single}; number/object → error (surfaces in firstFailPreview). The previous failure mode — `""` causes the WHOLE TaskDef unmarshal to fail and the directive silently disappears — now lands the task. Tests: `TestParseCreateTaskDirectives_DependenciesShapes` (6 sub-cases) + `TestParseCreateTaskDirectives_DependenciesNumberDoesNotSilentlyDropTask`.
 
 ### 6.5 [ACTIVE] Role-count "usually" loophole
 - **Sources:** sub1
@@ -266,6 +272,13 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 4. ~~**[FIXED c853932] 1.2 — `expand_prompt_section` parity for ACP.** Investigation: dispatcher IS wired natively for in-process Planners; what was missing was an ACP-side equivalent. Per user direction (build the tool, don't strip the prompt), added `act-agent prompt-section <name>` Go CLI subcommand + allowlist entry + drift-prevention test locking the prompt's "Available sections" list to the registry.~~
 5. ~~**[FIXED 3f0e8dd] 3.2 + 3.3 — Inline full brief in resume + BUILD-mode triggers.** Replaced both terse messages with `renderBriefContext` helper that emits a SPIL-style `@brief` block (all 5 fields) plus `@inFlightTasks`/`@completedTasks` partitioned lists and an explicit "do NOT re-emit CREATE_TASK for these IDs" guard.~~
 6. ~~**[FIXED 4cb1d26] 4.1 — Sliding-window cascade cap.** Replaced `consecutiveAutoTurns int` with `recentAutoRoutes []time.Time`. 5 fires per 10-minute window, regardless of trigger source. Closes the three documented bypass loops (QA watchdog re-fire, Assurance verdict mirror, Observer 120s echo). Side benefit: 4.2 (Observer free-tier rate-limit risk) gets the same protection.~~
+
+## Top 4 fixes — Round 3 (shipped)
+
+7. ~~**[FIXED de479f4] 5.4 — Generate ACP shim priming from `tools.AllowedFor`.** Same drift class as Fix 4; same root cause (hand-coded "(status, log, etc.)" example list became fact in the LLM's worldview). Now generates the priming bullet list live from the canonical whitelist so adding a new allowlist entry automatically flows through.~~
+8. ~~**[FIXED afaf0c3] 5.2 + 5.3 — ACP priming hygiene.** Spec investigation confirmed no system-message channel exists in ACP. Mitigations: `InternalPromptMarker` prefix for log scrapers + explicit `[ACT priming — do not respond]` header for the LLM + `stopReason` switch routing host hallucinations / refusals to WARN instead of silent discard.~~
+9. ~~**[FIXED 9707f9a] 2.2 + 2.3 — Trim basePlannerPrompt duplication.** Removed the redundant "Allowed subcommands:" enumeration line and the "Reacting to other roles" arrow-bullet block; the shared fragments still ship those (now without competing framings in the same prompt). Net savings: ~104 bytes per Planner turn. Locked by `TestBasePlannerPromptNoFragmentDuplication`.~~
+10. ~~**[FIXED eabcc9b] 6.4 — Lock dependencies shape + forgiving parse.** Belt + suspenders: prompt tightened to one canonical "always array, [] for none" shape; new `dependencyList` named type with forgiving `UnmarshalJSON` coerces recoverable shapes (null, "", single-string) to empty/single-element so the WHOLE TaskDef no longer silently disappears when a smaller model emits `"dependencies": ""`. Number/object shapes still error loudly so novel hallucinations surface.~~
 
 When each fix is committed + tested, strike through its entry above and add a `[FIXED in commit <sha>]` annotation.
 
