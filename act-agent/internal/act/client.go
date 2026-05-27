@@ -364,6 +364,39 @@ func (c *Client) CreateTask(title, description string, requiredCapabilities []st
 	return data.Task.ID, nil
 }
 
+// SetTaskDependencies replaces a task's dependency list. Used by the
+// orchestrator's two-pass CREATE_TASK dispatch — pass 1 creates every task
+// without dependencies and collects server-assigned IDs; pass 2 resolves
+// each Planner-emitted title-string dependency to its corresponding ID and
+// PATCHes the task to use IDs. Without this, dependencies referenced by
+// title (the only thing the Planner can emit, since IDs don't exist before
+// creation) never match anything in the server's task map and the dependent
+// tasks sit in `pending` forever.
+func (c *Client) SetTaskDependencies(taskID string, dependencyIDs []string) error {
+	body := map[string]any{
+		"dependencies": dependencyIDs,
+	}
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal dependencies: %w", err)
+	}
+	req, err := http.NewRequest("PATCH", c.ServerURL+"/api/tasks/"+url.PathEscape(taskID)+"/dependencies", bytes.NewReader(jsonBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("act PATCH dependencies: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("act PATCH dependencies: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	return nil
+}
+
 // ListTasks fetches tasks from the ACT server. Scoped to the client's
 // current project when set — without scoping, Observer's status snapshot
 // sees cross-project tasks and flags them as stuck/failed anomalies in

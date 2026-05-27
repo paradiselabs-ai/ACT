@@ -269,16 +269,23 @@ export class TaskCoordinator extends EventEmitter {
   }
 
   private async checkDependencies(task: Task): Promise<string[]> {
-    const uncompletedDependencies: string[] = [];
+    // A dependency is "satisfied" once its work has been produced — that is
+    // ANY terminal-success state, not just 'completed'. The original check
+    // only accepted 'completed', which meant any dependency that progressed
+    // through validation (completed → submitted_for_validation → validated)
+    // would NEVER unblock its dependents. Tasks downstream of a validated
+    // task would sit in `pending` forever and the swarm would silently stall.
+    const satisfied = new Set(['completed', 'submitted_for_validation', 'validated']);
+    const unsatisfied: string[] = [];
 
     for (const depId of task.dependencies) {
       const depTask = this.tasks.get(depId);
-      if (!depTask || depTask.status !== 'completed') {
-        uncompletedDependencies.push(depId);
+      if (!depTask || !satisfied.has(depTask.status)) {
+        unsatisfied.push(depId);
       }
     }
 
-    return uncompletedDependencies;
+    return unsatisfied;
   }
 
   private async processPendingTasks(): Promise<void> {

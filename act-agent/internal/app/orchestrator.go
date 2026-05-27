@@ -1121,7 +1121,24 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 		}
 	}
 
+	// Two-pass CREATE_TASK dispatch:
+	//   Pass 1 — create every task with NO dependencies; collect (title → ID).
+	//   Pass 2 — for any task whose Planner-emitted deps reference sibling
+	//            titles in this batch, PATCH /api/tasks/:id/dependencies to
+	//            replace title strings with server-assigned IDs.
+	//
+	// Why: the Planner can only refer to dependencies by title — task IDs
+	// don't exist until creation. Without this resolution, the server's
+	// dependency-satisfaction check (which does tasks.get(depString)) never
+	// matches any title-string dep, leaving downstream tasks pending forever.
+	titleToID := make(map[string]string, len(tasks))
 	created := 0
+	type pendingDepUpdate struct {
+		taskID string
+		title  string
+		deps   []string // original Planner-emitted dep strings (may be titles)
+	}
+	var depUpdates []pendingDepUpdate
 	for _, task := range tasks {
 		title := task.Title
 		if title == "" {
@@ -1144,13 +1161,46 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 			metadata["projectName"] = proj
 		}
 
-		taskID, err := client.CreateTask(title, task.Description, caps, priority, task.Dependencies, metadata)
+		// Pass 1: create with empty dependencies. Pass 2 below resolves and
+		// PATCHes them in once every sibling's ID is known.
+		taskID, err := client.CreateTask(title, task.Description, caps, priority, nil, metadata)
 		if err != nil {
 			logging.Warn("Failed to create task from Planner directive", "title", title, "error", err)
 			continue
 		}
 		logging.Info("Task created from Planner directive", "task_id", taskID, "title", title)
 		created++
+		if title != "" {
+			titleToID[title] = taskID
+		}
+		if len(task.Dependencies) > 0 {
+			depUpdates = append(depUpdates, pendingDepUpdate{taskID: taskID, title: title, deps: task.Dependencies})
+		}
+	}
+	// Pass 2: resolve title-string deps to IDs. A dep string that looks like
+	// a known task ID (server-issued UUID, no match in titleToID) is passed
+	// through as-is — supports Planner emissions that already use IDs.
+	for _, upd := range depUpdates {
+		resolved := make([]string, 0, len(upd.deps))
+		var unresolved []string
+		for _, dep := range upd.deps {
+			if id, ok := titleToID[dep]; ok {
+				resolved = append(resolved, id)
+				continue
+			}
+			// Not a sibling title — assume it's already an ID (UUID-shaped
+			// strings will pass the server's existence check; non-existent
+			// strings will be rejected with a 400 by the PATCH endpoint).
+			resolved = append(resolved, dep)
+			unresolved = append(unresolved, dep)
+		}
+		if err := client.SetTaskDependencies(upd.taskID, resolved); err != nil {
+			logging.Warn("Failed to set task dependencies after creation",
+				"task_id", upd.taskID, "title", upd.title, "deps", upd.deps, "error", err)
+			continue
+		}
+		logging.Info("Task dependencies resolved",
+			"task_id", upd.taskID, "title", upd.title, "deps", resolved, "unresolved_titles", unresolved)
 	}
 	// Trigger a Nomik incremental rescan after task creation so Planner sees fresh
 	// graph state on next iteration.
