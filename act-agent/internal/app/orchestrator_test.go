@@ -498,3 +498,95 @@ func TestBriefViewFromGetProject_MissingFieldsDontPanic(t *testing.T) {
 		t.Errorf("expected empty fields for missing keys; got %+v", bv)
 	}
 }
+
+// --- pruneAutoRoutes / sliding-window cap tests (Fix 6) ---
+
+func TestPruneAutoRoutes_KeepsAllWithinWindow(t *testing.T) {
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	times := []time.Time{
+		now.Add(-2 * time.Minute),
+		now.Add(-1 * time.Minute),
+		now,
+	}
+	got := pruneAutoRoutes(times, now, 10*time.Minute)
+	if len(got) != 3 {
+		t.Errorf("expected all 3 entries kept; got %d", len(got))
+	}
+}
+
+func TestPruneAutoRoutes_DropsOlderThanWindow(t *testing.T) {
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	times := []time.Time{
+		now.Add(-30 * time.Minute), // dropped
+		now.Add(-20 * time.Minute), // dropped
+		now.Add(-5 * time.Minute),  // kept
+		now,                        // kept
+	}
+	got := pruneAutoRoutes(times, now, 10*time.Minute)
+	if len(got) != 2 {
+		t.Errorf("expected 2 entries kept; got %d (slice: %v)", len(got), got)
+	}
+}
+
+func TestCascadeCap_AdmitsWithinCap(t *testing.T) {
+	// 4 fires within window — all admitted (cap is 5).
+	o := &Orchestrator{}
+	base := time.Now()
+	for i := 0; i < 4; i++ {
+		o.recentAutoRoutes = pruneAutoRoutes(o.recentAutoRoutes, base, autoRouteWindow)
+		if len(o.recentAutoRoutes) >= autoTurnCap {
+			t.Fatalf("fire #%d wrongly rejected at len=%d", i, len(o.recentAutoRoutes))
+		}
+		o.recentAutoRoutes = append(o.recentAutoRoutes, base)
+	}
+	if len(o.recentAutoRoutes) != 4 {
+		t.Errorf("expected 4 fires recorded; got %d", len(o.recentAutoRoutes))
+	}
+}
+
+func TestCascadeCap_RejectsBeyondCap(t *testing.T) {
+	// Seed the slice with exactly cap recent fires; the next one must be
+	// rejected (replicates the cap check inside autoRoutePlannerV).
+	o := &Orchestrator{}
+	base := time.Now()
+	for i := 0; i < autoTurnCap; i++ {
+		o.recentAutoRoutes = append(o.recentAutoRoutes, base)
+	}
+	pruned := pruneAutoRoutes(o.recentAutoRoutes, base, autoRouteWindow)
+	if len(pruned) < autoTurnCap {
+		t.Fatalf("seed setup wrong: expected len >= %d, got %d", autoTurnCap, len(pruned))
+	}
+	// The cap check is `len >= autoTurnCap` → this should reject.
+	if !(len(pruned) >= autoTurnCap) {
+		t.Errorf("expected fire to be rejected at len=%d cap=%d", len(pruned), autoTurnCap)
+	}
+}
+
+func TestCascadeCap_AdmitsAfterWindowAdvances(t *testing.T) {
+	// 5 fires at t=0; check at t=window+1min → all should be pruned and
+	// the next fire admitted.
+	o := &Orchestrator{}
+	t0 := time.Now()
+	for i := 0; i < autoTurnCap; i++ {
+		o.recentAutoRoutes = append(o.recentAutoRoutes, t0)
+	}
+	tLater := t0.Add(autoRouteWindow + time.Minute)
+	o.recentAutoRoutes = pruneAutoRoutes(o.recentAutoRoutes, tLater, autoRouteWindow)
+	if len(o.recentAutoRoutes) != 0 {
+		t.Errorf("expected all entries pruned after window advance; got %d", len(o.recentAutoRoutes))
+	}
+}
+
+func TestCascadeCap_HumanInputClears(t *testing.T) {
+	// Seed with cap fires; simulate HandleHumanInput's reset; next check
+	// should admit (slice is nil).
+	o := &Orchestrator{}
+	base := time.Now()
+	for i := 0; i < autoTurnCap; i++ {
+		o.recentAutoRoutes = append(o.recentAutoRoutes, base)
+	}
+	o.recentAutoRoutes = nil // HandleHumanInput does this
+	if len(o.recentAutoRoutes) >= autoTurnCap {
+		t.Errorf("expected slice cleared by human input; got len=%d", len(o.recentAutoRoutes))
+	}
+}

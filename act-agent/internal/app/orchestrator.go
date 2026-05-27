@@ -89,10 +89,15 @@ type Orchestrator struct {
 	// so the next anomaly cycle after a human turn always fires fresh.
 	lastObserverPromptHash string
 
-	// consecutiveAutoTurns counts auto-routed Planner turns chained without a
-	// human input in between. Capped at autoTurnCap to prevent agent loops.
-	// Reset to 0 by HandleHumanInput.
-	consecutiveAutoTurns int
+	// recentAutoRoutes holds the wall-clock timestamps of recent auto-routed
+	// Planner turns. Sliding-window cap: more than autoTurnCap fires within
+	// autoRouteWindow gets the next one dropped, regardless of trigger source.
+	// Cleared by HandleHumanInput (so a fresh human turn always gets a clean
+	// budget). Audit Fix 6 — replaces the prior consecutiveAutoTurns counter
+	// which only counted back-to-back fires and missed three documented loops
+	// (QA watchdog re-fire, Assurance verdict mirror, Observer 120s echo) that
+	// resetting the counter between cycles let through.
+	recentAutoRoutes []time.Time
 
 	// lastTurnAt[role] records the start time of the most recent runAgentTurn
 	// for that Tier 1 role. Powers the Observer Tier 1 watchdog (α-2): when a
@@ -261,7 +266,7 @@ func (o *Orchestrator) HandleHumanInput(ctx context.Context, sessionID string, t
 	// Reset the auto-turn counter — every human input gets a fresh budget of
 	// chained auto-routed Planner turns from the other Tier 1 agents.
 	o.mu.Lock()
-	o.consecutiveAutoTurns = 0
+	o.recentAutoRoutes = nil          // human input clears the sliding window
 	o.lastObserverPromptHash = "" // re-arm Observer no-op gate
 
 	// On the first Planner turn of a resumed session, prepend the project
@@ -982,24 +987,38 @@ func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromConte
 }
 
 // autoRoutePlannerV forwards a non-Planner Tier 1 message into a Planner
-// turn using the given prompt variant.  Recursion-safe via
-// consecutiveAutoTurns: at most autoTurnCap chained turns per human input.
-// Reset by HandleHumanInput.
+// turn using the given prompt variant. Cascade-safe via a sliding-window
+// cap: at most autoTurnCap fires within autoRouteWindow, regardless of
+// trigger source. Cleared by HandleHumanInput.
 func (o *Orchestrator) autoRoutePlannerV(ctx context.Context, fromRole, fromContent string, variant autoRouteVariant) {
 	o.mu.Lock()
-	if o.consecutiveAutoTurns >= autoTurnCap {
+	now := time.Now()
+	o.recentAutoRoutes = pruneAutoRoutes(o.recentAutoRoutes, now, autoRouteWindow)
+	if len(o.recentAutoRoutes) >= autoTurnCap {
+		windowSeconds := int(autoRouteWindow.Seconds())
 		o.mu.Unlock()
-		logging.Warn("autoroute_planner_dropped", "from", fromRole, "cap", autoTurnCap, "reason", "auto_turn_cap")
+		logging.Warn("autoroute_planner_dropped",
+			"from", fromRole,
+			"cap", autoTurnCap,
+			"window_seconds", windowSeconds,
+			"reason", "auto_route_window_cap",
+		)
 		return
 	}
-	o.consecutiveAutoTurns++
-	turns := o.consecutiveAutoTurns
+	o.recentAutoRoutes = append(o.recentAutoRoutes, now)
+	fires := len(o.recentAutoRoutes)
 	sid := o.sessionID
 	o.mu.Unlock()
 	if sid == "" {
 		return
 	}
-	logging.Info("autoroute_planner", "from", fromRole, "variant", variant, "consecutive_turns", turns, "content_bytes", len(fromContent))
+	logging.Info("autoroute_planner",
+		"from", fromRole,
+		"variant", variant,
+		"fires_in_window", fires,
+		"window_seconds", int(autoRouteWindow.Seconds()),
+		"content_bytes", len(fromContent),
+	)
 	prompt := renderAutoRoutePrompt(variant, fromRole, fromContent)
 	// Wait for any in-flight Planner turn to finish before firing. Hitting
 	// runAgentTurn synchronously here races with a Planner mid-tool-call
@@ -1062,10 +1081,41 @@ func renderAutoRoutePrompt(variant autoRouteVariant, fromRole, fromContent strin
 	}
 }
 
-// autoTurnCap is the maximum number of consecutive auto-routed Planner turns
-// per human input. Resets when the user types something. Prevents agent loops
-// (Observer → Planner → action → Observer notices → Planner → ...).
+// autoTurnCap is the maximum number of auto-routed Planner turns admitted
+// within autoRouteWindow. Sliding-window semantics (audit Fix 6, was an
+// integer back-to-back counter): three documented cascade loops
+// (QA watchdog re-fire, Assurance verdict mirror, Observer 120s echo)
+// bypass any reset-on-human-input integer counter because each is a fresh
+// lineage. The wall-clock window catches them all.
 const autoTurnCap = 5
+
+// autoRouteWindow is the rolling time window the autoTurnCap is enforced
+// against. 10 minutes lets Observer's ~120s cadence get four cycles through
+// cleanly and traps a runaway by the 5th. HandleHumanInput clears the
+// whole window so a human turn always gets a clean budget.
+const autoRouteWindow = 10 * time.Minute
+
+// pruneAutoRoutes drops entries older than `window` relative to `now`. Pure
+// function — caller holds the orchestrator mutex. Extracted for testability:
+// tests pass a synthetic `now` and a seeded slice to verify pruning without
+// needing a clock-injection seam in the rest of the orchestrator.
+func pruneAutoRoutes(times []time.Time, now time.Time, window time.Duration) []time.Time {
+	cutoff := now.Add(-window)
+	// Most-recent entries are at the tail; find the first index that
+	// survives the cutoff by scanning forward (the slice is in append
+	// order so this is sorted ascending by timestamp).
+	keep := 0
+	for keep < len(times) && times[keep].Before(cutoff) {
+		keep++
+	}
+	if keep == 0 {
+		return times
+	}
+	// Copy-shift so the backing array can be reused; avoids growing
+	// the slice unbounded over a long session.
+	n := copy(times, times[keep:])
+	return times[:n]
+}
 
 // renderBriefContext composes the [SYSTEM] block injected as the first
 // Planner turn on resume, and the BUILD-mode kickoff message. Both
