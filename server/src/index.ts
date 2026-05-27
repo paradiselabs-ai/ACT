@@ -554,7 +554,8 @@ app.post('/api/tasks', async (req, res) => {
           timestamp: new Date().toISOString(),
           agent: assignment.agentId,
           message: `task assigned: ${task.id} -> ${assignment.agentId}`,
-          type: 'task_assigned'
+          type: 'task_assigned',
+          data: { taskId: task.id, agentId: assignment.agentId }
         });
       }
     }
@@ -749,6 +750,7 @@ app.post('/api/tasks/:taskId/retry', async (req, res) => {
       return res.status(400).json({ success: false, error: `Task is not failed (status: ${task.status})` });
     }
 
+    const previousAgent = task.assignedAgent;
     const retried = await taskCoordinator.retryTask(taskId);
     if (!retried) {
       return res.status(409).json({
@@ -760,6 +762,16 @@ app.post('/api/tasks/:taskId/retry', async (req, res) => {
     }
 
     io.emit('task_retry', { taskId, retryCount: retried.retryCount, timestamp: new Date().toISOString() });
+    // Log to ChronLog so retryCount and pending status survive a server restart.
+    // Without this, a retried task rehydrates as 'failed' with retryCount=0,
+    // defeating the MAX_TASK_RETRIES permanently-failed guard.
+    chronologicalLog.append({
+      timestamp: new Date().toISOString(),
+      agent: previousAgent || 'system',
+      message: `task retried: ${taskId} (attempt ${retried.retryCount}/${MAX_TASK_RETRIES})`,
+      type: 'task_retry',
+      data: { taskId, retryCount: retried.retryCount, previousAgent }
+    });
     res.json({ success: true, task: retried });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });

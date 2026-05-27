@@ -572,6 +572,25 @@ export class ChronologicalLog {
               }
               break;
             }
+            case 'task_retry': {
+              // Replays the retryTask() side-effects: status back to pending,
+              // assignedAgent cleared, progress reset, retryCount restored.
+              // Without this, a retried task rehydrates as 'failed' with
+              // retryCount=0, defeating the MAX_TASK_RETRIES guard and
+              // causing the task to be re-dispatched to a fresh agent on restart.
+              if (d && d.taskId) {
+                const task = tasks.get(d.taskId);
+                if (task) {
+                  task.status = 'pending';
+                  task.assignedAgent = undefined;
+                  task.progress = 0;
+                  task.startedAt = undefined;
+                  task.completedAt = undefined;
+                  if (d.retryCount !== undefined) task.retryCount = d.retryCount;
+                }
+              }
+              break;
+            }
             case 'task_submitted_for_validation': {
               if (d && d.taskId) {
                 const task = tasks.get(d.taskId);

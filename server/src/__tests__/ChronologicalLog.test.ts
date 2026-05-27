@@ -496,7 +496,7 @@ describe('ChronologicalLog', () => {
         agent: 'system',
         message: 'agent registered',
         type: 'agent_registered',
-        data: { agentId: 'dev-1', name: 'dev-1', capabilities: ['go'] },
+        data: { agentId: 'dev-1', name: 'dev-1', capabilities: ['go'], projectName: 'test-project' },
       };
       await log.batchAppend([agentEvent]);
       await log.flush();
@@ -520,7 +520,9 @@ describe('ChronologicalLog', () => {
         agent: 'dev-1',
         message: 'file claim',
         type: 'file_claim',
-        data: { agentId: 'dev-1', taskId: 'task-1', filePaths: ['src/foo.ts'] },
+        // projectName is required since the caafe6f bleed-fix: keys are now
+        // "${projectName} ${filePath}" so the lookup must match.
+        data: { agentId: 'dev-1', taskId: 'task-1', filePaths: ['src/foo.ts'], projectName: 'test-project' },
       };
       await log.batchAppend([claimEvent]);
       await log.flush();
@@ -532,7 +534,8 @@ describe('ChronologicalLog', () => {
       const fileLocks = new Map<string, any>();
       await log.restoreFromLog(projects, tasks, briefs, agents, fileLocks);
 
-      const lock = fileLocks.get('src/foo.ts');
+      // Key format is "${projectName} ${filePath}" since the bleed-fix scoped locks by project.
+      const lock = fileLocks.get('test-project src/foo.ts');
       expect(lock).toBeDefined();
       expect(lock.lockedAt).toBeInstanceOf(Date);
     });
