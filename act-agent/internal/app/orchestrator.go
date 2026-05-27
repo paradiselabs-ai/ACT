@@ -1402,6 +1402,14 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 			"task_count", len(tasks),
 			"age_ms", age.Milliseconds(),
 		)
+		// Audit Fix 12 (entry 8.3): surface the silent drop. Without this
+		// the Planner has no observability into orchestrator-side dedup
+		// enforcement — same systemic pattern as firstPlannerTurn and the
+		// pre-Fix-6 consecutiveAutoTurns counter. Two channels: (1) chat
+		// banner for the human, (2) autoroute back into the Planner with
+		// variantSystemEscalation so it learns what happened and either
+		// stops re-emitting or changes a title to make the batch distinct.
+		o.notifyDispatchDedup(batchHash, len(tasks), age)
 		return
 	}
 
@@ -1565,6 +1573,53 @@ func (o *Orchestrator) checkAndRecordDispatchHash(hash string) (drop bool, age t
 	}
 	o.recentDispatchHashes[hash] = now
 	return false, 0
+}
+
+// notifyDispatchDedup surfaces a dispatch-hash drop to both the human
+// (via a chat banner) and the Planner (via an autoroute fire with the
+// system-escalation variant). Without this, the dedup was silent —
+// the Planner saw its emission "succeed" and either re-tried (same
+// hash, same silent drop) or moved on assuming the tasks landed.
+//
+// Audit Fix 12 (entry 8.3). Same systemic class as Fix 6's autoroute
+// cap visibility: orchestrator-side enforcement the LLM had no
+// signal about.
+//
+// Uses variantSystemEscalation because the action menu — "either
+// change a title/description and re-emit, or stop trying, or message
+// the human" — fits the existing escalation framing. A dedicated
+// variant would be overkill for one trigger.
+func (o *Orchestrator) notifyDispatchDedup(batchHash string, taskCount int, age time.Duration) {
+	o.mu.RLock()
+	sid := o.sessionID
+	o.mu.RUnlock()
+	hashPrefix := batchHash
+	if len(hashPrefix) > 12 {
+		hashPrefix = hashPrefix[:12]
+	}
+	// Chat banner — short, for the human watching.
+	o.emitSystemMessage(context.Background(), sid, fmt.Sprintf(
+		"⏭  Skipped duplicate task batch (%d tasks, hash=%s, last dispatched %s ago)",
+		taskCount, hashPrefix, age.Round(time.Second),
+	))
+	// Autoroute — longer, for the Planner to learn from. Fire in a
+	// goroutine to match the rest of the autoroute machinery and so we
+	// don't block the directive-dispatch goroutine on the trigger.
+	go o.autoRoutePlannerV(context.Background(), "system",
+		dedupAutorouteText(taskCount, age), variantSystemEscalation)
+}
+
+// dedupAutorouteText composes the Planner-facing message body for a
+// dispatch-hash dedup event. Pure function so tests can lock the
+// wording without spinning up the orchestrator's goroutine / session
+// machinery.
+func dedupAutorouteText(taskCount int, age time.Duration) string {
+	return fmt.Sprintf(
+		"Your last CREATE_TASK batch (%d tasks) was a duplicate of one dispatched %s ago — the orchestrator skipped re-creating those tasks. "+
+			"If you meant to dispatch NEW work, change at least one task title or description so the batch hash differs. "+
+			"If the previous batch already covered what you intended, stop re-emitting and wait for the swarm to make progress.",
+		taskCount, age.Round(time.Second),
+	)
 }
 
 // filterSwarmSpecsByProject returns the subset of SwarmSpecs whose role

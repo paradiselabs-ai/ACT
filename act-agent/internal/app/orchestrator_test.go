@@ -656,6 +656,47 @@ func TestParseCreateTaskDirectives_DependenciesShapes(t *testing.T) {
 	}
 }
 
+// --- dispatch-dedup notification tests (Fix 12) ---
+
+// TestDedupAutorouteText covers the message body the Planner sees on a
+// dispatch-hash dedup event. The text has to actually nudge the Planner
+// toward "change a title and re-emit" or "stop re-emitting" — silent
+// drop was the bug the audit caught, so any future edit that loses
+// these cues regresses Fix 12.
+func TestDedupAutorouteText(t *testing.T) {
+	got := dedupAutorouteText(3, 12*time.Second)
+	for _, want := range []string{
+		"duplicate of one dispatched",
+		"12s ago",
+		"3 tasks",
+		"change at least one task title or description",
+		"stop re-emitting",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in dedup autoroute text; got:\n%s", want, got)
+		}
+	}
+}
+
+// TestDedupAutorouteText_WrappedByVariantSystemEscalation confirms that
+// wrapping the dedup text in the variantSystemEscalation envelope
+// produces the full "Silence is WRONG / use act_cli" framing the
+// Planner needs alongside the dedup-specific guidance.
+func TestDedupAutorouteText_WrappedByVariantSystemEscalation(t *testing.T) {
+	body := dedupAutorouteText(2, 8*time.Second)
+	full := renderAutoRoutePrompt(variantSystemEscalation, "system", body)
+	for _, want := range []string{
+		"Silence is WRONG",
+		"act_cli task retry",
+		"duplicate of one dispatched",
+		"2 tasks",
+	} {
+		if !strings.Contains(full, want) {
+			t.Errorf("expected %q in wrapped prompt; got:\n%s", want, full)
+		}
+	}
+}
+
 // --- maybeRouteQAClarification tests (Fix 11) ---
 
 // TestClarificationRegex_AddresseeExtraction is the upstream contract
