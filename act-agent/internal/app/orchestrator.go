@@ -304,30 +304,41 @@ func (o *Orchestrator) detectProjectState() {
 		// Build a resume context string injected into the first Planner turn so it
 		// knows to skip INTAKE and go straight to BUILD. Without this the Planner
 		// sees a blank conversation and falls back to asking intake questions.
-		desc, _ := data["description"].(string)
-		tech, _ := data["techStack"].(string)
-		sc, _ := data["successCriteria"].(string)
+		brief := briefViewFromGetProject(name, data)
 		briefsCount := 0
 		if b, ok := data["briefs"].(map[string]any); ok {
 			briefsCount = len(b)
 		}
-		o.resumeContext = fmt.Sprintf(
-			"[SYSTEM] Resuming project '%s'. A project brief already exists on the server — do NOT run intake. Switch immediately to BUILD mode: decompose the brief into tasks and emit CREATE_TASK: directives.\nBrief summary — description: %s | techStack: %s",
-			name, desc, tech,
-		)
+		// Also fetch the current task list so the Planner sees what's
+		// already dispatched and doesn't re-emit CREATE_TASK for tasks
+		// the server already knows about. Best-effort — if the call
+		// fails we render a brief-only block.
+		var tasks []TaskSummary
+		if raw, err := client.ListTasks(); err == nil && raw != "" {
+			if uerr := unmarshalListField(raw, "tasks", &tasks); uerr != nil {
+				logging.Warn("project_resume_task_decode_failed", "project", name, "error", uerr)
+				tasks = nil
+			}
+		} else if err != nil {
+			logging.Warn("project_resume_task_fetch_failed", "project", name, "error", err)
+		}
+
+		o.resumeContext = renderBriefContext("resume", brief, tasks)
 		o.firstPlannerTurn = true
 		o.mu.Unlock()
 		logging.Info("project_resume",
 			"project", name,
-			"desc", truncate(desc, 80),
-			"tech", truncate(tech, 60),
-			"has_success_criteria", sc != "",
+			"desc", truncate(brief.Description, 80),
+			"tech", truncate(brief.TechStack, 60),
+			"has_success_criteria", brief.SuccessCriteria != "",
+			"agents_involved", len(brief.AgentsInvolved),
 			"brief_count", briefsCount,
+			"in_flight_or_done_tasks", len(tasks),
 		)
 		// Silent envelope-unwrap regressions (today's GetProject bug) show up as
 		// all-blank preview fields. Fire a loud warning so the next regression
 		// is caught within seconds of startup instead of after the first turn.
-		if desc == "" && tech == "" {
+		if brief.Description == "" && brief.TechStack == "" {
 			logging.Warn("project_resume_blank_fields",
 				"project", name,
 				"reason", "description and techStack both empty — possible response envelope regression",
@@ -337,6 +348,25 @@ func (o *Orchestrator) detectProjectState() {
 	}
 	o.mu.Unlock()
 	logging.Info("No server-side project record — entering INTAKE mode", "project", name)
+}
+
+// briefViewFromGetProject extracts a BriefView from the map returned by
+// client.GetProject. Keys not present become empty fields — the
+// renderer omits missing fields cleanly rather than emitting "undefined."
+func briefViewFromGetProject(name string, data map[string]any) BriefView {
+	bv := BriefView{ProjectName: name}
+	bv.Description, _ = data["description"].(string)
+	bv.TechStack, _ = data["techStack"].(string)
+	bv.Constraints, _ = data["constraints"].(string)
+	bv.SuccessCriteria, _ = data["successCriteria"].(string)
+	if raw, ok := data["agentsInvolved"].([]any); ok {
+		for _, v := range raw {
+			if s, ok := v.(string); ok && s != "" {
+				bv.AgentsInvolved = append(bv.AgentsInvolved, s)
+			}
+		}
+	}
+	return bv
 }
 
 // runAgentTurn executes a single turn for the given role.
@@ -1037,6 +1067,94 @@ func renderAutoRoutePrompt(variant autoRouteVariant, fromRole, fromContent strin
 // (Observer → Planner → action → Observer notices → Planner → ...).
 const autoTurnCap = 5
 
+// renderBriefContext composes the [SYSTEM] block injected as the first
+// Planner turn on resume, and the BUILD-mode kickoff message. Both
+// callers used to send terse summaries (resume: desc+tech only; BUILD:
+// just the project name). With fields missing, the Planner's intake-
+// heuristics fire and it asks the human to re-run intake. Audit Fix 5
+// (entries 3.2 + 3.3) — inline the full brief so the mode-switch is
+// unambiguous from a single message.
+//
+// Both sources route through BriefView so the renderer has one shape to
+// reason about: GetProject's map[string]any populates BriefView in the
+// resume path; a fresh ProjectBrief populates it in the BUILD path.
+// `tasks` may be nil — in that case the function emits "no tasks
+// dispatched yet — start decomposing now," matching the BUILD-trigger
+// intent. The kind argument switches the leading instruction between
+// "Resuming project — skip intake" and "Project created — start BUILD."
+func renderBriefContext(kind string, b BriefView, tasks []TaskSummary) string {
+	var sb strings.Builder
+
+	switch kind {
+	case "resume":
+		fmt.Fprintf(&sb, "[SYSTEM] Resuming project %q. A project brief already exists on the server — do NOT run intake. Switch immediately to BUILD mode.\n\n", b.ProjectName)
+	case "build":
+		fmt.Fprintf(&sb, "[SYSTEM] Project %q has been created. Switch to BUILD mode now: decompose the brief below into tasks and emit CREATE_TASK: directives for each one. Do not ask for confirmation — start creating tasks immediately.\n\n", b.ProjectName)
+	default:
+		fmt.Fprintf(&sb, "[SYSTEM] Project %q context:\n\n", b.ProjectName)
+	}
+
+	sb.WriteString("@brief\n")
+	if b.Description != "" {
+		fmt.Fprintf(&sb, "  description: %s\n", b.Description)
+	}
+	if b.TechStack != "" {
+		fmt.Fprintf(&sb, "  techStack: %s\n", b.TechStack)
+	}
+	if b.Constraints != "" {
+		fmt.Fprintf(&sb, "  constraints: %s\n", b.Constraints)
+	}
+	if b.SuccessCriteria != "" {
+		fmt.Fprintf(&sb, "  successCriteria: %s\n", b.SuccessCriteria)
+	}
+	if len(b.AgentsInvolved) > 0 {
+		fmt.Fprintf(&sb, "  agentsInvolved: %s\n", strings.Join(b.AgentsInvolved, ", "))
+	}
+
+	if len(tasks) == 0 {
+		sb.WriteString("\n@tasks\n  no tasks dispatched yet — start decomposing now.\n")
+		return sb.String()
+	}
+
+	// Partition into in-flight (anything not terminal) vs completed-side
+	// (completed/validated). Failed tasks count as in-flight so the
+	// Planner sees them and can retry/abandon — that's the whole point
+	// of the new tools from Fix 2.
+	var inFlight, doneLike []TaskSummary
+	for _, t := range tasks {
+		switch t.Status {
+		case "completed", "validated":
+			doneLike = append(doneLike, t)
+		default:
+			inFlight = append(inFlight, t)
+		}
+	}
+
+	if len(inFlight) > 0 {
+		sb.WriteString("\n@inFlightTasks\n")
+		for _, t := range inFlight {
+			fmt.Fprintf(&sb, "  - id=%s status=%s agent=%s title=%q\n", t.ID, t.Status, defaultStr(t.AssignedAgent, "unassigned"), t.Title)
+		}
+	}
+	if len(doneLike) > 0 {
+		sb.WriteString("\n@completedTasks\n")
+		for _, t := range doneLike {
+			fmt.Fprintf(&sb, "  - id=%s status=%s title=%q\n", t.ID, t.Status, t.Title)
+		}
+	}
+	sb.WriteString("\nDo NOT re-emit CREATE_TASK directives for the task IDs above — they already exist on the server. Decompose only NEW work, or use act_cli task retry/abandon for failed tasks above.\n")
+	return sb.String()
+}
+
+// defaultStr returns fallback when s is empty. Local helper for the
+// brief renderer's "unassigned" / "-" placeholders.
+func defaultStr(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
 // handleProjectBrief parses a PROJECT_BRIEF directive from a Planner intake-mode
 // response and POSTs it to the ACT server. On success, clears intakeMode so the
 // next Planner turn falls back to normal task-decomposition behavior.
@@ -1122,10 +1240,14 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 	// Fix: defer to a goroutine that waits for the Planner to finish its
 	// current turn, then fires. Polls IsRoleBusy at 200ms intervals up to
 	// 60s (plenty for any reasonable turn completion).
-	buildPrompt := fmt.Sprintf(
-		"Project '%s' has been created. Switch to BUILD mode now: decompose the project brief into tasks and emit CREATE_TASK: directives for each one. Do not ask for confirmation — start creating tasks immediately.",
-		name,
-	)
+	buildPrompt := renderBriefContext("build", BriefView{
+		ProjectName:     name,
+		Description:     brief.Description,
+		TechStack:       brief.TechStack,
+		Constraints:     brief.Constraints,
+		SuccessCriteria: brief.SuccessCriteria,
+		AgentsInvolved:  brief.AgentsInvolved,
+	}, nil)
 	go o.fireWhenPlannerIdle(ctx, sid, buildPrompt, "build_mode_trigger")
 }
 

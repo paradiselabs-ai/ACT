@@ -15,6 +15,19 @@ type ProjectBrief struct {
 	AgentsInvolved  []string `json:"agentsInvolved"`
 }
 
+// BriefView is the orchestrator-side view of a project brief, used to
+// render the resume/BUILD-mode context block. Populated from either
+// GetProject (resume path) or a fresh ProjectBrief (BUILD path) — the
+// two sources speak different shapes but feed the same renderer.
+type BriefView struct {
+	ProjectName     string
+	Description     string
+	TechStack       string
+	Constraints     string
+	SuccessCriteria string
+	AgentsInvolved  []string
+}
+
 // TaskSummary is a single task as returned by /api/tasks endpoints.
 type TaskSummary struct {
 	ID                   string         `json:"id"`

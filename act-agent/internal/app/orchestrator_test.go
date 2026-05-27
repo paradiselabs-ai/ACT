@@ -380,3 +380,121 @@ func TestRenderAutoRoutePrompt_AnomalyIsTheLegacyTree(t *testing.T) {
 		}
 	}
 }
+
+// --- renderBriefContext tests (Fix 5) ---
+
+func TestRenderBriefContext_AllFieldsAndTaskLists(t *testing.T) {
+	bv := BriefView{
+		ProjectName:     "wordtallies",
+		Description:     "Count words in markdown",
+		TechStack:       "Go, CLI",
+		Constraints:     "no external deps",
+		SuccessCriteria: "handles UTF-8; CSV output",
+		AgentsInvolved:  []string{"backend_dev", "qa_engineer"},
+	}
+	tasks := []TaskSummary{
+		{ID: "t-1", Title: "lib", Status: "in_progress", AssignedAgent: "dev-1"},
+		{ID: "t-2", Title: "tests", Status: "pending"},
+		{ID: "t-3", Title: "cli", Status: "completed"},
+		{ID: "t-4", Title: "docs", Status: "validated"},
+	}
+	got := renderBriefContext("resume", bv, tasks)
+
+	wantStrs := []string{
+		`Resuming project "wordtallies"`,
+		"do NOT run intake",
+		"@brief",
+		"description: Count words in markdown",
+		"techStack: Go, CLI",
+		"constraints: no external deps",
+		"successCriteria: handles UTF-8; CSV output",
+		"agentsInvolved: backend_dev, qa_engineer",
+		"@inFlightTasks",
+		"id=t-1 status=in_progress agent=dev-1 title=\"lib\"",
+		"id=t-2 status=pending agent=unassigned",
+		"@completedTasks",
+		"id=t-3 status=completed",
+		"id=t-4 status=validated",
+		"Do NOT re-emit CREATE_TASK directives for the task IDs above",
+		"act_cli task retry/abandon for failed tasks",
+	}
+	for _, w := range wantStrs {
+		if !strings.Contains(got, w) {
+			t.Errorf("expected %q in output; got:\n%s", w, got)
+		}
+	}
+}
+
+func TestRenderBriefContext_NoTasksBuildKind(t *testing.T) {
+	bv := BriefView{
+		ProjectName: "newproject",
+		Description: "fresh",
+		TechStack:   "Rust",
+	}
+	got := renderBriefContext("build", bv, nil)
+
+	for _, w := range []string{
+		`Project "newproject" has been created`,
+		"Switch to BUILD mode now",
+		"@brief",
+		"description: fresh",
+		"techStack: Rust",
+		"no tasks dispatched yet — start decomposing now.",
+	} {
+		if !strings.Contains(got, w) {
+			t.Errorf("expected %q in output; got:\n%s", w, got)
+		}
+	}
+	// Empty-field guard — should NOT print empty constraint/successCriteria lines.
+	for _, banned := range []string{"constraints: \n", "successCriteria: \n", "agentsInvolved: \n"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("expected empty field %q to be omitted; got:\n%s", banned, got)
+		}
+	}
+}
+
+func TestRenderBriefContext_PartialBriefNoFiller(t *testing.T) {
+	bv := BriefView{
+		ProjectName: "minimal",
+		Description: "just desc",
+		// TechStack, Constraints, SuccessCriteria, AgentsInvolved all empty
+	}
+	got := renderBriefContext("resume", bv, nil)
+	if !strings.Contains(got, "description: just desc") {
+		t.Errorf("desc missing; got:\n%s", got)
+	}
+	// No mention of techStack/constraints/successCriteria/agentsInvolved lines.
+	for _, banned := range []string{"techStack:", "constraints:", "successCriteria:", "agentsInvolved:"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("expected %q to be omitted when empty; got:\n%s", banned, got)
+		}
+	}
+}
+
+func TestBriefViewFromGetProject_AllFields(t *testing.T) {
+	data := map[string]any{
+		"description":     "test description",
+		"techStack":       "Go",
+		"constraints":     "no deps",
+		"successCriteria": "works",
+		"agentsInvolved":  []any{"backend_dev", "qa_engineer"},
+	}
+	bv := briefViewFromGetProject("p1", data)
+	if bv.ProjectName != "p1" || bv.Description != "test description" || bv.TechStack != "Go" ||
+		bv.Constraints != "no deps" || bv.SuccessCriteria != "works" {
+		t.Errorf("scalar fields mis-extracted: %+v", bv)
+	}
+	if len(bv.AgentsInvolved) != 2 || bv.AgentsInvolved[0] != "backend_dev" || bv.AgentsInvolved[1] != "qa_engineer" {
+		t.Errorf("agentsInvolved mis-extracted: %v", bv.AgentsInvolved)
+	}
+}
+
+func TestBriefViewFromGetProject_MissingFieldsDontPanic(t *testing.T) {
+	bv := briefViewFromGetProject("p1", map[string]any{}) // empty map
+	if bv.ProjectName != "p1" {
+		t.Errorf("project name not set: %+v", bv)
+	}
+	if bv.Description != "" || bv.TechStack != "" || len(bv.AgentsInvolved) != 0 {
+		t.Errorf("expected empty fields for missing keys; got %+v", bv)
+	}
+}
