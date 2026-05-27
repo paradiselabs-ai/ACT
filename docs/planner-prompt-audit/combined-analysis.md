@@ -312,11 +312,11 @@ When each fix is committed + tested, strike through its entry above and add a `[
 
 Findings that surfaced during Round 5 audits but fall outside `planner-prompts.json`'s scope (which covers Planner-facing prompt injection points only). Tracked here so the full audit history is in one place.
 
-### O.1 ~~[FIXED in 2a1cc53] `ValidationScore` always 0 in QA synthesis prompt~~
+### O.1 ~~[FIXED in e1adc85] `ValidationScore` always 0 in QA synthesis prompt~~
 - ~~**Sources:** Round 5 scope-boundary finding — missed by both audit paths because `buildSynthesisPrompt` feeds the QA-Synthesizer, not the Planner. Surfaced during Round 5a implementation.~~
 - ~~**Where:** `orchestrator.go:2370` (routeToQA) — `ValidatedOutput` struct literal; `orchestrator.go:2758` (buildSynthesisPrompt) — `"Validation score: %d/100"` format string~~
 - ~~**What:** `routeToQA` constructs `ValidatedOutput` without setting `ValidationScore`. Go zero-initializes `int` fields to 0. `buildSynthesisPrompt` emits `"Validation score: 0/100"` to the QA-Synthesizer on every synthesis turn, even when Assurance scored 100. The QA-Synthesizer reads a misleading signal ("0/100") on fully-validated work and may treat it as low-quality during assembly. The real score IS available: the server writes `task.metadata.validationScore` on `task_validated` events (ChronologicalLog.ts:610); `GetValidatedTasks()` returns tasks with that metadata populated.~~
-- **Resolution (2a1cc53):** reads `t.Metadata["validationScore"]` before constructing the struct; handles both `int` and `float64` (Go JSON unmarshal decodes all numbers into `map[string]any` as `float64`). Populates `ValidatedOutput.ValidationScore` from the metadata value. Test: `TestBuildSynthesisPrompt_IncludesValidationScore` in `orchestrator_test.go` — feeds `ValidatedOutput{ValidationScore: 100}`, asserts prompt contains `"Validation score: 100/100"` not `"Validation score: 0/100"`.
+- **Resolution (e1adc85):** reads `t.Metadata["validationScore"]` before constructing the struct; handles both `int` and `float64` (Go JSON unmarshal decodes all numbers into `map[string]any` as `float64`). Populates `ValidatedOutput.ValidationScore` from the metadata value. Test: `TestBuildSynthesisPrompt_IncludesValidationScore` in `orchestrator_test.go` — feeds `ValidatedOutput{ValidationScore: 100}`, asserts prompt contains `"Validation score: 100/100"` not `"Validation score: 0/100"`.
 
 ---
 
