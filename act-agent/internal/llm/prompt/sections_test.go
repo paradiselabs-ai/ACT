@@ -85,3 +85,32 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestBasePlannerPromptNoFragmentDuplication locks the trim that audit
+// Fix 9 (entries 2.2 + 2.3) performed: basePlannerPrompt must not
+// re-enumerate the act_cli allowed subcommands (that lives in the
+// shared actCLICommands fragment) and must not restate the
+// "Reacting to other roles" decision matrix (that lives in the shared
+// coordinationConstraints fragment). The fragments are shared across
+// 9 roles; the duplications were Planner-only and inflated the
+// per-turn token cost while giving smaller models two slightly-
+// different framings to anchor to.
+func TestBasePlannerPromptNoFragmentDuplication(t *testing.T) {
+	bannedSubstrings := []string{
+		// The literal enumeration that used to live at planner.go:103.
+		// The fragment side renders the same content with descriptions.
+		"Allowed subcommands: status, context, log, graph, pvm, message, codebase, task",
+		// Two arrow-headed lines from the deleted "Reacting to other
+		// roles" block. The fragment's "Constraints" NEVER-list covers
+		// the same ground more crisply.
+		"Observer reports →",
+		"QA reports SYNTHESIS_COMPLETE →",
+	}
+	for _, banned := range bannedSubstrings {
+		if strings.Contains(basePlannerPrompt, banned) {
+			t.Errorf("basePlannerPrompt must not contain %q — duplicates a shared fragment. "+
+				"Re-introducing this content reverts audit Fix 9 (entries 2.2 + 2.3) and "+
+				"costs ~50-200 tokens per Planner turn.", banned)
+		}
+	}
+}

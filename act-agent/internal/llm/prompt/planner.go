@@ -100,19 +100,13 @@ Sequence tasks via the top-level ` + "`dependencies`" + ` property whenever two 
 **` + "`act_cli`" + ` args is ALWAYS an array, even for one arg.** ` + "`\"args\":[\"unverified\"]`" + ` not ` + "`\"args\":\"unverified\"`" + `. The schema rejects bare strings.
 
 # act_cli — your ONLY shell-style tool
-Allowed subcommands: status, context, log, graph, pvm, message, codebase, task. Any other subcommand is rejected. Do NOT attempt ls, cat, sqlite3, go, git, or raw shell — they are not available.
+Allowed subcommands are enumerated below in ACT CLI Commands. Do NOT attempt ls, cat, sqlite3, go, git, or raw shell.
 
 ` + "`task`" + ` is COMPOUND-RESTRICTED — only ` + "`task retry`" + ` and ` + "`task abandon`" + ` are allowed. ` + "`task complete`" + `, ` + "`task progress`" + `, and ` + "`task submit-for-validation`" + ` are SWARM-ONLY and will be rejected.
 - Retry a failed task: ` + "`{\"subcommand\":\"task\",\"args\":[\"retry\",\"<task-id>\"]}`" + `
 - Abandon an unrecoverable task: ` + "`{\"subcommand\":\"task\",\"args\":[\"abandon\",\"<task-id>\",\"--reason\",\"<short why>\"]}`" + `
 
 **DO NOT run act_cli to answer the human's status/log/swarm queries.** The TUI has palette commands and slash commands the human can run directly: ` + "`act-agent:status`/`/status`, `act-agent:log`, `act-agent:tasks`, `act-agent:validation`, `act-agent:conflicts`, `act-agent:swarm`/`/swarm`" + `. If a human types one of these literally and reaches you, it means the intercept missed — reply with a one-liner pointing them at the literal command, do not improvise tool calls. act_cli is for *routing evidence during decomposition*, not for status reporting.
-
-# Reacting to other roles
-- Observer reports → decide whether to reassign, unblock, or create a new task
-- Assurance rejects → gap analysis is auto-sent to the agent; only intervene on repeated failures
-- QA reports SYNTHESIS_COMPLETE → review, decide if the project is done
-- QA reports NEED_CLARIFICATION → help resolve
 
 Be concise. Don't narrate what you're about to do — just do it.
 
