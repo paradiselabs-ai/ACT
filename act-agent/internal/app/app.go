@@ -239,14 +239,27 @@ func makePrimingInjector(role string) acp.SystemPromptInjector {
 		if base == "" {
 			return ""
 		}
-		// Append the shim-binary discoverability note. The allowed subcommand
-		// list is generated from tools.AllowedFor(role) — NOT hand-written —
-		// so adding a new entry to the allowlist automatically updates the
-		// priming text. Audit Fix 7 (entry 5.4): the old version had
-		// "(status, log, etc.)" hand-coded as examples and never picked up
-		// task retry / task abandon / prompt-section.
-		return base + renderShimNote(role)
+		return wrapPriming(role, base)
 	}
+}
+
+// doNotRespondHeader leads the ACP priming so the LLM has an explicit
+// "this is configuration, do not reply" instruction. ACP has no system
+// channel (acp/types.go:147-161 — ContentBlock.Type is text/image/
+// resource only), so the priming arrives as a user message and the
+// model would otherwise treat it as conversation. Smaller models may
+// still ack — unavoidable without a real system channel — but this
+// shifts the noise-to-signal ratio. Audit Fix 8 (entries 5.2 + 5.3).
+const doNotRespondHeader = "[ACT priming — do not respond. This is one-time configuration injected by the orchestrator. Acknowledge silently by emitting no text.]\n\n"
+
+// wrapPriming composes the final ACP priming text from the role prompt
+// base + shim discoverability note, fronted by InternalPromptMarker and
+// the do-not-respond header. Extracted from makePrimingInjector so unit
+// tests can exercise the wrapping shape without needing a loaded
+// config (prompt.GetAgentPrompt indirectly calls
+// config.WorkingDirectory which panics in test contexts).
+func wrapPriming(role, base string) string {
+	return InternalPromptMarker + doNotRespondHeader + base + renderShimNote(role)
 }
 
 // renderShimNote builds the [ACT] discoverability footer appended to the

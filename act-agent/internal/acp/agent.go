@@ -338,12 +338,26 @@ func (a *ACPAgent) ensureACPSession(ctx context.Context, sessionID string) (stri
 	a.mu.Unlock()
 
 	// Lazily inject the priming prompt — the role's static system prompt plus
-	// the shim-binary instructions. We send it as a one-shot user message and
-	// discard the agent's response (typically an acknowledgement). If priming
-	// fails (or empty), proceed without it.
+	// the shim-binary instructions. We send it as a one-shot user message
+	// (ACP has no system-message channel). Audit Fix 8: we used to discard
+	// the result entirely, hiding host hallucinations / refusals. Now we
+	// log StopReason so a misbehaving host is visible in the runner log
+	// instead of silent. End_turn is the happy path; anything else gets
+	// a WARN so it surfaces in log review.
 	if prime := a.primingFor(); prime != "" {
-		if _, err := a.client.Prompt(ctx, id, prime); err != nil {
+		stopReason, err := a.client.Prompt(ctx, id, prime)
+		switch {
+		case err != nil:
 			logging.Warn("acp_priming_failed", "role", a.role, "error", err)
+		case stopReason == "":
+			logging.Warn("acp_priming_no_stop_reason", "role", a.role,
+				"reason", "Prompt returned empty stop_reason — host may be misbehaving")
+		case stopReason != StopReasonEndTurn:
+			logging.Warn("acp_priming_unexpected_stop_reason",
+				"role", a.role, "stop_reason", stopReason,
+				"hint", "non-end_turn stop on priming may indicate host refusal or hallucination")
+		default:
+			logging.Info("acp_priming_completed", "role", a.role, "stop_reason", stopReason)
 		}
 	}
 	return id, nil

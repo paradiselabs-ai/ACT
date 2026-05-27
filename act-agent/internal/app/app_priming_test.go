@@ -51,6 +51,49 @@ func TestACPPrimingShimNote_NoParentheticalPlaceholders(t *testing.T) {
 	}
 }
 
+// TestACPPrimingComposition_MarkerAndHeader (Fix 8) — asserts the full
+// composed priming string carries the InternalPromptMarker (so log
+// scrapers can distinguish primer noise from real Planner output) and
+// the leading "do not respond" header (so the LLM has an explicit
+// handle on "this is config, not chat" since ACP has no system
+// channel). Uses wrapPriming directly to avoid the prompt.GetAgentPrompt
+// → config.WorkingDirectory panic that fires when no config is loaded
+// in test contexts.
+func TestACPPrimingComposition_MarkerAndHeader(t *testing.T) {
+	const sampleBase = "You are the Planner.\n\n# act_cli — your ONLY shell-style tool\n..."
+	got := wrapPriming("planner", sampleBase)
+
+	if !strings.HasPrefix(got, InternalPromptMarker) {
+		t.Errorf("priming must start with InternalPromptMarker for log-scraper filtering; got first 64 bytes:\n%q", got[:safeMin(64, len(got))])
+	}
+	afterMarker := strings.TrimPrefix(got, InternalPromptMarker)
+	if !strings.HasPrefix(afterMarker, "[ACT priming — do not respond") {
+		t.Errorf("expected do-not-respond header immediately after marker; got first 128 bytes after marker:\n%q",
+			afterMarker[:safeMin(128, len(afterMarker))])
+	}
+	if !strings.Contains(got, sampleBase) {
+		t.Errorf("expected role prompt base to remain present in composed priming")
+	}
+	if !strings.Contains(got, "act-tier1-planner") {
+		t.Errorf("expected shim discoverability note to remain present; got tail:\n%q",
+			got[safeMax(0, len(got)-200):])
+	}
+}
+
+func safeMin(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func safeMax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // extractAllowlistBullets parses lines of the shape `  - <entry>` from the
 // shim note and returns the entries in order of appearance.
 func extractAllowlistBullets(t *testing.T, note string) []string {
