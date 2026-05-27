@@ -590,3 +590,85 @@ func TestCascadeCap_HumanInputClears(t *testing.T) {
 		t.Errorf("expected slice cleared by human input; got len=%d", len(o.recentAutoRoutes))
 	}
 }
+
+// --- dependencyList forgiving-parse tests (Fix 10) ---
+
+func TestParseCreateTaskDirectives_DependenciesShapes(t *testing.T) {
+	type wantShape struct {
+		taskCount int
+		depsLen   int
+		depsFirst string // checked only if depsLen >= 1
+	}
+	cases := []struct {
+		name  string
+		input string
+		want  wantShape
+	}{
+		{
+			name:  "canonical_array_with_one_entry",
+			input: `CREATE_TASK: {"title":"T","description":"d","dependencies":["A"]}`,
+			want:  wantShape{taskCount: 1, depsLen: 1, depsFirst: "A"},
+		},
+		{
+			name:  "empty_array",
+			input: `CREATE_TASK: {"title":"T","description":"d","dependencies":[]}`,
+			want:  wantShape{taskCount: 1, depsLen: 0},
+		},
+		{
+			name:  "null",
+			input: `CREATE_TASK: {"title":"T","description":"d","dependencies":null}`,
+			want:  wantShape{taskCount: 1, depsLen: 0},
+		},
+		{
+			name:  "missing_field",
+			input: `CREATE_TASK: {"title":"T","description":"d"}`,
+			want:  wantShape{taskCount: 1, depsLen: 0},
+		},
+		{
+			name:  "empty_string_was_the_dropping_bug",
+			input: `CREATE_TASK: {"title":"T","description":"d","dependencies":""}`,
+			want:  wantShape{taskCount: 1, depsLen: 0},
+		},
+		{
+			name:  "single_string_coerces_to_one_element_slice",
+			input: `CREATE_TASK: {"title":"T","description":"d","dependencies":"OnlyOne"}`,
+			want:  wantShape{taskCount: 1, depsLen: 1, depsFirst: "OnlyOne"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tasks, _, fail, _ := parseCreateTaskDirectives(tc.input)
+			if len(tasks) != tc.want.taskCount {
+				t.Fatalf("expected %d task(s); got %d; firstFailPreview=%q",
+					tc.want.taskCount, len(tasks), fail)
+			}
+			if len(tasks) == 0 {
+				return
+			}
+			deps := tasks[0].Dependencies
+			if len(deps) != tc.want.depsLen {
+				t.Fatalf("expected %d deps; got %d (%v)", tc.want.depsLen, len(deps), deps)
+			}
+			if tc.want.depsFirst != "" && deps[0] != tc.want.depsFirst {
+				t.Errorf("deps[0] = %q; want %q", deps[0], tc.want.depsFirst)
+			}
+		})
+	}
+}
+
+func TestParseCreateTaskDirectives_DependenciesNumberDoesNotSilentlyDropTask(t *testing.T) {
+	// Number is not a recoverable shape — the whole task should fail to
+	// unmarshal so the firstFailPreview surfaces the hallucination instead
+	// of silently coercing.
+	input := `CREATE_TASK: {"title":"T","description":"d","dependencies":42}`
+	tasks, markersFound, fail, _ := parseCreateTaskDirectives(input)
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks (number is unrecoverable); got %d", len(tasks))
+	}
+	if markersFound != 1 {
+		t.Errorf("expected 1 marker found; got %d", markersFound)
+	}
+	if fail == "" {
+		t.Errorf("expected non-empty firstFailPreview surfacing the bad JSON; got empty")
+	}
+}

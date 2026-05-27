@@ -89,7 +89,7 @@ CREATE_TASK: {"title":"Build auth module","description":"@task\n> Implement JWT 
 **JSON shape rules — strict.** Malformed JSON is silently rejected by the parser; you'll think the task was created but the server never received it.
 - ` + "`title`" + ` is REQUIRED and must be non-empty (e.g. ` + "`\"Implement auth middleware\"`" + `). Empty titles are rejected.
 - ` + "`description`" + ` contains EXACTLY two SPIL sections: ` + "`@task`" + ` (the work) and ` + "`@success_criteria`" + ` (the validation list). Nothing else. Never put ` + "`@dependencies`" + `, ` + "`@context`" + `, or any other ` + "`@`" + `-section inside ` + "`description`" + ` — they break the JSON string.
-- ` + "`dependencies`" + ` is its own top-level JSON property: an array of task titles you've already emitted. Empty array or omit if none.
+- ` + "`dependencies`" + ` is its own top-level JSON property: ALWAYS an array of strings (task titles you've already emitted in this same response). Use ` + "`[]`" + ` when none — do NOT use ` + "`null`" + `, do NOT use ` + "`\"\"`" + `, do NOT omit the field. Wrong shapes are coerced or rejected by the parser; the canonical array form is the only one the orchestrator processes without warnings.
 - ` + "`requiredCapabilities`" + ` is a top-level array of strings.
 - ` + "`priority`" + ` is one of: ` + "`\"low\" | \"medium\" | \"high\" | \"critical\"`" + `.
 - Use ` + "`\\n`" + ` for newlines inside the description string. Never raw newlines in JSON strings.

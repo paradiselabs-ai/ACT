@@ -1,8 +1,13 @@
 package app
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // Types used by the orchestrator for parsing server responses and passing
-// data between coordination components. These are pure data structs with
-// JSON tags — no methods, no logic.
+// data between coordination components. Mostly pure data structs with JSON
+// tags; dependencyList carries a forgiving UnmarshalJSON (see Fix 10).
 
 // ProjectBrief is the structured intake artifact the Planner produces during
 // INTAKE mode and POSTs to the ACT server. The 5 fields map directly to the
@@ -163,6 +168,61 @@ type TaskDef struct {
 	RequiredCapabilities []string       `json:"requiredCapabilities,omitempty"`
 	Capabilities         []string       `json:"capabilities,omitempty"`
 	Priority             string         `json:"priority,omitempty"`
-	Dependencies         []string       `json:"dependencies,omitempty"`
+	Dependencies         dependencyList `json:"dependencies,omitempty"`
 	Metadata             map[string]any `json:"metadata,omitempty"`
+}
+
+// dependencyList is a string slice with a forgiving JSON unmarshaler.
+// Audit Fix 10 (entry 6.4): the prompt used to say "Empty array or
+// omit if none" — two valid encodings. Smaller models occasionally
+// emit `"dependencies": ""` (empty string) or `null` or even a single
+// string instead of an array. The stock []string unmarshaler accepts
+// [], null, and missing → nil/empty, but REJECTS "" — and when "" is
+// emitted the WHOLE TaskDef silently fails to unmarshal and the
+// CREATE_TASK directive disappears with only a debug log.
+//
+// This forgiving form coerces every recoverable shape to nil/[]:
+//   - `[]` or `["a","b"]`  → []string{...}   (canonical happy path)
+//   - `null`               → nil              (Go default for missing)
+//   - `""`                 → nil              (the dropping bug)
+//   - `"single"`           → []string{"single"} (single-string fallback)
+// Anything else (number, object) returns an error so the unmarshal
+// fails loudly rather than silently — novel hallucination shapes
+// should surface, not be hidden.
+type dependencyList []string
+
+// UnmarshalJSON implements json.Unmarshaler with the forgiving rules
+// documented on dependencyList.
+func (d *dependencyList) UnmarshalJSON(data []byte) error {
+	// `null` or omitted maps to a nil slice — stock Go behavior.
+	if len(data) == 0 || string(data) == "null" {
+		*d = nil
+		return nil
+	}
+	// Array form is the canonical happy path.
+	if data[0] == '[' {
+		var arr []string
+		if err := json.Unmarshal(data, &arr); err != nil {
+			return fmt.Errorf("dependencies: array decode: %w", err)
+		}
+		*d = arr
+		return nil
+	}
+	// String form: "" → nil; any other string → single-element slice.
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return fmt.Errorf("dependencies: string decode: %w", err)
+		}
+		if s == "" {
+			*d = nil
+		} else {
+			*d = []string{s}
+		}
+		return nil
+	}
+	// Anything else (number, object, bool) — refuse so novel
+	// hallucination shapes surface in the parse-failure preview
+	// rather than being hidden behind a forgiving coercion.
+	return fmt.Errorf("dependencies: unsupported JSON shape %q (expected array, string, or null)", string(data))
 }
