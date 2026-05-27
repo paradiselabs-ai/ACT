@@ -32,12 +32,13 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**User's preferred fix:** Build the missing tools (give Planner real retry / abandon affordances via `act_cli`), don't just strip the verbs from prompts. Top-3 fix #2 — see plan file.~~
 - **Resolution (01c1317):** Built the tools. `act_cli` now exposes compound entries `task retry` and `task abandon`. Server endpoint `POST /api/tasks/:taskId/abandon` reuses `failed` status + `metadata.abandoned=true` to avoid schema migration. Whitelist enforced at both the in-process tool runtime gate AND the ACP shim binary via `IsAllowed(role, subcommand, args...)`. `task complete` / `task progress` / `task submit-for-validation` stay swarm-only. Planner prompt + `act_cli_commands_fragment` updated to enumerate the new affordances. System-event prompt rewrites (still mention POST /retry etc.) deferred to Fix 3 since that commit re-templates them all with the variant scheme. Unit tests: `TestIsAllowed_Compound` (incl. forbidden `task complete`), `TaskCoordinator.abandonTask`.
 
-### 1.2 [ACTIVE] `expand_prompt_section` tool advertised but possibly not wired
-- **Sources:** sub1 + Path B
-- **Where:** `planner.go:24` (basePlannerPrompt) — *"You have an `expand_prompt_section` tool. ... Pull a section ONLY when you need it."*
-- **What:** The base prompt advertises 5 named expandable sections (evidence_routing, success_criteria, nomik, validation, examples). Per sub1's failure_modes_observed: *"no orchestrator-side dispatch was located during this audit — verify wiring or remove the advertisement."*
-- **Downstream effect:** Every Planner turn includes the offer. Some fraction of turns attempt the tool, get a hallucinated call, hit dead air.
-- **Fix:** Verify the wiring exists; if not, either implement the dispatcher or strip the advertisement.
+### 1.2 ~~[FIXED in c853932] `expand_prompt_section` tool advertised but possibly not wired~~
+- ~~**Sources:** sub1 + Path B~~
+- ~~**Where:** `planner.go:24` (basePlannerPrompt) — *"You have an `expand_prompt_section` tool. ... Pull a section ONLY when you need it."*~~
+- ~~**What:** The base prompt advertises 5 named expandable sections (evidence_routing, success_criteria, nomik, validation, examples). Per sub1's failure_modes_observed: *"no orchestrator-side dispatch was located during this audit — verify wiring or remove the advertisement."*~~
+- ~~**Downstream effect:** Every Planner turn includes the offer. Some fraction of turns attempt the tool, get a hallucinated call, hit dead air.~~
+- ~~**Fix:** Verify the wiring exists; if not, either implement the dispatcher or strip the advertisement.~~
+- **Resolution (c853932):** Investigation found the dispatcher IS wired natively (`tools/expand_prompt_section.go` registered via `Tier1ToolsForRole` at `agent/tools.go:84`) — sub1 missed it because the audit was scoped to prompt fragments, not the tool layer. BUT the gap was real for ACP-backed Planners (they can't reach Go-side tools, only the act-tier1-* shim). Per user direction (build the tool, don't strip the prompt — same as Fix 2): extracted the registry into `prompt/sections.go` as a single source of truth; added `act-agent prompt-section <name>` Go-side CLI subcommand (no TS roundtrip, content is static); allowlisted `prompt-section` for Planner so the shim binary's IsAllowed gate passes; added `TestPromptSectionAdvertisementMatchesRegistry` regex-locking the prompt's "Available sections:" list to `SectionNames()` — drift-prevention test. Same registry now serves both backends.
 
 ### 1.3 [ACTIVE] `act_cli_commands_fragment` enumerates commands the base prompt later forbids
 - **Sources:** sub1 only
@@ -86,17 +87,19 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - ~~**Fix:** See Top-3 fix #3 (differentiate envelope per source — Assurance-pass defaults to silence, no (a) visible).~~
 - **Resolution (ac87a1f):** variantPassVerdict explicitly leads with "No action is required by default" and lists silence as option (b) — not buried. variantSystemEscalation flips the other way ("Silence is WRONG here") for the unambiguous-action case. The "React by taking action" framing only ships in variantAnomaly now (Observer + unknown), where the (a)/(b)/(c) ambiguity is the right shape. Test: `TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction` enforces the absence of the legacy framing.
 
-### 3.2 [ACTIVE] BUILD-mode trigger doesn't restate the brief
-- **Sources:** sub2 + Path B
-- **Where:** `orchestrator.go:1022`
-- **What:** *"Project '%s' has been created. Switch to BUILD mode now: decompose the project brief into tasks and emit CREATE_TASK: directives."* But the brief content is NOT inlined. Planner has to recall from conversation history (vulnerable to compaction) or AGENTS.md (only if rebind worked).
-- **Fix:** Inline the brief in the trigger message.
+### 3.2 ~~[FIXED in 3f0e8dd] BUILD-mode trigger doesn't restate the brief~~
+- ~~**Sources:** sub2 + Path B~~
+- ~~**Where:** `orchestrator.go:1022`~~
+- ~~**What:** *"Project '%s' has been created. Switch to BUILD mode now: decompose the project brief into tasks and emit CREATE_TASK: directives."* But the brief content is NOT inlined. Planner has to recall from conversation history (vulnerable to compaction) or AGENTS.md (only if rebind worked).~~
+- ~~**Fix:** Inline the brief in the trigger message.~~
+- **Resolution (3f0e8dd):** `renderBriefContext("build", ...)` now inlines a SPIL-style `@brief` block with all 5 fields (description, techStack, constraints, successCriteria, agentsInvolved) directly from the parsed `*ProjectBrief` local. Empty fields are omitted rather than emitted as `field: ` blanks. Test: `TestRenderBriefContext_NoTasksBuildKind`.
 
-### 3.3 [ACTIVE] Resume-context fields-mismatch can flip BUILD into INTAKE
-- **Sources:** sub2 + Path B
-- **Where:** `orchestrator.go:314`
-- **What:** Resume only inlines `description + techStack`. If GetProject envelope-unwraps wrong (today's confirmed bug), Planner reads `description:  | techStack: ` and intake-prioritization wins despite the [SYSTEM] "do NOT run intake" nudge.
-- **Fix:** Top-3 fix candidate but not in current top-3; inline full brief + completed/in-flight task list.
+### 3.3 ~~[FIXED in 3f0e8dd] Resume-context fields-mismatch can flip BUILD into INTAKE~~
+- ~~**Sources:** sub2 + Path B~~
+- ~~**Where:** `orchestrator.go:314`~~
+- ~~**What:** Resume only inlines `description + techStack`. If GetProject envelope-unwraps wrong (today's confirmed bug), Planner reads `description:  | techStack: ` and intake-prioritization wins despite the [SYSTEM] "do NOT run intake" nudge.~~
+- ~~**Fix:** Top-3 fix candidate but not in current top-3; inline full brief + completed/in-flight task list.~~
+- **Resolution (3f0e8dd):** Shares the new `renderBriefContext` helper with the BUILD path. Resume now also calls `client.ListTasks()` and partitions the result into `@inFlightTasks` (anything not terminal) and `@completedTasks` (completed/validated), closing with an explicit "do NOT re-emit CREATE_TASK for the task IDs above — use act_cli task retry/abandon for failed tasks." Existing `project_resume_blank_fields` warn log preserved as the defense-in-depth tripwire for the envelope-unwrap regression. Tests: `TestRenderBriefContext_AllFieldsAndTaskLists`, `TestBriefViewFromGetProject_*`.
 
 ### 3.4 [ACTIVE] No mode echo back to orchestrator
 - **Sources:** sub2
@@ -114,14 +117,15 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 
 ## Category 4 — Cascade / loop risks
 
-### 4.1 [ACTIVE] Three loops bypass `consecutiveAutoTurns ≤ 5` cap
-- **Sources:** sub3 + synthesizer
-- **Where:** orchestrator's `autoRoutePlanner` flow + QA poll loop
-- **What:** The cap resets on human input only. Three loops dodge it:
-  1. **QA watchdog re-fire loop** — `tier1_watchdog_qa_retrigger` fires QA, QA produces non-marker reply, autoroutes back to Planner AND the next polling tick re-fires QA. Fresh trigger lineage each cycle resets counter toward 0.
-  2. **Assurance verdict mirror loop** — if placeholder CREATE_TASK slips past server seam, dispatches to swarm → completes → Assurance fires again → autoroute again. Cross-task lineage avoids back-to-back cap.
-  3. **Observer 120s echo loop** — Planner restates Observer's message; Observer sees on next cycle; reacts. Observer's 120s gap dodges the back-to-back counter entirely.
-- **Fix:** Sliding wall-clock window cap (5 autoroutes / 10 min, regardless of trigger source). Reset only on human input.
+### 4.1 ~~[FIXED in 4cb1d26] Three loops bypass `consecutiveAutoTurns ≤ 5` cap~~
+- ~~**Sources:** sub3 + synthesizer~~
+- ~~**Where:** orchestrator's `autoRoutePlanner` flow + QA poll loop~~
+- ~~**What:** The cap resets on human input only. Three loops dodge it:~~
+  - ~~**QA watchdog re-fire loop** — `tier1_watchdog_qa_retrigger` fires QA, QA produces non-marker reply, autoroutes back to Planner AND the next polling tick re-fires QA. Fresh trigger lineage each cycle resets counter toward 0.~~
+  - ~~**Assurance verdict mirror loop** — if placeholder CREATE_TASK slips past server seam, dispatches to swarm → completes → Assurance fires again → autoroute again. Cross-task lineage avoids back-to-back cap.~~
+  - ~~**Observer 120s echo loop** — Planner restates Observer's message; Observer sees on next cycle; reacts. Observer's 120s gap dodges the back-to-back counter entirely.~~
+- ~~**Fix:** Sliding wall-clock window cap (5 autoroutes / 10 min, regardless of trigger source). Reset only on human input.~~
+- **Resolution (4cb1d26):** `consecutiveAutoTurns int` replaced by `recentAutoRoutes []time.Time`. On each `autoRoutePlannerV` fire: prune entries older than `autoRouteWindow` (10 minutes) → reject if `len >= autoTurnCap` (5) → else append `now`. `HandleHumanInput` clears the slice (same reset-on-human semantics). Pure `pruneAutoRoutes(times, now, window)` extracted for testability — synthetic-clock tests verify pruning + cap enforcement without a clock-injection seam in the rest of the orchestrator. Log field renames: `consecutive_turns` → `fires_in_window`; reason `auto_turn_cap` → `auto_route_window_cap`. Tests: `TestPruneAutoRoutes_*`, `TestCascadeCap_*` (6 cases). 4.2 (Observer free-tier risk) gets the same protection as a free side-effect.
 
 ### 4.2 [ACTIVE] Observer free-tier rate-limit risk amplified by uncapped echo
 - **Sources:** Path B
@@ -251,11 +255,17 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 
 ---
 
-## Top 3 fixes being executed this session
+## Top 3 fixes — Round 1 (shipped)
 
 1. ~~**[FIXED 770a290] 5.1 — ACPAgent.RebindSystemPrompt implementation.** Highest leverage (silently nullifies every other fix for ACP users).~~
 2. ~~**[FIXED 01c1317] 1.1 — Build the missing tools (give Planner real retry/abandon affordances via act_cli, rather than stripping the verbs from prompts).** User explicitly preferred this direction over Path A's "strip lies" approach.~~
 3. ~~**[FIXED ac87a1f] 4.1 + 3.1 + 2.1 — Differentiate autoroute envelope per source.** Assurance-pass defaults to silence (variantPassVerdict); Observer keeps (a)/(b)/(c) (variantAnomaly); system events get binary fork pointing at the new act_cli task retry/abandon (variantSystemEscalation). Addresses both the central "react vs silence" tension AND the autoroute duplication.~~
+
+## Top 3 fixes — Round 2 (shipped)
+
+4. ~~**[FIXED c853932] 1.2 — `expand_prompt_section` parity for ACP.** Investigation: dispatcher IS wired natively for in-process Planners; what was missing was an ACP-side equivalent. Per user direction (build the tool, don't strip the prompt), added `act-agent prompt-section <name>` Go CLI subcommand + allowlist entry + drift-prevention test locking the prompt's "Available sections" list to the registry.~~
+5. ~~**[FIXED 3f0e8dd] 3.2 + 3.3 — Inline full brief in resume + BUILD-mode triggers.** Replaced both terse messages with `renderBriefContext` helper that emits a SPIL-style `@brief` block (all 5 fields) plus `@inFlightTasks`/`@completedTasks` partitioned lists and an explicit "do NOT re-emit CREATE_TASK for these IDs" guard.~~
+6. ~~**[FIXED 4cb1d26] 4.1 — Sliding-window cascade cap.** Replaced `consecutiveAutoTurns int` with `recentAutoRoutes []time.Time`. 5 fires per 10-minute window, regardless of trigger source. Closes the three documented bypass loops (QA watchdog re-fire, Assurance verdict mirror, Observer 120s echo). Side benefit: 4.2 (Observer free-tier rate-limit risk) gets the same protection.~~
 
 When each fix is committed + tested, strike through its entry above and add a `[FIXED in commit <sha>]` annotation.
 
