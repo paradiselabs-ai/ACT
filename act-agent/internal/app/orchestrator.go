@@ -1181,9 +1181,12 @@ const (
 	variantAnomaly autoRouteVariant = iota
 
 	// variantPassVerdict — Assurance posted a passing verdict. Silence is
-	// the default; (a) and (b) are escape hatches for "the next step is
-	// obvious" or "the human asked for status." No "react by taking action"
-	// framing — that's exactly what creates the empty-CREATE_TASK loop.
+	// the default; the only escape hatch is a rare chat reply to inform the
+	// human. No "react by taking action" framing and no "emit CREATE_TASK for
+	// the obvious next step" hatch — both invite the empty/placeholder
+	// CREATE_TASK loop, made worse by the empty-@success_criteria fail-open
+	// that can produce a fraudulent PASS (audit Fix 19). A genuine next task
+	// arrives from the human, the brief, or the next Observer report.
 	variantPassVerdict
 
 	// variantFailVerdict — Assurance posted a failing verdict. Gap analysis
@@ -1266,8 +1269,9 @@ func renderAutoRoutePrompt(variant autoRouteVariant, fromRole, fromContent strin
 		return fmt.Sprintf(
 			"The Assurance agent posted a PASS verdict. No action is required by default.\n\n"+
 				"Options (pick AT MOST one):\n"+
-				"  (a) If the verdict unblocks an obvious next step (e.g. a dependent task), emit CREATE_TASK directives for that next step. Every directive must include a non-empty title, @task + @success_criteria SPIL sections, and requiredCapabilities. NEVER emit a placeholder or acknowledgement CREATE_TASK.\n"+
-				"  (b) Stay silent (empty response). This is the correct default.\n\n"+
+				"  (a) Stay silent (empty response). This is the correct default.\n"+
+				"  (b) Write a short chat reply ONLY IF the human needs to be informed (rare).\n\n"+
+				"A passing verdict does not by itself signal new work — the next task comes from the human, the brief, or the next Observer report, not from the pass. Do NOT emit a CREATE_TASK in reaction to a PASS.\n"+
 				"Do NOT acknowledge the pass in chat. Do NOT echo the verdict back.\n"+
 				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
 			fromRole, fromContent,

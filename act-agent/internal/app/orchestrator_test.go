@@ -344,6 +344,23 @@ func TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction(t *testing.T)
 	if !strings.Contains(got, "[assurance]") {
 		t.Errorf("variantPassVerdict must carry the source role tag; got:\n%s", got)
 	}
+	// Fix 19: the option-(a) "emit CREATE_TASK for the obvious next step"
+	// escape hatch must be gone — it was an open invitation to fabricate
+	// tasks on a PASS (worsened by the empty-criteria fail-open). The bare
+	// "Never write the literal string 'CREATE_TASK:'" guard legitimately
+	// remains, so assert the absence of the INSTRUCTION to emit, not the
+	// absence of the substring "CREATE_TASK".
+	for _, banned := range []string{
+		"emit CREATE_TASK directives",
+		"obvious next step",
+	} {
+		if strings.Contains(got, banned) {
+			t.Errorf("variantPassVerdict must NOT carry the CREATE_TASK escape hatch %q (Fix 19); got:\n%s", banned, got)
+		}
+	}
+	if !strings.Contains(got, "does not by itself signal new work") {
+		t.Errorf("variantPassVerdict must explain that a PASS isn't a new-work signal (Fix 19); got:\n%s", got)
+	}
 }
 
 func TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis(t *testing.T) {
