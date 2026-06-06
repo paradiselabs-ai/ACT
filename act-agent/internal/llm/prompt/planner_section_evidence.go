@@ -24,8 +24,10 @@ intuition.
 
 ## How to invoke
 
-` + "`act pvm search \"<query>\"`" + ` — returns top matches by semantic
-similarity, each with the agent ID, task title, outcome, and timestamp.
+Call the act_cli tool: ` + "`{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`" + `.
+It returns top matches by semantic similarity, each with the agent ID, task
+title, outcome, and timestamp.
+(ACP backend: ` + "`act-tier1-planner pvm search \"<query>\"`" + ` via Bash — same result.)
 
 ## How to read the results
 

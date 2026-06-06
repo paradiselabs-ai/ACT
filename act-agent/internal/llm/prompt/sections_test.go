@@ -74,6 +74,37 @@ func extractAdvertisedSectionNames(t *testing.T, src string) []string {
 	return out
 }
 
+// TestNoSectionUsesBareActShorthand locks audit Fix 20: section bodies must
+// not instruct the Planner to invoke a routing subcommand as bare `act <cmd>`
+// shorthand — neither backend runs that. In-process Planners call the act_cli
+// JSON tool ({"subcommand":"pvm",...}); ACP Planners invoke the
+// act-tier1-planner shim via Bash. A Planner copying a bare `act pvm search`
+// verbatim gets a tool-validation error and burns a turn.
+//
+// Scope: the Planner-routing subcommands only. `act task complete` /
+// `act task submit-for-validation` are intentionally allowed — the validation
+// section uses them to DESCRIBE swarm/Runner behavior in prose, not to instruct
+// the Planner. (`task` is excluded from the probe list for that reason.)
+//
+// `act-tier1-planner pvm search` (the ACP dual-form note) does NOT match: the
+// probe requires a space immediately after `act`, and the shim form has
+// `-tier1-planner` there.
+func TestNoSectionUsesBareActShorthand(t *testing.T) {
+	// Planner-routing subcommands. `validation` is included so the Fix 20b
+	// reword (the Planner is not allowlisted for `validation`) stays locked.
+	bareActProbe := regexp.MustCompile("`act (pvm|graph|validation|status|log|context|codebase|message)")
+	for name, provider := range SectionRegistry() {
+		content := provider()
+		if m := bareActProbe.FindString(content); m != "" {
+			t.Errorf("section %q contains bare CLI shorthand %q. Neither backend runs `act <cmd>`. "+
+				"Use the act_cli JSON tool shape ({\"subcommand\":\"...\",\"args\":[...]}) with an ACP "+
+				"`act-tier1-planner <cmd>` note, like planner_section_evidence.go. "+
+				"(If this is descriptive swarm behavior, not a Planner instruction, reword so it isn't a bare `act` command.)",
+				name, m)
+		}
+	}
+}
+
 // TestNoSectionEmitsForbiddenDependenciesShape asserts that no registered
 // section body contains the forbidden inline @dependencies SPIL section form.
 // The base planner prompt (planner.go:78) explicitly prohibits putting

@@ -45,9 +45,11 @@ target is the agent — QA already addressed them. Don't repeat the
 question. Watch for the response and unblock if it stalls.
 
 **A task is stuck "submitted_for_validation" for >5 min.** Assurance is
-probably overloaded or hung. Run ` + "`act validation queue`" + ` to see the
-queue depth. If depth > 5, you decomposed too aggressively; pause new
-task creation until the queue drains.
+probably overloaded or hung. The orchestrator auto-escalates a stuck
+validation to you — watch for that signal rather than polling the queue
+yourself (the validation queue is Assurance's surface, not yours). If
+several tasks pile up here at once, you decomposed too aggressively;
+pause new task creation until they drain.
 
 ## What NOT to do
 
