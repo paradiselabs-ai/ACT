@@ -34,6 +34,20 @@ func TestRenderAgentsMd_ContainsBriefFields(t *testing.T) {
 	}
 }
 
+func TestRenderAgentsMd_CodebaseNotesSection(t *testing.T) {
+	// Present → renders the section.
+	withNotes := &ProjectBrief{Description: "d", TechStack: "t", CodebaseNotes: "It's a Go CLI; entry at main.go."}
+	out := renderAgentsMd("p", withNotes)
+	if !strings.Contains(out, "## Codebase analysis") || !strings.Contains(out, "entry at main.go") {
+		t.Errorf("expected codebase analysis section; got:\n%s", out)
+	}
+	// Absent → no empty section.
+	without := &ProjectBrief{Description: "d", TechStack: "t"}
+	if strings.Contains(renderAgentsMd("p", without), "## Codebase analysis") {
+		t.Errorf("codebase analysis section should be omitted when CodebaseNotes is empty")
+	}
+}
+
 func TestRenderAgentsMd_DefaultsForEmptyOptionals(t *testing.T) {
 	brief := &ProjectBrief{
 		Description: "x",

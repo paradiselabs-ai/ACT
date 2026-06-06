@@ -69,6 +69,7 @@ type Orchestrator struct {
 	resumeContext   string // non-empty when project exists on server; injected into first Planner turn
 	firstPlannerTurn bool  // cleared after the first turn so resumeContext is only prepended once
 	brownfield      bool   // intake on an existing codebase: detectProjectState found code but no server record
+	codebaseAnalysis string // brownfield analysis, stashed by runBrownfieldOnboard → injected into the brief's CodebaseNotes
 
 	// Coordination event polling state. Tracks the most recent event timestamp
 	// the loop has surfaced as a chat system message, so we never re-emit.
@@ -368,6 +369,12 @@ func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
 		o.emitSystemMessage(context.Background(), sid, "Couldn't analyze the codebase automatically — starting standard intake.")
 		return
 	}
+
+	// Stash the analysis so handleProjectBrief can persist it into AGENTS.md
+	// as a "## Codebase analysis" section once the brief is accepted.
+	o.mu.Lock()
+	o.codebaseAnalysis = analysis
+	o.mu.Unlock()
 
 	// 3. Seed the Planner. intakeMode stays true, so its PROJECT_BRIEF routes to
 	//    the existing handleProjectBrief flow.
@@ -1376,6 +1383,9 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 	o.mu.RLock()
 	name := o.projectName
 	dir := o.projectDir
+	// Brownfield: fold the captured codebase analysis into the brief so it
+	// lands as a "## Codebase analysis" section in AGENTS.md. Empty for greenfield.
+	brief.CodebaseNotes = o.codebaseAnalysis
 	o.mu.RUnlock()
 
 	client := act.NewClient("planner", name)

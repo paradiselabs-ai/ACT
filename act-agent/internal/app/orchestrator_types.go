@@ -18,6 +18,10 @@ type ProjectBrief struct {
 	Constraints     string   `json:"constraints,omitempty"`
 	SuccessCriteria string   `json:"successCriteria"`
 	AgentsInvolved  []string `json:"agentsInvolved"`
+	// CodebaseNotes is NOT emitted by the Planner — the orchestrator injects the
+	// brownfield codebase analysis here before writeAgentsMd so it lands as a
+	// "## Codebase analysis" section in AGENTS.md.
+	CodebaseNotes string `json:"-"`
 }
 
 // BriefView is the orchestrator-side view of a project brief, used to
