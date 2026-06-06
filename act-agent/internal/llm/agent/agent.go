@@ -69,6 +69,14 @@ type agent struct {
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
 
+	// scopeHistory makes a turn ignore the prior session transcript and feed the
+	// model only the current prompt. Set for in-process event-driven Tier 1 roles
+	// (Observer/Assurance/QA) whose prompts are self-contained snapshots — they
+	// don't need the shared NesTTY conversation, and replaying it every turn was
+	// ~90% baggage (one Observer turn measured ~66 msgs / ~13K tokens). The Planner
+	// keeps full history (scopeHistory=false) — it's the conversational partner.
+	scopeHistory bool
+
 	activeRequests sync.Map
 }
 
@@ -77,6 +85,7 @@ func NewAgent(
 	sessions session.Service,
 	messages message.Service,
 	agentTools []tools.BaseTool,
+	scopeHistory bool,
 ) (Service, error) {
 	agentProvider, err := createAgentProvider(agentName)
 	if err != nil {
@@ -110,10 +119,22 @@ func NewAgent(
 		tools:             agentTools,
 		titleProvider:     titleProvider,
 		summarizeProvider: summarizeProvider,
+		scopeHistory:      scopeHistory,
 		activeRequests:    sync.Map{},
 	}
 
 	return agent, nil
+}
+
+// scopedHistory returns the conversation history to feed the model. When scope
+// is set, it returns nil — the turn sees only the current prompt, not the prior
+// session transcript. Pure helper so the scoping invariant is unit-testable
+// without a provider mock.
+func scopedHistory(msgs []message.Message, scope bool) []message.Message {
+	if scope {
+		return nil
+	}
+	return msgs
 }
 
 func (a *agent) Model() models.Model {
@@ -277,8 +298,10 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 	if err != nil {
 		return a.err(fmt.Errorf("failed to create user message: %w", err))
 	}
-	// Append the new user message to the conversation history.
-	msgHistory := append(msgs, userMsg)
+	// Append the new user message to the conversation history. scopedHistory drops
+	// the prior transcript for event-driven roles (see agent.scopeHistory) so they
+	// run on just this turn's self-contained prompt; the Planner keeps full history.
+	msgHistory := append(scopedHistory(msgs, a.scopeHistory), userMsg)
 
 	for {
 		// Check for cancellation before each iteration

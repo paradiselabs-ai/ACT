@@ -118,7 +118,12 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 				app.LSPClients,
 			)
 			toolsN = len(roleTools)
-			agentSvc, err = agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools)
+			// Scope history for every in-process role except the Planner: event-driven
+			// roles (Observer/Assurance/QA) get self-contained prompts and don't need
+			// the shared transcript. Keyed on role (not backend), so flipping a role to
+			// in-process later scopes it automatically. The Planner is the conversational
+			// partner and keeps full history.
+			agentSvc, err = agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools, role != "planner")
 		}
 		if err != nil {
 			logging.Warn("tier1_agent_wire_failed", "role", role, "config_key", string(agentName), "backend", backendChoice, "error", err)
@@ -328,6 +333,7 @@ func (a *App) CreateAgentForRole(role string) (agent.Service, error) {
 			a.History,
 			a.LSPClients,
 		),
+		false, // Tier 2 swarm agent: keeps full history of its own task session.
 	)
 }
 

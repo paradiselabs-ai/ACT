@@ -217,6 +217,10 @@ func (a *ACPAgent) Run(ctx context.Context, sessionID, content string, attachmen
 // message to messages store, write empty assistant message, session/prompt,
 // drain chunks into the assistant message, finalise on stop_reason.
 func (a *ACPAgent) runTurn(ctx context.Context, sessionID, content string) agent.AgentEvent {
+	// Already per-agent-scoped: only `content` is sent to the external agent via
+	// session/prompt (no shared-transcript replay), and each ACPAgent keeps its own
+	// ACP session per ACT sessionID. The in-process agent's scopeHistory flag has no
+	// analogue here and is not needed — don't "add" it.
 	acpSessionID, err := a.ensureACPSession(ctx, sessionID)
 	if err != nil {
 		return a.errEvent(fmt.Errorf("ensure acp session: %w", err))
