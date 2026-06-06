@@ -41,4 +41,13 @@ const (
 	ProviderBedrock    ModelProvider = "bedrock"
 	ProviderLocal      ModelProvider = "local"
 	ProviderMock       ModelProvider = "__mock"
+
+	// ProviderACP is the synthetic provider identifier for ACP-backed Tier 1
+	// agents. It is not a real LLM provider — no case in provider.NewProvider —
+	// but the prompt dispatcher branches on it so a role's system prompt can be
+	// rendered backend-accurately (ACP uses the act-tier1-* shim via Bash; the
+	// in-process backend uses the native act_cli JSON tool). Lives here, not in
+	// the acp package, so the prompt package can compare against it without an
+	// import cycle (acp imports prompt).
+	ProviderACP ModelProvider = "acp"
 )

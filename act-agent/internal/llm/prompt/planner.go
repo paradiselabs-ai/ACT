@@ -13,10 +13,19 @@ import (
 // has to earn its place. If you find yourself wanting to add more guidance,
 // consider whether the Planner can derive it from the existing rules + tool
 // outputs instead.
-func PlannerPrompt(_ models.ModelProvider) string {
+func PlannerPrompt(provider models.ModelProvider) string {
+	// ACP-backed Planners reach act_cli through the act-tier1-planner shim via
+	// Bash; the in-process backend calls the native act_cli JSON tool and must
+	// not shell out. The two need different CLI-fragment framing (audit entry
+	// 3.5). app.go passes models.ProviderACP when priming an ACP session; any
+	// real LLM provider means in-process.
+	cli := actCLICommands("planner")
+	if provider == models.ProviderACP {
+		cli = actCLICommandsACP("planner")
+	}
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s",
 		basePlannerPrompt,
-		actCLICommands("planner"),
+		cli,
 		coordinationConstraints("planner"),
 		getEnvironmentInfo())
 }

@@ -95,3 +95,43 @@ func TestCommonBuildingBlocks(t *testing.T) {
 		t.Error("swarmWorkflow missing Ralph Wiggum Loop")
 	}
 }
+
+// TestPlannerPromptBranchesOnProvider locks audit Fix 22: PlannerPrompt must
+// render a backend-accurate CLI fragment. An ACP-backed Planner (provider ==
+// models.ProviderACP) reaches act_cli through the act-tier1-planner shim via
+// Bash; an in-process Planner (any real provider) uses the native act_cli JSON
+// tool and must NOT shell out. Before Fix 22 the provider arg was discarded
+// (`func PlannerPrompt(_ ...)`) and both backends got the same — and only one
+// was correct. If the branch is ever collapsed, the two outputs stop differing
+// and this test fails.
+//
+// Not parallel: PlannerPrompt → getEnvironmentInfo → config.Get touches
+// package-level config state. Mirror prompt_test.go's isolation.
+func TestPlannerPromptBranchesOnProvider(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	config.ResetForTests()
+	if _, err := config.Load(tmpDir, false); err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+
+	acpPrompt := PlannerPrompt(models.ProviderACP)
+	inProcPrompt := PlannerPrompt(models.ProviderGROQ)
+
+	if acpPrompt == inProcPrompt {
+		t.Fatal("PlannerPrompt returned identical text for ACP and in-process — the provider branch was collapsed (Fix 22 regressed)")
+	}
+	if !strings.Contains(acpPrompt, "act-tier1-planner") {
+		t.Error("ACP PlannerPrompt must instruct the act-tier1-planner shim via Bash; missing 'act-tier1-planner'")
+	}
+	if strings.Contains(acpPrompt, "do NOT shell out to send messages") {
+		t.Error("ACP PlannerPrompt must NOT carry the in-process 'do NOT shell out' framing — ACP MUST shell out for subcommands")
+	}
+	if !strings.Contains(inProcPrompt, "do NOT shell out to send messages") {
+		t.Error("in-process PlannerPrompt must keep the 'do NOT shell out' guard")
+	}
+	if strings.Contains(inProcPrompt, "act-tier1-planner") {
+		t.Error("in-process PlannerPrompt must NOT reference the ACP shim binary")
+	}
+}

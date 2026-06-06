@@ -135,6 +135,30 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 	return base
 }
 
+// actCLICommandsACP returns the ACP-backend variant of the CLI fragment.
+// ACP-backed Tier 1 agents cannot reach the in-process act_cli JSON tool; they
+// invoke the `act-tier1-<role>` shim binary via Bash (the same binary the ACP
+// priming advertises through renderShimNote). The in-process fragment's "do NOT
+// shell out" framing is wrong for them — they MUST shell out for subcommands.
+// Audit entry 3.5 (the "Use it via Bash" vs "do NOT shell out" cross-backend
+// contradiction). Only the planner case diverges enough to need its own framing
+// today; other roles fall back to the shared in-process fragment.
+func actCLICommandsACP(role string) string {
+	if role != "planner" {
+		return actCLICommands(role)
+	}
+	return `## ACT CLI Commands (available to you)
+You are an ACP-backed Tier 1 role. Reach act_cli by invoking the ` + "`act-tier1-planner`" + ` shim via Bash. CREATE_TASK and PROJECT_BRIEF are still markers in your reply text — write them in plain text, do NOT pass them to Bash.
+- act-tier1-planner context --project <name>    Load full project context (tasks, agents, brief)
+- act-tier1-planner graph unverified            Show tasks not yet validated
+- act-tier1-planner pvm search "<query>"        Search coordination history for relevant patterns
+- act-tier1-planner status                      Show server status (agents, tasks, locks)
+- act-tier1-planner log --tail 20               Show recent coordination log entries
+- act-tier1-planner task retry <id>             Re-dispatch a failed task to a new agent (uses next retry attempt)
+- act-tier1-planner task abandon <id> --reason "<text>"   Mark a task permanently failed; skips retry. Use when the task is unrecoverable or no longer needed.
+- act-tier1-planner prompt-section <name>       Pull on-demand Planner reference section (evidence_routing, success_criteria, validation, examples)`
+}
+
 // communicationProtocol returns the NesTTY communication protocol shared by Tier 1 roles.
 func communicationProtocol() string {
 	return `## Communication Protocol

@@ -24,7 +24,10 @@ import (
 // ProviderACP is the synthetic provider identifier the ACPAgent reports.
 // The TUI status pane reads provider/model strings for display only — it
 // doesn't dispatch on this value, so a non-registered identifier is safe.
-const ProviderACP models.ModelProvider = "acp"
+// The canonical value lives in the models package (models.ProviderACP) so the
+// prompt dispatcher can branch on it without importing acp (which would be an
+// import cycle). This alias keeps the existing acp.ProviderACP call sites.
+const ProviderACP = models.ProviderACP
 
 // ErrACPSubprocessExited indicates the ACP host died before / during a turn.
 // The orchestrator's humanReadableAgentError maps this to a friendly
