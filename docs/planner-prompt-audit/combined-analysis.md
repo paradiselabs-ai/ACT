@@ -116,11 +116,12 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - **What:** Orchestrator infers mode by parsing markers (PROJECT_BRIEF: vs CREATE_TASK:). A Planner that emits prose with no marker produces zero observable mode signal. `intakeMode` flag and LLM belief drift independently.
 - **Fix:** Add an "OK acknowledging BUILD mode" or similar mode-echo expectation to the trigger prompts.
 
-### 3.5 [ACTIVE] "Use it via Bash" vs "do NOT shell out" — cross-fragment ACP contradiction
-- **Sources:** sub1 + Path B
-- **Where:** `acp_priming_prompt` (app.go:231) appends *"Use it via Bash for all ACT-coordination subcommands"*; `act_cli_commands_fragment` (common.go:71) says *"do NOT shell out to send messages."*
-- **What:** In-process Planner: fragment is restrictive. ACP Planner: priming overrides with Bash instruction. Same role, two backends, opposite instructions.
-- **Fix:** Branch the fragment by backend, or rewrite to be backend-agnostic ("use act_cli — via Bash for ACP, via native tool for in-process").
+### 3.5 ~~[FIXED in ac241e0] "Use it via Bash" vs "do NOT shell out" — cross-fragment ACP contradiction~~
+- ~~**Sources:** sub1 + Path B~~
+- ~~**Where:** `acp_priming_prompt` (app.go:231) appends *"Use it via Bash for all ACT-coordination subcommands"*; `act_cli_commands_fragment` (common.go:71) says *"do NOT shell out to send messages."*~~
+- ~~**What:** In-process Planner: fragment is restrictive. ACP Planner: priming overrides with Bash instruction. Same role, two backends, opposite instructions.~~
+- ~~**Fix:** Branch the fragment by backend, or rewrite to be backend-agnostic.~~
+- **Resolution (ac241e0, Fix 22):** The branch seam already existed but was unused — `PlannerPrompt(_ models.ModelProvider)` discarded its arg even though `app.go` passes `acp.ProviderACP` when priming an ACP session. Wired it: moved `ProviderACP` to the `models` package (so `prompt` can compare against it with no import cycle — `acp` imports `prompt`), and `PlannerPrompt(provider)` now selects `actCLICommandsACP("planner")` (act-tier1-planner shim via Bash) for ACP vs `actCLICommands("planner")` ("do NOT shell out", native act_cli JSON tool) for in-process. Same role, backend-accurate framing. This is also the structural enabler for the rest of Round 5b. Test: `TestPlannerPromptBranchesOnProvider`.
 
 ---
 
@@ -305,6 +306,24 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 When each fix is committed + tested, strike through its entry above and add a `[FIXED in commit <sha>]` annotation.
 
 ---
+
+## Round 5a fixes (shipped)
+
+Targeted `feat/pvm-full-implementation`; carried into `feat/remove-nomik`.
+
+15. ~~**[FIXED 4f7fc3e] `section_examples` taught `@dependencies` inside the description string** (entry 1.2b). Rewrote the example to a top-level `dependencies` JSON property; added `TestNoSectionEmitsForbiddenDependenciesShape` walking `SectionRegistry()`.~~
+16. ~~**[FIXED e1adc85] `ValidationScore` always 0 in QA synthesis prompt** (entry O.1, outside-JSON-scope). `routeToQA` now reads `t.Metadata["validationScore"]`; test `TestBuildSynthesisPrompt_IncludesValidationScore`.~~
+17. ~~**[FIXED 6d934d2] `act_cli_commands_fragment` missing `prompt-section`** (entry 1.3). Added the line to `actCLICommands("planner")`; test `TestActCLICommandsFragmentMatchesAllowlist`.~~
+
+## Round 5b fixes (shipped)
+
+Targeted `feat/remove-nomik` (the post-Nomik-removal branch). Scope verified live against this branch — Fix 20 shrank because `planner_section_nomik.go` was already deleted here.
+
+18. ~~**[FIXED 8e3d3a8] `variantSystemEscalation` overloaded for `synthesis_stuck` + `dedup`** (Round 5 §6 #1). Both call sites used the failed-task retry/abandon menu, but synthesis_stuck's task already PASSED and dedup created no task. Added `variantSystemNoTask` (no task menu, permits silence); re-routed both. Tests: `TestDedupAutorouteText_WrappedByVariantSystemNoTask` (rewritten from the old `..._WrappedByVariantSystemEscalation` lock), `TestRenderAutoRoutePrompt_SystemNoTaskHasNoTaskMenu`.~~
+19. ~~**[FIXED ffb51e4] `variantPassVerdict` (a) CREATE_TASK escape hatch** (Round 5 §6 #3). Dropped the "obvious next step → emit CREATE_TASK" option — an open fabrication vector on PASS, worsened by the empty-`@success_criteria` fail-open. Test extended `TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction`.~~
+20. ~~**[FIXED 8249a19] Section bare-`act` shorthand + validation capability-lie** (Round 5 §6 #5 + new finding). `planner_section_evidence.go` rewrote `act pvm search` to the act_cli JSON shape + ACP note. `planner_section_validation.go` reworded `act validation queue` out (Planner isn't allowlisted for `validation`). Test: `TestNoSectionUsesBareActShorthand`.~~
+21. ~~**[FIXED 2326d0b] `variantFailVerdict` trim — Conflict A resolution.** Kept the split (per user decision over sub3's fold), trimmed the lettered-menu overlap with anomaly to tight prose, preserving the once/twice/three-times cadence that mirrors `planner_section_validation.go`. Test extended `TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis`.~~
+22. ~~**[FIXED ac241e0] `PlannerPrompt(provider)` now branches by backend** (entry 3.5, structural enabler). Moved `ProviderACP` to `models`; `PlannerPrompt` selects the ACP shim fragment vs the in-process fragment. Test: `TestPlannerPromptBranchesOnProvider`.~~
 
 ---
 
