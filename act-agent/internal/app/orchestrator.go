@@ -1192,11 +1192,20 @@ const (
 	// repeated failures suggest reassignment."
 	variantFailVerdict
 
-	// variantSystemEscalation — task_failed / task_burst / validation_stuck /
-	// synthesis_stuck. Silence is wrong; the Planner must act. Binary fork:
-	// use act_cli task retry/abandon for known-failed task management, or
-	// emit CREATE_TASK to reassign, or message the human.
+	// variantSystemEscalation — task_failed / task_burst / validation_stuck.
+	// A KNOWN-FAILED task exists. Silence is wrong; the Planner must act.
+	// Binary fork: use act_cli task retry/abandon for known-failed task
+	// management, or emit CREATE_TASK to reassign, or message the human.
 	variantSystemEscalation
+
+	// variantSystemNoTask — synthesis_stuck / dedup. A system event with NO
+	// failed task to retry or abandon: synthesis_stuck's task already PASSED
+	// Assurance (it's stuck in QA assembly, not failed); dedup dropped a
+	// duplicate batch so no task was ever created. The retry/abandon menu of
+	// variantSystemEscalation references task IDs that don't apply here — and
+	// its "Silence is WRONG" directly contradicts dedup's "stop re-emitting /
+	// wait" guidance. This variant omits the task menu and permits silence.
+	variantSystemNoTask
 )
 
 // autoRoutePlanner is the legacy entry point — equivalent to
@@ -1284,6 +1293,16 @@ func renderAutoRoutePrompt(variant autoRouteVariant, fromRole, fromContent strin
 				"  (c) Emit a CREATE_TASK: directive to reassign the work to a different role.\n"+
 				"  (d) Write a short chat reply to inform the human if the situation is unrecoverable and needs a decision.\n\n"+
 				"act_cli is the JSON tool you already use for status/log/graph — call it the same way: {\"subcommand\":\"task\",\"args\":[\"retry\",\"<id>\"]}.\n"+
+				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
+			fromRole, fromContent,
+		)
+
+	case variantSystemNoTask:
+		return fmt.Sprintf(
+			"The orchestrator surfaced a system event. There is no failed task to retry or "+
+				"abandon here — do NOT call act_cli task retry/abandon. Read the event below and "+
+				"respond appropriately: take a non-task action if one is warranted, inform the "+
+				"human if a decision is needed, or stay silent.\n"+
 				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
 			fromRole, fromContent,
 		)
@@ -1767,10 +1786,11 @@ func (o *Orchestrator) checkAndRecordDispatchHash(hash string) (drop bool, age t
 // cap visibility: orchestrator-side enforcement the LLM had no
 // signal about.
 //
-// Uses variantSystemEscalation because the action menu — "either
-// change a title/description and re-emit, or stop trying, or message
-// the human" — fits the existing escalation framing. A dedicated
-// variant would be overkill for one trigger.
+// Uses variantSystemNoTask: the dropped batch created NO task, so the
+// retry/abandon menu of variantSystemEscalation references task IDs that
+// don't exist, and its "Silence is WRONG" contradicts the dedup body's
+// "stop re-emitting / wait" guidance. variantSystemNoTask omits the task
+// menu and permits silence. (Audit Fix 18.)
 func (o *Orchestrator) notifyDispatchDedup(batchHash string, taskCount int, age time.Duration) {
 	o.mu.RLock()
 	sid := o.sessionID
@@ -1788,7 +1808,7 @@ func (o *Orchestrator) notifyDispatchDedup(batchHash string, taskCount int, age 
 	// goroutine to match the rest of the autoroute machinery and so we
 	// don't block the directive-dispatch goroutine on the trigger.
 	go o.autoRoutePlannerV(context.Background(), "system",
-		dedupAutorouteText(taskCount, age), variantSystemEscalation)
+		dedupAutorouteText(taskCount, age), variantSystemNoTask)
 }
 
 // dedupAutorouteText composes the Planner-facing message body for a
@@ -2492,7 +2512,10 @@ func (o *Orchestrator) checkValidatedTasks(ctx context.Context) {
 			o.mu.RUnlock()
 			if sid != "" {
 				o.emitSystemMessage(ctx, sid, fmt.Sprintf("⚠  synthesis stuck on %q after %d attempts — escalating to Planner", taskLabel(t), maxSynthesisAttempts))
-				go o.autoRoutePlannerV(ctx, "system", fmt.Sprintf("synthesis stuck on task %q (id=%s) after %d attempts; QA cannot assemble the deliverable", taskLabel(t), t.ID, maxSynthesisAttempts), variantSystemEscalation)
+				// variantSystemNoTask: the task already PASSED Assurance and is
+			// stuck in QA assembly — it is not failed, so retry/abandon don't
+			// apply (audit Fix 18).
+			go o.autoRoutePlannerV(ctx, "system", fmt.Sprintf("synthesis stuck on task %q (id=%s) after %d attempts; QA cannot assemble the deliverable", taskLabel(t), t.ID, maxSynthesisAttempts), variantSystemNoTask)
 			}
 			continue
 		}

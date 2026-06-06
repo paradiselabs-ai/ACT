@@ -678,21 +678,53 @@ func TestDedupAutorouteText(t *testing.T) {
 	}
 }
 
-// TestDedupAutorouteText_WrappedByVariantSystemEscalation confirms that
-// wrapping the dedup text in the variantSystemEscalation envelope
-// produces the full "Silence is WRONG / use act_cli" framing the
-// Planner needs alongside the dedup-specific guidance.
-func TestDedupAutorouteText_WrappedByVariantSystemEscalation(t *testing.T) {
+// TestDedupAutorouteText_WrappedByVariantSystemNoTask locks audit Fix 18:
+// the dedup autoroute wraps with variantSystemNoTask, NOT
+// variantSystemEscalation. A dropped batch created no task, so the
+// escalation variant's "Silence is WRONG" and "task retry/abandon <id>"
+// menu were both wrong here (the contradiction the dedup body's "stop
+// re-emitting / wait" guidance exposed). The no-task wrapper must omit the
+// task menu and the silence-is-wrong directive while preserving the
+// dedup-specific body.
+func TestDedupAutorouteText_WrappedByVariantSystemNoTask(t *testing.T) {
 	body := dedupAutorouteText(2, 8*time.Second)
-	full := renderAutoRoutePrompt(variantSystemEscalation, "system", body)
+	full := renderAutoRoutePrompt(variantSystemNoTask, "system", body)
 	for _, want := range []string{
-		"Silence is WRONG",
-		"act_cli task retry",
+		"no failed task to retry or",
 		"duplicate of one dispatched",
 		"2 tasks",
+		"stop re-emitting",
 	} {
 		if !strings.Contains(full, want) {
 			t.Errorf("expected %q in wrapped prompt; got:\n%s", want, full)
+		}
+	}
+	// Ban the escalation variant's MENU instruction forms (the "<id>"
+	// placeholder marks an instruction TO act on a task), not the no-task
+	// wrapper's own "do NOT call ... task retry/abandon" prohibition.
+	for _, banned := range []string{
+		"Silence is WRONG",
+		"task retry <id>",
+		"task abandon <id>",
+	} {
+		if strings.Contains(full, banned) {
+			t.Errorf("dedup must NOT be wrapped with %q (no task exists to act on); got:\n%s", banned, full)
+		}
+	}
+}
+
+// TestRenderAutoRoutePrompt_SystemNoTaskHasNoTaskMenu locks the variant
+// itself: variantSystemNoTask omits the retry/abandon task menu and names
+// the "no failed task" condition, so synthesis_stuck (already-validated
+// task) and dedup (no task) never see retry/abandon instructions.
+func TestRenderAutoRoutePrompt_SystemNoTaskHasNoTaskMenu(t *testing.T) {
+	got := renderAutoRoutePrompt(variantSystemNoTask, "system", "synthesis stuck on task \"x\"")
+	if !strings.Contains(got, "no failed task to retry or") {
+		t.Errorf("variantSystemNoTask must name the no-failed-task condition; got:\n%s", got)
+	}
+	for _, banned := range []string{"task retry <id>", "task abandon <id>", "Silence is WRONG"} {
+		if strings.Contains(got, banned) {
+			t.Errorf("variantSystemNoTask must NOT contain the escalation menu form %q; got:\n%s", banned, got)
 		}
 	}
 }
