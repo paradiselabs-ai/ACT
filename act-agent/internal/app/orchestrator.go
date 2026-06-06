@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -67,6 +68,7 @@ type Orchestrator struct {
 	projectName     string // ACT_PROJECT — derived from --project flag or cwd basename
 	resumeContext   string // non-empty when project exists on server; injected into first Planner turn
 	firstPlannerTurn bool  // cleared after the first turn so resumeContext is only prepended once
+	brownfield      bool   // intake on an existing codebase: detectProjectState found code but no server record
 
 	// Coordination event polling state. Tracks the most recent event timestamp
 	// the loop has surfaced as a chat system message, so we never re-emit.
@@ -183,6 +185,16 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 		o.emitSystemMessage(context.Background(), sid, "🧩  QA/Synthesizer online — waiting for validated outputs")
 	}()
 
+	// Brownfield intake: existing code, unknown project. Analyze the repo in the
+	// background, then seed a confirm-and-2-question Planner conversation. All work
+	// happens off the startup path — see runBrownfieldOnboard.
+	o.mu.RLock()
+	brown := o.brownfield
+	o.mu.RUnlock()
+	if brown {
+		go o.runBrownfieldOnboard(ctx)
+	}
+
 	logging.Info("Orchestrator started", "session_id", sessionID, "swarm_specs", len(o.app.SwarmSpecs))
 }
 
@@ -297,7 +309,157 @@ func (o *Orchestrator) detectProjectState() {
 		return
 	}
 	o.mu.Unlock()
+	// Brownfield: an unknown project whose directory already has source code.
+	// Flip the flag so Start() runs codebase analysis and seeds a confirm-and-
+	// 2-question intake instead of the greenfield 5-question form.
+	if hasExistingCode(o.projectDir) {
+		o.mu.Lock()
+		o.brownfield = true
+		o.mu.Unlock()
+		logging.Info("No server-side project record + existing code — entering BROWNFIELD intake", "project", name)
+		return
+	}
 	logging.Info("No server-side project record — entering INTAKE mode", "project", name)
+}
+
+// hasExistingCode reports whether dir looks like an existing codebase — any
+// recognized manifest, or a git repo with at least one commit. Cheap, no LLM.
+func hasExistingCode(dir string) bool {
+	for _, m := range []string{
+		"go.mod", "package.json", "pyproject.toml", "requirements.txt",
+		"Cargo.toml", "pom.xml", "Gemfile", "composer.json",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
+			return true
+		}
+	}
+	return exec.Command("git", "-C", dir, "log", "-1", "--oneline").Run() == nil
+}
+
+// runBrownfieldOnboard analyzes an existing repo, then seeds a confirm-and-
+// 2-question Planner intake. Runs entirely off the startup path. Degrades:
+// researcher enrichment → deterministic scaffold → plain greenfield intake.
+func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
+	o.mu.RLock()
+	dir := o.projectDir
+	name := o.projectName
+	sid := o.sessionID
+	o.mu.RUnlock()
+
+	o.emitSystemMessage(context.Background(), sid, "🔍  Existing codebase detected — analyzing before intake…")
+
+	// 1. Deterministic scaffold — reuses `act codebase onboard` (routed to the TS CLI).
+	scaffold := o.deterministicScaffold(ctx, dir)
+
+	// 2. Researcher enrichment — a one-shot headless read of the real code, seeded
+	//    by the scaffold. Any failure falls back to the scaffold.
+	analysis := scaffold
+	enrichCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	if enriched, err := runHeadlessAgent(enrichCtx, dir, name, "onboard-researcher", "researcher", brownfieldEnrichPrompt(scaffold)); err != nil {
+		logging.Warn("brownfield enrichment failed — using deterministic scaffold", "error", err)
+	} else {
+		analysis = enriched
+		o.emitSystemMessage(context.Background(), sid, "🔬  Codebase analysis complete.")
+	}
+
+	if strings.TrimSpace(analysis) == "" {
+		logging.Warn("brownfield analysis empty — degrading to greenfield intake")
+		o.emitSystemMessage(context.Background(), sid, "Couldn't analyze the codebase automatically — starting standard intake.")
+		return
+	}
+
+	// 3. Seed the Planner. intakeMode stays true, so its PROJECT_BRIEF routes to
+	//    the existing handleProjectBrief flow.
+	o.fireWhenPlannerIdle(ctx, sid, renderBrownfieldIntake(name, analysis), "brownfield_intake")
+}
+
+// deterministicScaffold shells out to this binary's `codebase onboard` command
+// to get the manifest/config/git scaffold. Empty string on failure.
+func (o *Orchestrator) deterministicScaffold(ctx context.Context, dir string) string {
+	self, err := os.Executable()
+	if err != nil {
+		logging.Warn("deterministic scaffold: cannot resolve executable", "error", err)
+		return ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(cctx, self, "codebase", "onboard", "--dir", dir).Output()
+	if err != nil {
+		logging.Warn("deterministic scaffold failed", "error", err)
+		return ""
+	}
+	return string(out)
+}
+
+// runHeadlessAgent re-invokes this binary in headless mode to run one role's
+// agent turn against dir, returning the agent's result text. The headless path
+// prints a JSON envelope on stdout (see App.agentOutput); parseHeadlessResult
+// extracts the result.
+func runHeadlessAgent(ctx context.Context, dir, project, agentID, role, prompt string) (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, self,
+		"--cwd", dir, "--agent", agentID, "--role", role, "--prompt", prompt)
+	cmd.Env = append(os.Environ(), "ACT_PROJECT="+project)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return parseHeadlessResult(out)
+}
+
+// parseHeadlessResult extracts the result text from a headless agent's JSON
+// envelope ({"status","result",...}). Errors unless status=="completed" with a
+// non-empty result.
+func parseHeadlessResult(out []byte) (string, error) {
+	var env struct {
+		Status string `json:"status"`
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &env); err != nil {
+		return "", fmt.Errorf("headless output not JSON: %w", err)
+	}
+	if env.Status != "completed" {
+		return "", fmt.Errorf("headless agent status %q", env.Status)
+	}
+	if strings.TrimSpace(env.Result) == "" {
+		return "", errors.New("headless agent returned empty result")
+	}
+	return env.Result, nil
+}
+
+// brownfieldEnrichPrompt asks the researcher to deepen the deterministic
+// scaffold by reading the real code.
+func brownfieldEnrichPrompt(scaffold string) string {
+	return fmt.Sprintf(`You are onboarding an existing codebase for a multi-agent dev team. Below is a deterministic scaffold extracted from manifests, configs, and git. Read the ACTUAL code with your view/grep/glob tools and DEEPEN it into an accurate, concise understanding:
+- what the project does and who it is for
+- architecture / main components and how they fit together
+- key entry points (cite file paths)
+- notable conventions, constraints, or risks
+
+Output a concise markdown analysis (~400 words max), grounded in the real code. Cite file paths. Do NOT modify any files.
+
+--- DETERMINISTIC SCAFFOLD ---
+%s`, scaffold)
+}
+
+// renderBrownfieldIntake builds the [SYSTEM] turn that seeds the Planner's
+// brownfield intake. The "CODEBASE ANALYSIS" label is what planner.go's
+// brownfield branch keys on.
+func renderBrownfieldIntake(project, analysis string) string {
+	return fmt.Sprintf(`[SYSTEM] You are starting INTAKE for an EXISTING codebase (project %q). A codebase analysis is provided below. Do NOT run the greenfield 5-question intake.
+
+Open by briefly presenting this understanding to the human and inviting corrections, then ask ONLY two things (one at a time):
+1. What do you want to build or change next? (becomes description + successCriteria)
+2. What should agents NOT touch? (becomes constraints / out-of-scope)
+
+On confirmation, emit PROJECT_BRIEF: as usual — techStack from the analysis, description/successCriteria from answer 1, constraints from answer 2, agentsInvolved chosen to fit the work.
+
+CODEBASE ANALYSIS
+%s`, project, analysis)
 }
 
 // briefViewFromGetProject extracts a BriefView from the map returned by
