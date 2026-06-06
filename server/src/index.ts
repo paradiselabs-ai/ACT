@@ -1063,10 +1063,10 @@ interface FileLock {
   lockedAt: string;
 }
 
-// Keyed by `${projectName} ${filePath}` so the same absolute path can be
+// Keyed by `${projectName} ${filePath}` so the same absolute path can be
 // independently locked in two projects under per-project isolation.
 const fileLocks = new Map<string, FileLock>();
-const lockKey = (projectName: string, filePath: string) => `${projectName} ${filePath}`;
+const lockKey = (projectName: string, filePath: string) => `${projectName} ${filePath}`;
 
 // Claim one or more files for exclusive editing
 app.post('/api/files/claim', (req, res) => {
