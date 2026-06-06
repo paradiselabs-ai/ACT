@@ -7,7 +7,9 @@
  */
 
 import { parseArgs } from 'node:util';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { ACTClient } from './act-client.js';
 
 const DEFAULT_SERVER_URL = process.env.ACT_SERVER_URL || 'http://localhost:8080';
@@ -813,6 +815,187 @@ async function cmdValidationQueue(client: ACTClient): Promise<void> {
   }
 }
 
+// ─── codebase onboard — deterministic AGENTS.md scaffold from repo analysis ──────
+// Reads manifests, configs, the dir tree, and git history to draft a short AGENTS.md
+// context file. No LLM, no server — pure local extraction, matching ACT's bet that
+// codebase intelligence is agentic search + a good context file, not a persistent index.
+// SEAM: an enrichment pass (future) would take this scaffold + the repo and deepen it
+// via an agent — extractScaffold() stays pure so that pass can consume its output.
+
+const USER_NOTES_MARKER = '<!-- User notes below this line are preserved by ACT -->';
+
+interface CodebaseScaffold {
+  name: string;
+  stack: string[];
+  commands: string[];
+  repoMap: string[];
+  conventions: string[];
+  recentActivity: string[];
+  readme: string | null;
+}
+
+function safeRead(path: string): string | null {
+  try { return readFileSync(path, 'utf-8'); } catch { return null; }
+}
+
+function gitOut(dir: string, gitArgs: string[]): string | null {
+  try {
+    return execFileSync('git', gitArgs, {
+      cwd: dir, encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch { return null; }
+}
+
+function extractScaffold(dir: string): CodebaseScaffold {
+  const stack: string[] = [];
+  const commands: string[] = [];
+  const conventions: string[] = [];
+  let name = basename(dir.replace(/\/+$/, '')) || dir;
+
+  const pkgRaw = safeRead(join(dir, 'package.json'));
+  if (pkgRaw) {
+    try {
+      const pkg = JSON.parse(pkgRaw);
+      if (pkg.name) name = pkg.name;
+      const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+      const fw = ['next', 'react', 'vue', 'svelte', 'express', 'fastify', '@nestjs/core', 'vite']
+        .filter((d) => deps[d]);
+      stack.push(`Node/JavaScript${fw.length ? ' — ' + fw.join(', ') : ''} (package.json)`);
+      if (pkg.scripts) {
+        for (const s of ['dev', 'start', 'build', 'test', 'lint']) {
+          if (pkg.scripts[s]) commands.push(`${s}: \`npm run ${s}\` (package.json)`);
+        }
+      }
+    } catch { stack.push('Node/JavaScript (package.json — unparseable)'); }
+  }
+
+  const goMod = safeRead(join(dir, 'go.mod'));
+  if (goMod) {
+    const mod = goMod.match(/^module\s+(\S+)/m)?.[1];
+    const gov = goMod.match(/^go\s+(\S+)/m)?.[1];
+    stack.push(`Go${gov ? ' ' + gov : ''}${mod ? ' (module ' + mod + ')' : ''} (go.mod)`);
+    commands.push('build: `go build ./...` (go.mod)');
+    commands.push('test: `go test ./...` (go.mod)');
+  }
+
+  for (const [f, label] of [
+    ['pyproject.toml', 'Python (pyproject.toml)'],
+    ['requirements.txt', 'Python (requirements.txt)'],
+    ['Cargo.toml', 'Rust (Cargo.toml)'],
+    ['pom.xml', 'Java/Maven (pom.xml)'],
+    ['Gemfile', 'Ruby (Gemfile)'],
+    ['composer.json', 'PHP (composer.json)'],
+  ] as [string, string][]) {
+    if (existsSync(join(dir, f))) stack.push(label);
+  }
+
+  if (existsSync(join(dir, 'Makefile'))) {
+    const mk = safeRead(join(dir, 'Makefile')) || '';
+    const targets = [...mk.matchAll(/^([a-zA-Z0-9_-]+):/gm)].map((m) => m[1]).slice(0, 6);
+    if (targets.length) commands.push(`make targets: ${targets.join(', ')} (Makefile)`);
+  }
+
+  for (const f of ['.eslintrc', '.eslintrc.json', '.eslintrc.js', 'ruff.toml', '.editorconfig',
+    '.prettierrc', '.prettierrc.json', 'tsconfig.json', '.github/workflows']) {
+    if (existsSync(join(dir, f))) conventions.push(f);
+  }
+
+  const skip = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', 'target', '.next', '__pycache__']);
+  let repoMap: string[] = [];
+  try {
+    repoMap = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !skip.has(e.name) && !e.name.startsWith('.'))
+      .map((e) => e.name + '/').sort().slice(0, 20);
+  } catch { /* unreadable dir */ }
+
+  const recentActivity: string[] = [];
+  const log = gitOut(dir, ['log', '--oneline', '-15']);
+  if (log) {
+    const lines = log.split('\n').filter(Boolean);
+    recentActivity.push(`${lines.length} recent commits (git log)`);
+    const fixes = lines.filter((l) => /\b(fix|revert|hotfix)\b/i.test(l)).length;
+    if (fixes) recentActivity.push(`${fixes}/${lines.length} recent commits are fix/revert — churn-hotspot signal`);
+  }
+  const changed = gitOut(dir, ['log', '--name-only', '--pretty=format:', '-50']);
+  if (changed) {
+    const counts: Record<string, number> = {};
+    for (const f of changed.split('\n')) { if (f.trim()) counts[f] = (counts[f] || 0) + 1; }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+      .map(([f, c]) => `${f} (${c}×)`);
+    if (top.length) recentActivity.push('most-changed: ' + top.join(', '));
+  }
+
+  let readme: string | null = null;
+  for (const r of ['README.md', 'README.rst', 'README.txt', 'readme.md']) {
+    const c = safeRead(join(dir, r));
+    if (c) {
+      const heading = c.split('\n').find((l) => l.trim());
+      readme = `${r}${heading ? ' — ' + heading.replace(/^#+\s*/, '').slice(0, 80) : ''}`;
+      break;
+    }
+  }
+
+  return { name, stack, commands, repoMap, conventions, recentActivity, readme };
+}
+
+function renderScaffold(s: CodebaseScaffold): string {
+  const list = (arr: string[], empty: string) =>
+    arr.length ? arr.map((x) => `- ${x}`).join('\n') : empty;
+  return `# AGENTS.md
+
+Project context for ACT swarm agents. Drafted by \`act codebase onboard\` from deterministic repo analysis (manifests, configs, git). Review and edit — agents fill the rest via live search. User notes after the marker at the bottom survive regeneration.
+
+## Project
+
+**${s.name}**
+
+${s.readme ? `See ${s.readme}` : 'No README detected.'}
+
+## Tech stack
+
+${list(s.stack, '- Not detected (no recognized manifest).')}
+
+## Repo map
+
+${list(s.repoMap, '- (no top-level source directories found)')}
+
+## Run / test / build
+
+${list(s.commands, '- Not detected — check the README or manifest.')}
+
+## Conventions
+
+${s.conventions.length ? 'Detected config: ' + s.conventions.join(', ') : 'No standard linter/formatter config detected.'}
+
+## Recent activity
+
+${list(s.recentActivity, '- No git history available.')}
+
+${USER_NOTES_MARKER}
+`;
+}
+
+async function cmdCodebaseOnboard(values: Record<string, any>): Promise<void> {
+  const dir = values.dir ? String(values.dir) : process.cwd();
+  if (!existsSync(dir)) { printError(`Directory not found: ${dir}`); process.exit(1); }
+
+  const md = renderScaffold(extractScaffold(dir));
+
+  if (values.write) {
+    const target = join(dir, 'AGENTS.md');
+    if (existsSync(target) && !values.force) {
+      printError(`AGENTS.md already exists at ${target}. Re-run with --force to overwrite, or omit --write to print to stdout.`);
+      process.exit(1);
+    }
+    writeFileSync(target, md);
+    console.log(`Wrote ${target}`);
+    return;
+  }
+
+  console.log(md);
+  console.error('\n(review the draft above, then save to AGENTS.md or re-run with --write)');
+}
+
 async function main(): Promise<void> {
   const commands: Record<string, string> = {
     register: 'Register agent with ACT server',
@@ -834,6 +1017,7 @@ async function main(): Promise<void> {
     'graph unverified': 'List completed tasks not yet validated',
     'graph conflicts': 'Show file lock conflicts',
     status: 'Show system status overview',
+    'codebase onboard': 'Draft an AGENTS.md from repo analysis (manifests, configs, git)',
   };
 
   const args = process.argv.slice(2);
@@ -1084,6 +1268,16 @@ async function main(): Promise<void> {
       await cmdGraphConflicts(client);
     } else if (command === 'status') {
       await cmdStatus(client);
+    } else if (command === 'codebase' && subcommand === 'onboard') {
+      const cbArgs = parseArgs({
+        options: { dir: { type: 'string' }, write: { type: 'boolean' }, force: { type: 'boolean' } },
+        strict: false,
+        allowPositionals: true,
+      });
+      await cmdCodebaseOnboard(cbArgs.values);
+    } else if (command === 'codebase') {
+      printError('Usage: act-agent codebase onboard [--dir <path>] [--write] [--force]');
+      process.exit(1);
     } else if (command === 'swarm') {
       await cmdSwarm(args.slice(1));
     } else if (command === 'pvm' && !subcommand) {

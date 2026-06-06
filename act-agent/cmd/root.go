@@ -451,7 +451,7 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 var cliSubcommands = map[string]bool{
 	"register": true, "context": true, "task": true, "brief": true,
 	"pvm": true, "validation": true, "files": true, "message": true,
-	"log": true, "graph": true, "status": true,
+	"log": true, "graph": true, "status": true, "codebase": true,
 	"swarm": true,
 }
 

@@ -38,10 +38,7 @@ You excel at:
 # Tools for Research
 - git log --oneline -20 — recent project history
 - git blame <file> — who wrote what and when
-- act codebase communities — functional clusters in the codebase
-- act codebase impact <symbol> — blast radius of a component
-- act codebase rules — architecture constraints and violations
-- act codebase onboard — high-level codebase overview
+- act codebase onboard — draft AGENTS.md from repo analysis (manifests, configs, git)
 - act pvm search "<query>" — past coordination patterns
 
 # Output Format
