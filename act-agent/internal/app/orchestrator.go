@@ -993,6 +993,35 @@ func normalizeRole(role string) string {
 	}
 }
 
+// anomalySignature is a stable identity for an anomaly SET — category + task +
+// agent, deliberately excluding the human-readable Message (which carries
+// volatile durations like "stuck 49min" that change every cycle). The Observer
+// no-op gate hashes THIS instead of the rendered prompt, so the SAME unresolved
+// anomalies don't re-trigger the Observer — and the downstream Planner autoroute
+// — every 120s. HandleHumanInput clears the stored hash, so the set re-escalates
+// once the human acts; a genuine change in the set (new/resolved anomaly) also
+// changes the signature and escalates anew. Escalate once, then stay quiet.
+func anomalySignature(anomalies []Anomaly) string {
+	keys := make([]string, len(anomalies))
+	for i, a := range anomalies {
+		keys[i] = string(a.Category) + "|" + a.TaskID + "|" + a.AgentID
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "\n")
+}
+
+// taskSynthesized reports whether QA has already assembled this task's
+// deliverable. The server stamps metadata.synthesizedAt on synthesis-complete
+// (POST /api/tasks/:id/synthesis) but leaves the task status at "validated".
+// Both the QA poll filter and the watchdog must honor this marker.
+func taskSynthesized(t TaskSummary) bool {
+	if t.Metadata == nil {
+		return false
+	}
+	s, _ := t.Metadata["synthesizedAt"].(string)
+	return s != ""
+}
+
 // tier1RoleLabelRe matches a leading role label the model may have emitted —
 // including a hallucinated "Human:"/"User:". Stripped before the authoritative
 // label is prepended so we never accumulate "Planner: Human: ...".
@@ -2044,6 +2073,13 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 
 	anomalies := detectAnomalies(snapshot)
 	if len(anomalies) == 0 {
+		// Board is all-clear — reset the escalation gate so a later anomaly
+		// (even one whose signature matches a previously-escalated set, e.g.
+		// an agent that idles, recovers, then idles again) escalates afresh
+		// instead of being suppressed as "unchanged".
+		o.mu.Lock()
+		o.lastObserverPromptHash = ""
+		o.mu.Unlock()
 		// Silent watchdog — but every Nth cycle emit a health ping so the
 		// user knows it's still alive. Without this Observer is
 		// indistinguishable from a dead goroutine on healthy runs.
@@ -2064,11 +2100,16 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 	}
 	prompt := buildObserverPrompt(snapshot, anomalies)
 
-	// No-op gate: if this prompt is byte-identical to the last one we sent,
-	// the Observer would just repeat itself. Skip the LLM call entirely.
-	// The hash is cleared by HandleHumanInput so a fresh human turn always
-	// re-arms the Observer.
-	sum := sha256.Sum256([]byte(prompt))
+	// No-op gate: skip when the anomaly SET is unchanged from what we last
+	// escalated. Hashing a stable signature (category+task+agent) rather than
+	// the rendered prompt is deliberate — the prompt carries volatile durations
+	// ("stuck 49min" → "51min") that flip the hash every cycle even when the
+	// underlying anomalies are identical, which is exactly what produced the
+	// endless 120s Observer→Planner autoroute loop on unresolvable tasks. The
+	// hash is cleared by HandleHumanInput so a fresh human turn re-arms the gate
+	// and re-escalates anything still wrong. Escalate once; stay quiet until the
+	// set changes or the human acts.
+	sum := sha256.Sum256([]byte(anomalySignature(anomalies)))
 	hash := hex.EncodeToString(sum[:8])
 	o.mu.Lock()
 	skip := hash == o.lastObserverPromptHash
@@ -2077,7 +2118,7 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 	o.mu.Unlock()
 	if skip {
 		logging.Info("observer.noop_gate.skip",
-			"reason", "prompt_unchanged",
+			"reason", "anomaly_set_unchanged",
 			"hash", hash,
 			"cycle", cycle,
 			"anomalies", len(anomalies),
@@ -2086,7 +2127,7 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 		return
 	}
 	logging.Info("observer.noop_gate.fire",
-		"reason", "prompt_changed",
+		"reason", "anomaly_set_changed",
 		"hash", hash,
 		"prev_hash", prevHash,
 		"cycle", cycle,
@@ -2114,7 +2155,14 @@ func (o *Orchestrator) tier1Watchdog(ctx context.Context, sid string, snap *Stat
 		case "submitted_for_validation":
 			pendingValidation++
 		case "validated":
-			pendingSynthesis++
+			// A synthesized task keeps status "validated" (the server only
+			// stamps metadata.synthesizedAt). The /api/tasks/validated route
+			// already filters these out for the QA poll; the watchdog reads the
+			// raw /api/tasks snapshot so it must apply the same exclusion or it
+			// re-fires QA on already-shipped work every cycle forever.
+			if !taskSynthesized(t) {
+				pendingSynthesis++
+			}
 		}
 	}
 

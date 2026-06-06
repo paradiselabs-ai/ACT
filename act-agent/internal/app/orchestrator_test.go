@@ -46,6 +46,58 @@ func TestApplyRoleLabelIdempotent(t *testing.T) {
 	}
 }
 
+// --- taskSynthesized tests (QA-drain watchdog exclusion) ---
+
+func TestTaskSynthesized(t *testing.T) {
+	cases := []struct {
+		name string
+		meta map[string]any
+		want bool
+	}{
+		{"nil metadata", nil, false},
+		{"no marker", map[string]any{"validationScore": 100}, false},
+		{"empty marker", map[string]any{"synthesizedAt": ""}, false},
+		{"marker set", map[string]any{"synthesizedAt": "2026-06-06T10:00:00Z"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := taskSynthesized(TaskSummary{Metadata: c.meta}); got != c.want {
+				t.Errorf("taskSynthesized(%v) = %v, want %v", c.meta, got, c.want)
+			}
+		})
+	}
+}
+
+// --- anomalySignature tests (observer escalation ceiling) ---
+
+func TestAnomalySignature(t *testing.T) {
+	// Same anomalies, different volatile Message + different order → same signature.
+	a1 := []Anomaly{
+		{Category: CategoryFailedTask, TaskID: "t1", Message: "failed 5m ago"},
+		{Category: CategoryStuckTask, TaskID: "t2", Message: "stuck 49min"},
+	}
+	a2 := []Anomaly{
+		{Category: CategoryStuckTask, TaskID: "t2", Message: "stuck 51min"},
+		{Category: CategoryFailedTask, TaskID: "t1", Message: "failed 7m ago"},
+	}
+	if anomalySignature(a1) != anomalySignature(a2) {
+		t.Errorf("same anomaly set must yield same signature:\n%q\nvs\n%q", anomalySignature(a1), anomalySignature(a2))
+	}
+	// A new anomaly changes the signature.
+	a3 := append(append([]Anomaly{}, a1...), Anomaly{Category: CategoryIdleAgent, AgentID: "dev-1", Message: "idle"})
+	if anomalySignature(a1) == anomalySignature(a3) {
+		t.Error("adding an anomaly must change the signature")
+	}
+	// A resolved anomaly changes the signature.
+	if anomalySignature(a1) == anomalySignature(a1[:1]) {
+		t.Error("removing an anomaly must change the signature")
+	}
+	// Empty set is stable.
+	if anomalySignature(nil) != anomalySignature([]Anomaly{}) {
+		t.Error("nil and empty anomaly sets must match")
+	}
+}
+
 // --- parseCreateTaskDirectives tests ---
 
 func TestParseCreateTaskDirectives_InlineDirective(t *testing.T) {
