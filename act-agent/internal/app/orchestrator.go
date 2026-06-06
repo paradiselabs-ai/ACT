@@ -347,11 +347,13 @@ func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
 	name := o.projectName
 	sid := o.sessionID
 	o.mu.RUnlock()
+	logging.Info("brownfield_onboard_start", "project", name, "dir", dir, "session", sid)
 
 	o.emitSystemMessage(context.Background(), sid, "🔍  Existing codebase detected — analyzing before intake…")
 
 	// 1. Deterministic scaffold — reuses `act codebase onboard` (routed to the TS CLI).
 	scaffold := o.deterministicScaffold(ctx, dir)
+	logging.Info("brownfield_scaffold", "bytes", len(scaffold), "empty", strings.TrimSpace(scaffold) == "")
 
 	// 2. Researcher enrichment — a one-shot headless read of the real code, seeded
 	//    by the scaffold. Any failure falls back to the scaffold.
@@ -359,14 +361,15 @@ func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
 	enrichCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	if enriched, err := o.runResearcherEnrichment(enrichCtx, dir, name, brownfieldEnrichPrompt(scaffold)); err != nil {
-		logging.Warn("brownfield enrichment failed — using deterministic scaffold", "error", err)
+		logging.Warn("brownfield_enrichment_failed", "error", err, "fallback", "deterministic scaffold")
 	} else {
 		analysis = enriched
+		logging.Info("brownfield_enrichment_ok", "bytes", len(enriched))
 		o.emitSystemMessage(context.Background(), sid, "🔬  Codebase analysis complete.")
 	}
 
 	if strings.TrimSpace(analysis) == "" {
-		logging.Warn("brownfield analysis empty — degrading to greenfield intake")
+		logging.Warn("brownfield_analysis_empty", "reason", "scaffold and enrichment both empty — degrading to greenfield intake")
 		o.emitSystemMessage(context.Background(), sid, "Couldn't analyze the codebase automatically — starting standard intake.")
 		return
 	}
@@ -379,7 +382,9 @@ func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
 
 	// 3. Seed the Planner. intakeMode stays true, so its PROJECT_BRIEF routes to
 	//    the existing handleProjectBrief flow.
-	o.fireWhenPlannerIdle(ctx, sid, renderBrownfieldIntake(name, analysis), "brownfield_intake")
+	intakeTurn := renderBrownfieldIntake(name, analysis)
+	logging.Info("brownfield_fire_planner", "analysis_bytes", len(analysis), "turn_bytes", len(intakeTurn))
+	o.fireWhenPlannerIdle(ctx, sid, intakeTurn, "brownfield_intake")
 }
 
 // deterministicScaffold shells out to this binary's `codebase onboard` command
@@ -387,16 +392,18 @@ func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
 func (o *Orchestrator) deterministicScaffold(ctx context.Context, dir string) string {
 	self, err := os.Executable()
 	if err != nil {
-		logging.Warn("deterministic scaffold: cannot resolve executable", "error", err)
+		logging.Warn("brownfield_scaffold_no_executable", "error", err)
 		return ""
 	}
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	logging.Info("brownfield_scaffold_invoke", "bin", self, "dir", dir)
 	out, err := exec.CommandContext(cctx, self, "codebase", "onboard", "--dir", dir).Output()
 	if err != nil {
-		logging.Warn("deterministic scaffold failed", "error", err)
+		logging.Warn("brownfield_scaffold_failed", "error", err, "stderr", execStderr(err))
 		return ""
 	}
+	logging.Info("brownfield_scaffold_done", "bytes", len(out))
 	return string(out)
 }
 
@@ -412,6 +419,10 @@ func (o *Orchestrator) runResearcherEnrichment(ctx context.Context, dir, project
 			backend = a.Backend
 		}
 	}
+	if backend == "" {
+		backend = "act-agent"
+	}
+	logging.Info("brownfield_enrichment_backend", "backend", backend, "prompt_bytes", len(prompt))
 	if backend == "claude-code" {
 		return runClaudeCode(ctx, dir, prompt)
 	}
@@ -425,17 +436,30 @@ func runClaudeCode(ctx context.Context, dir, prompt string) (string, error) {
 	if path == "" {
 		path = "claude"
 	}
+	logging.Info("brownfield_claude_invoke", "path", path, "dir", dir, "prompt_bytes", len(prompt))
 	cmd := exec.CommandContext(ctx, path, "--print", "--dangerously-skip-permissions", prompt)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
+		logging.Warn("brownfield_claude_failed", "error", err, "stderr", execStderr(err))
 		return "", err
 	}
 	res := strings.TrimSpace(string(out))
 	if res == "" {
+		logging.Warn("brownfield_claude_empty", "reason", "claude-code returned empty stdout")
 		return "", errors.New("claude-code returned empty output")
 	}
+	logging.Info("brownfield_claude_done", "out_bytes", len(res))
 	return res, nil
+}
+
+// execStderr pulls captured stderr out of an *exec.ExitError for logging.
+func execStderr(err error) string {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return strings.TrimSpace(string(ee.Stderr))
+	}
+	return ""
 }
 
 // runHeadlessAgent re-invokes this binary in headless mode to run one role's
@@ -447,14 +471,22 @@ func runHeadlessAgent(ctx context.Context, dir, project, agentID, role, prompt s
 	if err != nil {
 		return "", err
 	}
+	logging.Info("brownfield_headless_invoke", "bin", self, "role", role, "dir", dir, "prompt_bytes", len(prompt))
 	cmd := exec.CommandContext(ctx, self,
 		"--cwd", dir, "--agent", agentID, "--role", role, "--prompt", prompt)
 	cmd.Env = append(os.Environ(), "ACT_PROJECT="+project)
 	out, err := cmd.Output()
 	if err != nil {
+		logging.Warn("brownfield_headless_failed", "error", err, "stderr", execStderr(err))
 		return "", err
 	}
-	return parseHeadlessResult(out)
+	res, perr := parseHeadlessResult(out)
+	if perr != nil {
+		logging.Warn("brownfield_headless_parse_failed", "error", perr, "out_bytes", len(out))
+		return "", perr
+	}
+	logging.Info("brownfield_headless_done", "result_bytes", len(res))
+	return res, nil
 }
 
 // parseHeadlessResult extracts the result text from a headless agent's JSON
@@ -1426,6 +1458,7 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 	// lands as a "## Codebase analysis" section in AGENTS.md. Empty for greenfield.
 	brief.CodebaseNotes = o.codebaseAnalysis
 	o.mu.RUnlock()
+	logging.Info("project_brief_codebase_notes", "attached_bytes", len(brief.CodebaseNotes))
 
 	client := act.NewClient("planner", name)
 	if !client.IsAvailable() {
