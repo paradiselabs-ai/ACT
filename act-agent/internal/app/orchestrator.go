@@ -1889,6 +1889,13 @@ const (
 	// run that completes in 5 minutes. Lowered to 3 so Observer can actually
 	// catch real anomalies during a single short run.
 	stuckTaskMinutes     = 3
+	// pendingStuckMinutes is deliberately shorter than stuckTaskMinutes:
+	// assignment should be near-instant, so a ready (deps-satisfied) task still
+	// pending after this long means the pending→assigned hop is wedged.
+	pendingStuckMinutes  = 2
+	// agentStaleMinutes mirrors the server's 5-minute health-check window — an
+	// agent whose lastSeen is older counts as unresponsive for serviceability.
+	agentStaleMinutes    = 5
 	staleLockMinutes     = 5
 	bottleneckTaskCount  = 3
 	validationPollPeriod = 10 * time.Second
@@ -2295,6 +2302,83 @@ func detectAnomalies(s *StatusSnapshot) []Anomaly {
 		})
 	}
 
+	// 7. Orphaned pending tasks — the pending→assigned hop rules 1-6 never watch.
+	// For each ready (deps-satisfied) pending task aged past pendingStuckMinutes,
+	// classify by whether a capable agent exists and is alive. s.Agents is already
+	// scoped to this project by the client, so capability is the only filter.
+	taskStatus := make(map[string]string, len(s.Tasks))
+	for _, t := range s.Tasks {
+		taskStatus[t.ID] = t.Status
+	}
+	depsSatisfied := func(deps []string) bool {
+		for _, d := range deps {
+			switch taskStatus[d] {
+			case "completed", "submitted_for_validation", "validated":
+				// satisfied
+			default:
+				return false
+			}
+		}
+		return true
+	}
+	for _, t := range s.Tasks {
+		if t.Status != "pending" {
+			continue
+		}
+		age := minutesSince(t.CreatedAt, now)
+		if age <= pendingStuckMinutes || !depsSatisfied(t.Dependencies) {
+			continue // too fresh, or correctly waiting on a dependency
+		}
+		var onlineCapable, offlineCapable string
+		for _, a := range s.Agents {
+			if !agentHasCapability(a, t.RequiredCapabilities) {
+				continue
+			}
+			if a.Status == "online" && minutesSince(a.LastSeen, now) <= agentStaleMinutes {
+				onlineCapable = a.ID
+			} else if offlineCapable == "" {
+				offlineCapable = a.ID
+			}
+		}
+		caps := strings.Join(t.RequiredCapabilities, ", ")
+		if caps == "" {
+			caps = "any"
+		}
+		label := t.Title
+		if label == "" {
+			label = t.ID
+		}
+		switch {
+		case onlineCapable != "":
+			sev := SeverityWarning
+			if age > pendingStuckMinutes*2 {
+				sev = SeverityCritical
+			}
+			anomalies = append(anomalies, Anomaly{
+				Severity: sev,
+				Category: CategoryAssignmentWedged,
+				Message:  fmt.Sprintf("Task %q pending %dmin though capable agent %s is online — assignment wedged", label, age, onlineCapable),
+				TaskID:   t.ID,
+				AgentID:  onlineCapable,
+			})
+		case offlineCapable != "":
+			anomalies = append(anomalies, Anomaly{
+				Severity: SeverityCritical,
+				Category: CategoryUnresponsiveAgent,
+				Message:  fmt.Sprintf("Task %q (needs %s) pending %dmin — the only capable agent(s) are offline/unresponsive (%s)", label, caps, age, offlineCapable),
+				TaskID:   t.ID,
+				AgentID:  offlineCapable,
+			})
+		default:
+			anomalies = append(anomalies, Anomaly{
+				Severity: SeverityCritical,
+				Category: CategoryUnservableTask,
+				Message:  fmt.Sprintf("Task %q (needs %s) pending %dmin — no agent provides this capability; Planner must spawn a capable role", label, caps, age),
+				TaskID:   t.ID,
+			})
+		}
+	}
+
 	// Sort by severity
 	severityRank := map[AnomalySeverity]int{SeverityCritical: 0, SeverityWarning: 1, SeverityInfo: 2}
 	for i := 0; i < len(anomalies); i++ {
@@ -2306,6 +2390,22 @@ func detectAnomalies(s *StatusSnapshot) []Anomaly {
 	}
 
 	return anomalies
+}
+
+// agentHasCapability mirrors the server's matcher: a task with no required
+// capabilities matches any agent; otherwise the agent must share at least one.
+func agentHasCapability(a AgentSummary, required []string) bool {
+	if len(required) == 0 {
+		return true
+	}
+	for _, req := range required {
+		for _, have := range a.Capabilities {
+			if have == req {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func orNobody(s string) string {

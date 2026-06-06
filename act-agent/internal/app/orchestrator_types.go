@@ -111,6 +111,12 @@ const (
 	CategoryBottleneck   AnomalyCategory = "bottleneck"
 	CategoryFileConflict AnomalyCategory = "conflict"
 	CategoryFailedTask   AnomalyCategory = "failed_task"
+	// Pending-task pipeline anomalies — the pending→assigned hop the older rules
+	// never watched. A ready (deps-satisfied) pending task aged past threshold is
+	// classified by whether a capable agent exists and is alive.
+	CategoryAssignmentWedged AnomalyCategory = "assignment_wedged" // capable agent online but task not assigned
+	CategoryUnresponsiveAgent AnomalyCategory = "unresponsive_agent" // only capable agent(s) offline/stale
+	CategoryUnservableTask   AnomalyCategory = "unservable_task"   // no agent (online or offline) has the capability
 )
 
 // Anomaly is a single issue detected by the Observer's monitoring loop.
