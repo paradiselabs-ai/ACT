@@ -52,7 +52,7 @@ The TUI is the harness; there is no separate orchestrator process.`,
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Route CLI subcommands (e.g., `act context`, `act task complete`, `act files claim`,
-		// `act swarm set`, `act nomik enable`) to the TypeScript CLI. This prevents agents
+		// `act swarm set`) to the TypeScript CLI. This prevents agents
 		// from accidentally launching the TUI when they run `act <subcommand>` via their
 		// bash tool.
 		if len(args) > 0 && isCLISubcommand(args[0]) {
@@ -451,8 +451,8 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 var cliSubcommands = map[string]bool{
 	"register": true, "context": true, "task": true, "brief": true,
 	"pvm": true, "validation": true, "files": true, "message": true,
-	"log": true, "graph": true, "status": true, "codebase": true,
-	"swarm": true, "nomik": true,
+	"log": true, "graph": true, "status": true,
+	"swarm": true,
 }
 
 func isCLISubcommand(arg string) bool {

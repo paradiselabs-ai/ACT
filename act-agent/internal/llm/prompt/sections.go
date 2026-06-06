@@ -14,7 +14,6 @@ import "sort"
 var sectionRegistry = map[string]func() string{
 	"evidence_routing": PlannerSectionEvidenceRouting,
 	"success_criteria": PlannerSectionSuccessCriteria,
-	"nomik":            PlannerSectionNomik,
 	"validation":       PlannerSectionValidation,
 	"examples":         PlannerSectionExamples,
 }

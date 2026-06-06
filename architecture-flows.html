@@ -410,7 +410,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "planner.go + section files",
       "categoryId": "tier1",
       "columnId": "prompt",
-      "detail": "Main prompt at act-agent/internal/llm/prompt/planner.go plus 5 section files: planner_section_evidence.go, planner_section_examples.go, planner_section_nomik.go, planner_section_success_criteria.go, planner_section_validation.go.",
+      "detail": "Main prompt at act-agent/internal/llm/prompt/planner.go plus 4 section files: planner_section_evidence.go, planner_section_examples.go, planner_section_success_criteria.go, planner_section_validation.go.",
       "tags": [
         "prompt"
       ],
@@ -470,17 +470,6 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         "prompt"
       ],
       "slot": 5
-    },
-    {
-      "id": "nomik_guidance",
-      "label": "nomik_guidance.go (conditional)",
-      "categoryId": "tier1",
-      "columnId": "prompt",
-      "detail": "Conditional Nomik prompt injection at act-agent/internal/llm/prompt/nomik_guidance.go.",
-      "tags": [
-        "prompt"
-      ],
-      "slot": 6
     },
     {
       "id": "dev_prompt",
@@ -677,7 +666,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "cli/act-cli.ts (23 cmds)",
       "categoryId": "cli",
       "columnId": "bridge",
-      "detail": "Manual if/else dispatch (no commander). Entry points: act-agent/cli/act-cli.ts:932 (register), 942 (context), 953 (task complete), 967 (task progress), 981 (brief update), 995 (task retry), 999 (task submit-for-validation), 1014 (files claim), 1028 (files release), 1042 (pvm search), 1058 (validation queue), 1060 (message), 1071 (log), 1079-1085 (graph task/unverified/conflicts), 1087 (status), 1089-1095 (codebase impact/rules/communities/onboard), 1097 (swarm), 1099 (nomik).",
+      "detail": "Manual if/else dispatch (no commander). Entry points: act-agent/cli/act-cli.ts dispatches register, context, task complete/progress/retry/submit-for-validation, brief update, files claim/release, pvm search, validation queue, message, log, graph task/unverified/conflicts, status, swarm.",
       "tags": [
         "ts",
         "cli"

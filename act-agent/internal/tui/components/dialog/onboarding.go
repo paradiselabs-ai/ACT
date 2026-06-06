@@ -3,12 +3,10 @@ package dialog
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -64,10 +62,6 @@ type onboardingCmp struct {
 	// Index matches o.tier2 by position.
 	tier2Backends []string
 
-	// Nomik state — detected at construction time
-	nomikAvailable bool
-	nomikEnabled   bool
-
 	// Claude Code availability — detected at construction time
 	claudeAvailable bool
 
@@ -98,7 +92,6 @@ func NewOnboardingCmp() OnboardingCmp {
 		tier2Backends[i] = "act-agent"
 	}
 
-	nomikAvail := detectNomik()
 	claudeAvail := detectClaudeCode()
 
 	return &onboardingCmp{
@@ -111,25 +104,9 @@ func NewOnboardingCmp() OnboardingCmp {
 		},
 		tier2:           tier2,
 		tier2Backends:   tier2Backends,
-		nomikAvailable:  nomikAvail,
-		nomikEnabled:    nomikAvail, // default ON if available
 		claudeAvailable: claudeAvail,
 		detected:        detected,
 	}
-}
-
-// detectNomik returns true if both `nomik` is in PATH and a TCP connection
-// to localhost:7687 (Neo4j Bolt) succeeds within 1 second.
-func detectNomik() bool {
-	if _, err := exec.LookPath("nomik"); err != nil {
-		return false
-	}
-	conn, err := net.DialTimeout("tcp", "localhost:7687", 1*time.Second)
-	if err != nil {
-		return false
-	}
-	_ = conn.Close()
-	return true
 }
 
 // detectClaudeCode returns true if the `claude` binary is in PATH.
@@ -142,29 +119,24 @@ func (o *onboardingCmp) Init() tea.Cmd {
 	return nil
 }
 
-// Wizard step constants. The step machine skips backend (4) and nomik (5)
-// when their respective binaries aren't available, so the user only sees
-// steps that are actually meaningful on their machine.
+// Wizard step constants. The step machine skips backend (4) when the binary
+// isn't available, so the user only sees steps that are actually meaningful
+// on their machine.
 const (
 	stepWelcome      = 0
 	stepKeys         = 1
 	stepTier1Models  = 2
 	stepTier2Models  = 3
 	stepTier2Backend = 4 // skipped if claude not in PATH
-	stepNomik        = 5 // skipped if nomik unavailable
-	stepSave         = 6
+	stepSave         = 5
 )
 
-// nextStep advances past steps that should be skipped (backend if no claude,
-// nomik if no nomik). Always lands on a meaningful step.
+// nextStep advances past steps that should be skipped (backend if no claude).
+// Always lands on a meaningful step.
 func (o *onboardingCmp) nextStep(from int) int {
 	next := from + 1
 	for {
 		if next == stepTier2Backend && !o.claudeAvailable {
-			next++
-			continue
-		}
-		if next == stepNomik && !o.nomikAvailable {
 			next++
 			continue
 		}
@@ -201,18 +173,20 @@ func (o *onboardingCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
 				o.step = o.nextStep(o.step)
 				o.cursor = 0
+				// stepTier2Backend is skipped when claude isn't in PATH, so this
+				// transition can land directly on save — write config then too.
+				if o.step == stepSave {
+					o.saveErr = o.writeConfig()
+				}
 			}
 		case stepTier2Backend:
 			o.handleBackendSelection(msg)
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
 				o.step = o.nextStep(o.step)
 				o.cursor = 0
-			}
-		case stepNomik:
-			o.handleNomikToggle(msg)
-			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				o.step = o.nextStep(o.step)
-				o.saveErr = o.writeConfig()
+				if o.step == stepSave {
+					o.saveErr = o.writeConfig()
+				}
 			}
 		case stepSave:
 			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
@@ -247,19 +221,6 @@ func (o *onboardingCmp) handleBackendSelection(msg tea.KeyPressMsg) {
 		} else {
 			o.tier2Backends[o.cursor] = "act-agent"
 		}
-	}
-}
-
-// handleNomikToggle drives the Nomik enable/disable step.
-// Space, ←, →, y, n all toggle. Enter advances.
-func (o *onboardingCmp) handleNomikToggle(msg tea.KeyPressMsg) {
-	switch {
-	case key.Matches(msg, key.NewBinding(key.WithKeys(" ", "h", "l", "left", "right"))):
-		o.nomikEnabled = !o.nomikEnabled
-	case key.Matches(msg, key.NewBinding(key.WithKeys("y", "Y"))):
-		o.nomikEnabled = true
-	case key.Matches(msg, key.NewBinding(key.WithKeys("n", "N"))):
-		o.nomikEnabled = false
 	}
 }
 
@@ -340,8 +301,6 @@ func (o *onboardingCmp) View() tea.View {
 		content = o.renderRoleStep("Tier 2 - Swarm Agents (cheaper/local models work well)", o.tier2, "Enter to continue ->")
 	case stepTier2Backend:
 		content = o.renderBackendStep()
-	case stepNomik:
-		content = o.renderNomikStep()
 	case stepSave:
 		tier1Summary, tier2Summary := o.selectedTierSummary()
 		status := "Configuration saved to ~/.act.json"
@@ -359,18 +318,9 @@ func (o *onboardingCmp) View() tea.View {
 				bodyStyle.Render("  Backends: "+o.backendSummary()),
 			)
 		}
-		if o.nomikAvailable {
-			nomikState := "disabled"
-			if o.nomikEnabled {
-				nomikState = "enabled"
-			}
-			summaryLines = append(summaryLines,
-				bodyStyle.Render("  Nomik: "+nomikState),
-			)
-		}
 		summaryLines = append(summaryLines,
 			"",
-			mutedStyle.Render("You can change these later via /swarm and /nomik. Press Enter to start ->"),
+			mutedStyle.Render("You can change these later via /swarm. Press Enter to start ->"),
 		)
 		content = lipgloss.JoinVertical(lipgloss.Left, summaryLines...)
 	}
@@ -413,48 +363,6 @@ func (o *onboardingCmp) renderBackendStep() string {
 		"",
 		mutedStyle.Render("  ↑/↓ to select role, ←/→ or space to toggle backend"),
 		mutedStyle.Render("  Enter to continue ->"),
-	)
-	return lipgloss.JoinVertical(lipgloss.Left, lines...)
-}
-
-func (o *onboardingCmp) renderNomikStep() string {
-	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
-	maxWidth := min(90, max(70, o.width-12))
-
-	titleStyle := baseStyle.Foreground(t.Primary()).Bold(true).Width(maxWidth)
-	bodyStyle := baseStyle.Foreground(t.Text()).Width(maxWidth)
-	mutedStyle := baseStyle.Foreground(t.TextMuted()).Width(maxWidth)
-	selectedStyle := baseStyle.Foreground(t.Background()).Background(t.Primary()).Bold(true).Width(maxWidth)
-
-	lines := []string{
-		titleStyle.Render("Nomik - Codebase Knowledge Graph"),
-		"",
-		bodyStyle.Render("Detected nomik + Neo4j on localhost:7687."),
-		"",
-		mutedStyle.Render("Nomik scans your project's source code into a graph that agents can"),
-		mutedStyle.Render("query for impact analysis, architecture rules, and module clusters."),
-		mutedStyle.Render("Recommended: Yes. Disable for non-code projects or when Neo4j is busy."),
-		"",
-	}
-	yesLine := "  [ ] Yes - enable Nomik for new projects"
-	noLine := "  [ ] No  - disable (agents will skip codebase graph queries)"
-	if o.nomikEnabled {
-		yesLine = "  [x] Yes - enable Nomik for new projects"
-	} else {
-		noLine = "  [x] No  - disable (agents will skip codebase graph queries)"
-	}
-	if o.nomikEnabled {
-		lines = append(lines, selectedStyle.Render(yesLine))
-		lines = append(lines, bodyStyle.Render(noLine))
-	} else {
-		lines = append(lines, bodyStyle.Render(yesLine))
-		lines = append(lines, selectedStyle.Render(noLine))
-	}
-	lines = append(lines,
-		"",
-		mutedStyle.Render("  Space / ←→ to toggle, y / n to set directly"),
-		mutedStyle.Render("  Enter to save and start ->"),
 	)
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
@@ -528,14 +436,10 @@ func (o *onboardingCmp) writeConfig() error {
 		MaxTokens int    `json:"maxTokens"`
 		Backend   string `json:"backend,omitempty"` // Tier 2 only
 	}
-	type nomikCfg struct {
-		Enabled bool `json:"enabled"`
-	}
 	type fileCfg struct {
 		Schema    string                 `json:"$schema"`
 		Providers map[string]providerCfg `json:"providers"`
 		Agents    map[string]agentCfg    `json:"agents"`
-		Nomik     *nomikCfg              `json:"nomik,omitempty"`
 	}
 
 	providers := map[string]providerCfg{}
@@ -576,9 +480,6 @@ func (o *onboardingCmp) writeConfig() error {
 		Schema:    "./act-schema.json",
 		Providers: providers,
 		Agents:    agents,
-	}
-	if o.nomikAvailable {
-		payload.Nomik = &nomikCfg{Enabled: o.nomikEnabled}
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

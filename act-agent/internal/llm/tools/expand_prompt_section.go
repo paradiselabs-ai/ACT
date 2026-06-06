@@ -40,7 +40,6 @@ func (t *expandPromptSectionTool) Info() ToolInfo {
 WHEN TO USE:
 - "evidence_routing" — before assigning a task whose role isn't obvious, or when you want PVM-backed routing rationale
 - "success_criteria" — when writing or repairing @success_criteria for a CREATE_TASK
-- "nomik" — at decomposition start for an existing codebase, or when sequencing tightly-coupled tasks
 - "validation" — when reacting to an Assurance failure or a stuck validation queue
 - "examples" — when you need to confirm the exact shape of a CREATE_TASK or PROJECT_BRIEF directive
 

@@ -147,9 +147,7 @@ sdk/
 # OpenMemory - IDE/Assistant specific rules
 .windsurf/rules/openmemory.md
 
-# NOMIK
-docker/data/
-docker/logs/
+# ── Build artifacts ──────────────────────────
 pub/
 .bin/
 **/*.tscom
@@ -166,8 +164,6 @@ skills-lock.json
 
 # ── Tool-generated state ─────────────────────
 .manifests/
-.nomik/
-**/.nomik/
 .tmp
 
 
@@ -184,7 +180,6 @@ tests/__pycache__/
 tests/*.py
 tests/snake*/
 tests/game*.py
-tests/nomik.config.ts
 tests/README.md
 
 # ── Misc tooling state ──────────────────────

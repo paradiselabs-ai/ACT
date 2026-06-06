@@ -1,14 +1,12 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/nomik"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/runner"
 )
 
@@ -45,8 +43,6 @@ func (a *App) HandleSlashCommand(input string) (response string, handled bool) {
 		return a.slashSwarm(args), true
 	case "/backend":
 		return a.slashBackend(args), true
-	case "/nomik":
-		return a.slashNomik(args), true
 	case "/quit", "/exit":
 		// Soft signal — the TUI key handler already maps ctrl+c to clean shutdown
 		return "Use ctrl+c to quit the TUI cleanly.", true
@@ -60,7 +56,7 @@ func slashHelp() string {
 		"## Slash Commands",
 		"",
 		"  /help                                  Show this help",
-		"  /status                                Show ACT system state (Tier 1 + swarm + Nomik)",
+		"  /status                                Show ACT system state (Tier 1 + swarm)",
 		"",
 		"  /swarm                                 List swarm roles, backends, models",
 		"  /swarm list                            (alias)",
@@ -74,12 +70,6 @@ func slashHelp() string {
 		"  /backend list                          (alias)",
 		"  /backend <role> <act-agent|claude-code>  Switch one Tier 1 role's backend",
 		"  /backend all <act-agent|claude-code>     Switch all four Tier 1 roles",
-		"",
-		"  /nomik                                 Show Nomik graph status (alias of /nomik status)",
-		"  /nomik enable                          Enable Nomik for this project (runs initial scan)",
-		"  /nomik disable                         Disable Nomik for this project",
-		"  /nomik rescan                          Force incremental rescan now",
-		"  /nomik onboard                         Print the cached architecture summary",
 		"",
 		"  /quit | /exit                          Hint: use ctrl+c to quit cleanly",
 	}, "\n")
@@ -113,22 +103,6 @@ func (a *App) slashStatus() string {
 			}
 			sb.WriteString(fmt.Sprintf("  ✓ %-15s pid=%-7d backend=%-12s model=%s [%s]\n",
 				s.Role, s.PID, s.Backend, s.Model, alive))
-		}
-	}
-
-	sb.WriteString("\n**Nomik**:\n")
-	if a.Orchestrator != nil {
-		o := a.Orchestrator
-		o.mu.RLock()
-		avail := o.nomikAvailable
-		enabled := o.nomikEnabled
-		dir := o.projectDir
-		o.mu.RUnlock()
-		if !avail {
-			sb.WriteString("  unavailable (`nomik` binary or Neo4j not reachable)\n")
-		} else {
-			st := nomik.GetStatus(context.Background(), dir)
-			sb.WriteString(fmt.Sprintf("  available, enabled=%v, nodes=%d, edges=%d\n", enabled, st.Nodes, st.Edges))
 		}
 	}
 
@@ -352,107 +326,5 @@ func isValidTier1Backend(s string) bool {
 		return true
 	}
 	return false
-}
-
-// ─── /nomik subcommands ────────────────────────────────────────────────────────
-
-func (a *App) slashNomik(args []string) string {
-	if a.Orchestrator == nil {
-		return "orchestrator not initialized"
-	}
-	subcmd := "status"
-	if len(args) > 0 {
-		subcmd = args[0]
-	}
-	switch subcmd {
-	case "status":
-		return a.nomikStatus()
-	case "enable":
-		return a.nomikEnable()
-	case "disable":
-		return a.nomikDisable()
-	case "rescan":
-		return a.nomikRescan()
-	case "onboard":
-		return a.nomikOnboardCmd()
-	default:
-		return fmt.Sprintf("unknown /nomik subcommand %q. Valid: status, enable, disable, rescan, onboard", subcmd)
-	}
-}
-
-func (a *App) nomikStatus() string {
-	o := a.Orchestrator
-	o.mu.RLock()
-	avail := o.nomikAvailable
-	enabled := o.nomikEnabled
-	dir := o.projectDir
-	o.mu.RUnlock()
-
-	if !avail {
-		return "Nomik unavailable. Install `nomik` and ensure Neo4j is running on localhost:7687."
-	}
-	st := nomik.GetStatus(context.Background(), dir)
-	return fmt.Sprintf("Nomik available. Enabled for this project: %v\n  nodes: %d\n  edges: %d\n  dir: %s",
-		enabled, st.Nodes, st.Edges, dir)
-}
-
-func (a *App) nomikEnable() string {
-	o := a.Orchestrator
-	if !nomik.IsAvailable() {
-		return "Cannot enable: Nomik is unavailable on this machine."
-	}
-	o.mu.Lock()
-	o.nomikAvailable = true
-	o.nomikEnabled = true
-	dir := o.projectDir
-	o.mu.Unlock()
-
-	go func() {
-		if err := nomik.EnsureProject(context.Background(), dir); err != nil {
-			logging.Warn("Nomik enable: scan failed", "error", err)
-		}
-	}()
-	return "Nomik enabled for this project. Initial scan running in background."
-}
-
-func (a *App) nomikDisable() string {
-	o := a.Orchestrator
-	o.mu.Lock()
-	o.nomikEnabled = false
-	o.mu.Unlock()
-	return "Nomik disabled for this project. Codebase graph queries will return errors until re-enabled."
-}
-
-func (a *App) nomikRescan() string {
-	o := a.Orchestrator
-	o.mu.RLock()
-	dir := o.projectDir
-	enabled := o.nomikEnabled && o.nomikAvailable
-	o.mu.RUnlock()
-	if !enabled {
-		return "Cannot rescan: Nomik is disabled or unavailable. Try /nomik enable first."
-	}
-	go func() {
-		if err := nomik.Rescan(context.Background(), dir); err != nil {
-			logging.Warn("Manual rescan failed", "error", err)
-		}
-	}()
-	return "Incremental rescan running in background."
-}
-
-func (a *App) nomikOnboardCmd() string {
-	o := a.Orchestrator
-	o.mu.RLock()
-	dir := o.projectDir
-	enabled := o.nomikEnabled && o.nomikAvailable
-	o.mu.RUnlock()
-	if !enabled {
-		return "Nomik is disabled or unavailable."
-	}
-	summary, err := nomik.Onboard(context.Background(), dir)
-	if err != nil {
-		return fmt.Sprintf("nomik onboard failed: %v", err)
-	}
-	return summary
 }
 

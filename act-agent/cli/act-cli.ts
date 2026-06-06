@@ -544,47 +544,7 @@ async function cmdStatus(client: ACTClient): Promise<void> {
   }
 }
 
-/** Run a nomik command and print output. Returns false if nomik unavailable. */
-async function runNomik(args: string[]): Promise<boolean> {
-  const { execFileSync } = await import('child_process');
-  try {
-    const output = execFileSync('nomik', args, {
-      encoding: 'utf-8',
-      timeout: 30000,
-      cwd: process.cwd(),
-    });
-    console.log(output);
-    return true;
-  } catch (err: any) {
-    if (err.code === 'ENOENT') {
-      printError('nomik is not installed. Install from https://nomik.co');
-      return false;
-    }
-    // nomik ran but returned non-zero — still print output
-    if (err.stdout) console.log(err.stdout);
-    if (err.stderr) console.error(err.stderr);
-    return true;
-  }
-}
-
-async function cmdCodebaseImpact(symbol: string): Promise<void> {
-  if (!symbol) { printError('Usage: act-agent codebase impact <symbol>'); process.exit(1); }
-  await runNomik(['impact', symbol]);
-}
-
-async function cmdCodebaseRules(): Promise<void> {
-  await runNomik(['rules']);
-}
-
-async function cmdCodebaseCommunities(): Promise<void> {
-  await runNomik(['communities']);
-}
-
-async function cmdCodebaseOnboard(): Promise<void> {
-  await runNomik(['onboard']);
-}
-
-// ─── /swarm and /nomik command surface (mirrors the TUI slash commands) ──────
+// ─── /swarm command surface (mirrors the TUI slash commands) ──────
 
 const SWARM_ROLES = ['developer', 'frontend_dev', 'backend_dev', 'qa_engineer', 'researcher'];
 const VALID_BACKENDS = ['act-agent', 'claude-code'];
@@ -684,41 +644,6 @@ function writeAgentBackend(role: string, backend: string): boolean {
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
   fs.renameSync(tmp, cfgPath);
   return true;
-}
-
-async function cmdNomik(args: string[]): Promise<void> {
-  const sub = args[0] || 'status';
-
-  if (sub === 'status') {
-    const ok = await runNomik(['status']);
-    if (!ok) process.exit(1);
-    return;
-  }
-  if (sub === 'enable') {
-    console.log('Running initial Nomik scan...');
-    const ok = await runNomik(['scan', './']);
-    if (!ok) {
-      printError('Nomik scan failed. Make sure Neo4j is running on localhost:7687.');
-      process.exit(1);
-    }
-    console.log('Nomik enabled. The graph will refresh after task completions when the TUI is running.');
-    return;
-  }
-  if (sub === 'disable') {
-    console.log('Nomik is per-project. To disable for the current project use `/nomik disable` inside the running TUI.');
-    return;
-  }
-  if (sub === 'rescan') {
-    const ok = await runNomik(['scan:incremental']);
-    if (!ok) process.exit(1);
-    return;
-  }
-  if (sub === 'onboard') {
-    await cmdCodebaseOnboard();
-    return;
-  }
-  printError(`Unknown nomik subcommand "${sub}". Try: status, enable, disable, rescan, onboard`);
-  process.exit(1);
 }
 
 async function cmdRegister(client: ACTClient, args: Record<string, any>): Promise<void> {
@@ -909,10 +834,6 @@ async function main(): Promise<void> {
     'graph unverified': 'List completed tasks not yet validated',
     'graph conflicts': 'Show file lock conflicts',
     status: 'Show system status overview',
-    'codebase impact': 'Analyze impact of changing a symbol (via Nomik)',
-    'codebase rules': 'Check architecture rules (via Nomik)',
-    'codebase communities': 'Show functional code communities (via Nomik)',
-    'codebase onboard': 'Generate codebase overview (via Nomik)',
   };
 
   const args = process.argv.slice(2);
@@ -1163,18 +1084,8 @@ async function main(): Promise<void> {
       await cmdGraphConflicts(client);
     } else if (command === 'status') {
       await cmdStatus(client);
-    } else if (command === 'codebase' && subcommand === 'impact') {
-      await cmdCodebaseImpact(args[2] || '');
-    } else if (command === 'codebase' && subcommand === 'rules') {
-      await cmdCodebaseRules();
-    } else if (command === 'codebase' && subcommand === 'communities') {
-      await cmdCodebaseCommunities();
-    } else if (command === 'codebase' && subcommand === 'onboard') {
-      await cmdCodebaseOnboard();
     } else if (command === 'swarm') {
       await cmdSwarm(args.slice(1));
-    } else if (command === 'nomik') {
-      await cmdNomik(args.slice(1));
     } else if (command === 'pvm' && !subcommand) {
       console.log('Usage: act-agent pvm <subcommand>');
       console.log('  search "<query>" [--project=NAME] [--limit=N] [--global]');

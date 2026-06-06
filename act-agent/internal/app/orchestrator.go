@@ -21,7 +21,6 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/nomik"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/pubsub"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/runner"
 )
@@ -57,12 +56,7 @@ type Orchestrator struct {
 	// Runner subprocess management — multi-runner swarm
 	runnerSpawner *runner.Spawner
 
-	// Nomik state
-	nomikEnabled    bool   // user toggle (per-project, defaults true if available)
-	nomikAvailable  bool   // detected at Start()
-	projectDir      string // working directory for Nomik commands
-	rescanInflight  bool   // debounce flag
-	rescanInflightMu sync.Mutex
+	projectDir string // project working dir — used for validation prompts + AGENTS.md writing
 
 	// Intake state — set in Start() by detectProjectState. While intakeMode is
 	// true, the orchestrator prepends prompt.IntakePromptPrefix() to every
@@ -136,7 +130,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 
 // Start begins all background goroutines: message ownership listener,
 // Observer monitoring loop, validation poller, QA poller. Also spawns the
-// Tier 2 swarm (one Runner per role) and runs the Nomik project init scan.
+// Tier 2 swarm (one Runner per role).
 //
 // Idempotent — safe to call multiple times. The sessionID identifies the
 // shared NesTTY chat session that all agents write to.
@@ -168,18 +162,6 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 	// fills the chat with runner registration logs. See
 	// handlePlannerTaskDirectives for the lazy spawn trigger.
 
-	// Detect Nomik availability for this session
-	o.mu.Lock()
-	o.nomikAvailable = nomik.IsAvailable()
-	o.nomikEnabled = o.nomikAvailable // default ON if available
-	o.mu.Unlock()
-
-	if o.nomikAvailable && o.nomikEnabled {
-		go o.nomikInitProject(ctx)
-	} else if !o.nomikAvailable {
-		logging.Info("Nomik unavailable — codebase graph features disabled")
-	}
-
 	o.loopWG.Add(5)
 	go o.messageOwnershipLoop(ctx)
 	go o.observerLoop(ctx)
@@ -201,44 +183,7 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 		o.emitSystemMessage(context.Background(), sid, "🧩  QA/Synthesizer online — waiting for validated outputs")
 	}()
 
-	logging.Info("Orchestrator started", "session_id", sessionID, "swarm_specs", len(o.app.SwarmSpecs), "nomik", o.nomikAvailable)
-}
-
-// nomikInitProject runs `nomik init` + `nomik scan` once at startup, then
-// publishes the onboarding summary to the project brief so swarm agents see
-// it via `act context`. All errors are logged and swallowed — Nomik is
-// optional, never fatal.
-func (o *Orchestrator) nomikInitProject(ctx context.Context) {
-	o.mu.RLock()
-	dir := o.projectDir
-	o.mu.RUnlock()
-
-	logging.Info("Initializing Nomik for project", "dir", dir)
-	if err := nomik.EnsureProject(ctx, dir); err != nil {
-		logging.Warn("Nomik init failed", "error", err)
-		return
-	}
-
-	summary, err := nomik.Onboard(ctx, dir)
-	if err != nil {
-		logging.Warn("Nomik onboard failed", "error", err)
-		return
-	}
-
-	// Truncate to a reasonable size before injecting into the project brief
-	if len(summary) > 8000 {
-		summary = summary[:8000] + "\n\n...(truncated)"
-	}
-
-	// Post to the server as a project-level brief so swarm agents pick it up
-	// via `act context`. The server may or may not have this endpoint wired —
-	// failures are silent.
-	client := act.NewClient("orchestrator", os.Getenv("ACT_PROJECT"))
-	if client.IsAvailable() {
-		_ = client.SendMessage("[NOMIK] Project codebase graph initialized:\n" + summary)
-	}
-
-	logging.Info("Nomik project init complete", "summary_bytes", len(summary))
+	logging.Info("Orchestrator started", "session_id", sessionID, "swarm_specs", len(o.app.SwarmSpecs))
 }
 
 // Stop signals all background loops to exit and waits for them to finish.
@@ -1451,7 +1396,6 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 	// dependency-satisfaction check (which does tasks.get(depString)) never
 	// matches any title-string dep, leaving downstream tasks pending forever.
 	titleToID := make(map[string]string, len(tasks))
-	created := 0
 	type pendingDepUpdate struct {
 		taskID string
 		title  string
@@ -1488,7 +1432,6 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 			continue
 		}
 		logging.Info("Task created from Planner directive", "task_id", taskID, "title", title)
-		created++
 		if title != "" {
 			titleToID[title] = taskID
 		}
@@ -1520,11 +1463,6 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 		}
 		logging.Info("Task dependencies resolved",
 			"task_id", upd.taskID, "title", upd.title, "deps", resolved, "unresolved_titles", unresolved)
-	}
-	// Trigger a Nomik incremental rescan after task creation so Planner sees fresh
-	// graph state on next iteration.
-	if created > 0 {
-		go o.maybeRescanNomik(context.Background())
 	}
 }
 
@@ -1676,37 +1614,6 @@ func specRoleNames(specs []runner.SwarmRoleSpec) []string {
 		out = append(out, s.Role)
 	}
 	return out
-}
-
-// maybeRescanNomik runs `nomik scan:incremental` if Nomik is enabled and a
-// rescan isn't already in flight (debounced — at most one rescan at a time).
-// Called after task creation and task completion to keep the graph fresh.
-func (o *Orchestrator) maybeRescanNomik(ctx context.Context) {
-	o.mu.RLock()
-	enabled := o.nomikEnabled && o.nomikAvailable
-	dir := o.projectDir
-	o.mu.RUnlock()
-	if !enabled {
-		return
-	}
-
-	o.rescanInflightMu.Lock()
-	if o.rescanInflight {
-		o.rescanInflightMu.Unlock()
-		return
-	}
-	o.rescanInflight = true
-	o.rescanInflightMu.Unlock()
-
-	defer func() {
-		o.rescanInflightMu.Lock()
-		o.rescanInflight = false
-		o.rescanInflightMu.Unlock()
-	}()
-
-	if err := nomik.Rescan(ctx, dir); err != nil {
-		logging.Debug("Nomik incremental rescan skipped", "error", err)
-	}
 }
 
 // ─── Background loop: Observer monitoring ──────────────────────────────────────

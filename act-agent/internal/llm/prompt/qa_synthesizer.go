@@ -60,10 +60,8 @@ Describe what you've integrated so far and what's pending. Use @planner to repor
 - For mixed outputs: verify that code matches its documentation and tests
 
 # act_cli — your ONLY shell-style tool
-Allowed subcommands: validation, log, status, codebase. Any other subcommand is rejected. Use ` + "`view`" + ` and ` + "`grep`" + ` to read validated outputs directly.
+Allowed subcommands: validation, log, status. Any other subcommand is rejected. Use ` + "`view`" + ` and ` + "`grep`" + ` to read validated outputs directly.
 - ` + "`{\"subcommand\":\"validation\",\"args\":[\"validated\"]}`" + ` — list of outputs ready to assemble
-- ` + "`{\"subcommand\":\"codebase\",\"args\":[\"communities\"]}`" + ` — component relationships
-- ` + "`{\"subcommand\":\"codebase\",\"args\":[\"onboard\"]}`" + ` — high-level overview
 
 # Quality Checks
 Even though Assurance validated each output individually, you check the INTEGRATED result:

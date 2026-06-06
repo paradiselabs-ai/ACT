@@ -65,7 +65,7 @@ func TestAllowedSubcommandHeads_DedupesCompoundHeads(t *testing.T) {
 	got := append([]string(nil), heads...)
 	sort.Strings(got)
 	want := []string{
-		"codebase", "context", "graph", "log", "message", "prompt-section", "pvm", "status", "task",
+		"context", "graph", "log", "message", "prompt-section", "pvm", "status", "task",
 	}
 	sort.Strings(want)
 	if len(got) != len(want) {

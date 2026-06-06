@@ -25,7 +25,6 @@ var RoleSubcommands = map[string][]string{
 		"graph",          // graph unverified | graph conflicts (routing evidence)
 		"pvm",            // pvm search — past coordination patterns
 		"message",        // send a coord message to another agent
-		"codebase",       // codebase rules | communities | onboard (read-only intel)
 		"task retry",     // re-dispatch a failed task to a new agent
 		"task abandon",   // mark a task permanently failed (skips retry)
 		"prompt-section", // fetch on-demand Planner reference section (ACP parity for expand_prompt_section)
@@ -45,7 +44,6 @@ var RoleSubcommands = map[string][]string{
 		"validation",
 		"log",
 		"status",
-		"codebase", // onboard to understand the deliverable structure
 	},
 }
 

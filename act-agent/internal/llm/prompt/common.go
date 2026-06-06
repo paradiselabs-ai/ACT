@@ -69,9 +69,6 @@ func boolToYesNo(b bool) string {
 // Each role prompt imports these sections to avoid duplication.
 
 // actCLICommands returns the ACT CLI commands relevant to a specific role.
-// The output also appends role-specific Nomik (codebase graph) guidance
-// from NomikGuidance(role) so every role learns when to invoke
-// `act-agent codebase` commands proactively.
 func actCLICommands(role string) string {
 	var base string
 	switch role {
@@ -81,21 +78,17 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 - act-agent context --project <name>    Load full project context (tasks, agents, brief)
 - act-agent graph unverified            Show tasks not yet validated
 - act-agent pvm search "<query>"        Search coordination history for relevant patterns
-- act-agent codebase onboard            High-level architecture overview (Nomik)
-- act-agent codebase communities        Functional clusters / module boundaries (Nomik)
 - act-agent status                      Show server status (agents, tasks, locks)
 - act-agent log --tail 20               Show recent coordination log entries
 - act-agent task retry <id>             Re-dispatch a failed task to a new agent (uses next retry attempt)
 - act-agent task abandon <id> --reason "<text>"   Mark a task permanently failed; skips retry. Use when the task is unrecoverable or no longer needed.
-- act-agent prompt-section <name>       Pull on-demand Planner reference section (evidence_routing, success_criteria, nomik, validation, examples)`
+- act-agent prompt-section <name>       Pull on-demand Planner reference section (evidence_routing, success_criteria, validation, examples)`
 
 	case "observer":
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
 - act-agent log --tail 20               Show recent coordination log entries
 - act-agent graph conflicts             Check for file lock conflicts between agents
-- act-agent codebase rules              Architecture rule violations (Nomik)
-- act-agent codebase impact <symbol>    Blast radius of a symbol (Nomik)
 - act-agent status                      Show server status (agents, tasks, locks)
 - act-agent graph unverified            Show tasks awaiting validation`
 
@@ -103,23 +96,15 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
 - act-agent validation queue            Show tasks awaiting validation
-- act-agent codebase impact <symbol>    Check blast radius of code changes (Nomik)
-- act-agent codebase rules              Check for architecture violations (Nomik)
 - act-agent status                      Show server status`
 
 	case "qa_synthesizer":
 		base = `## ACT CLI Commands (available to you)
 You are an in-process Tier 1 role. You speak by writing plain text in your reply — do NOT shell out to send messages.
-- act-agent codebase communities        Functional clusters / integration points (Nomik)
-- act-agent codebase onboard            High-level architecture overview (Nomik)
 - act-agent status                      Show server status`
 
 	case "researcher":
 		base = `## ACT CLI Commands (available to you)
-- act-agent codebase onboard            High-level architecture overview (Nomik)
-- act-agent codebase impact <symbol>    Blast radius of a symbol (Nomik)
-- act-agent codebase rules              Architecture rule violations (Nomik)
-- act-agent codebase communities        Functional clusters (Nomik)
 - act-agent pvm search "<query>"        Search coordination history
 - act-agent status                      Show server status
 - act-agent message "<text>"            Send a message to the coordination channel`
@@ -131,10 +116,6 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 - act-agent task submit-for-validation <id>            Submit completed work for Assurance review
 - act-agent files claim <paths...>                     Claim exclusive access to files
 - act-agent files release <paths...>                   Release file locks
-- act-agent codebase impact <symbol>                   Blast radius of a symbol (Nomik)
-- act-agent codebase onboard                           High-level architecture overview (Nomik)
-- act-agent codebase communities                       Functional clusters (Nomik)
-- act-agent codebase rules                             Architecture rule violations (Nomik)
 - act-agent brief update                               Save your session brief before exit
 - act-agent message "<text>"                           Send a message to the coordination channel
 - act-agent pvm search "<query>"                       Search coordination history`
@@ -151,11 +132,6 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 - act-agent pvm search "<query>"                       Search coordination history`
 	}
 
-	// Append role-specific Nomik guidance ("when to use the codebase graph").
-	// This makes agents proactively use the graph instead of needing to be asked.
-	if guidance := NomikGuidance(role); guidance != "" {
-		base = base + "\n\n" + guidance
-	}
 	return base
 }
 

@@ -132,7 +132,7 @@ func equalStrings(a, b []string) bool {
 func TestActCLICommandsFragmentMatchesAllowlist(t *testing.T) {
 	// Mirrors RoleSubcommands["planner"] bare entries (tools/act_cli_whitelist.go).
 	wantBareHeads := []string{
-		"status", "context", "log", "graph", "pvm", "codebase", "prompt-section",
+		"status", "context", "log", "graph", "pvm", "prompt-section",
 	}
 	wantCompounds := []string{"task retry", "task abandon"}
 

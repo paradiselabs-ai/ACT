@@ -117,7 +117,6 @@ Be concise. Don't narrate what you're about to do — just do it.
 You have an ` + "`expand_prompt_section`" + ` tool. This base prompt is intentionally tight; deeper guidance is loaded only when you actually need it. Available sections:
 - "evidence_routing" — PVM-backed routing rationale (when role isn't obvious)
 - "success_criteria" — how to write strong @success_criteria (when writing or repairing)
-- "nomik" — extended Nomik guidance (at decomposition start for existing codebases)
 - "validation" — Assurance/QA pipeline (when reacting to failures or stuck queues)
 - "examples" — full worked CREATE_TASK and PROJECT_BRIEF examples (when shape is unclear)
 

@@ -65,7 +65,7 @@ func bashDescription() string {
 - Combine commands with ';' or '&&', not newlines.
 - Prefer absolute paths over 'cd'.
 
-In ACT, this tool is mainly used to invoke the 'act' CLI (e.g. 'act status', 'act task complete', 'act codebase impact'). Avoid arbitrary git commands — use the corresponding 'act' commands instead.`, MaxOutputLength)
+In ACT, this tool is mainly used to invoke the 'act' CLI (e.g. 'act status', 'act task complete', 'act task progress'). Avoid arbitrary git commands — use the corresponding 'act' commands instead.`, MaxOutputLength)
 }
 
 func NewBashTool(permission permission.Service) BaseTool {

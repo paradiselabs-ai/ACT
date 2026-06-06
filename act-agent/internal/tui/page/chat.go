@@ -222,7 +222,7 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 
 	trimmed := strings.TrimSpace(text)
 
-	// Slash command intercept — handle /swarm, /nomik, /status, /help, etc.
+	// Slash command intercept — handle /swarm, /status, /help, etc.
 	// before routing to the Planner. Unknown commands fall through.
 	if strings.HasPrefix(trimmed, "/") {
 		if response, handled := p.app.HandleSlashCommand(text); handled {
@@ -258,8 +258,8 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 	}
 
 	// Start orchestrator background loops on first message (idempotent).
-	// This wires Observer monitoring, validation polling, QA polling, swarm
-	// spawn, and Nomik project init to the active NesTTY session.
+	// This wires Observer monitoring, validation polling, QA polling, and swarm
+	// spawn to the active NesTTY session.
 	p.app.Orchestrator.Start(context.Background(), p.session.ID)
 
 	go p.app.Orchestrator.HandleHumanInput(context.Background(), p.session.ID, text, attachments...)

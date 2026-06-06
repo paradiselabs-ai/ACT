@@ -212,7 +212,7 @@ ACT/
 
 ### CLI
 - REPL: `create project`, `list agents/projects`, `show project`, `default agent`, `status`, `help`
-- `act` CLI: 21 commands — `register`, `context`, `task complete/progress/retry/submit-for-validation`, `brief update`, `pvm search`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`, `codebase impact/rules/communities/onboard`
+- `act` CLI: `register`, `context`, `task complete/progress/retry/submit-for-validation`, `brief update`, `pvm search`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`
 
 ### TUI (the NesTTY window)
 - `act-agent/internal/app/orchestrator.go` — coordination logic: CREATE_TASK parsing, Observer monitoring loop, validation routing to Assurance, QA synthesis routing, message ownership tracking
@@ -235,10 +235,10 @@ Dual-purpose semantic memory: team coordination patterns + individual agent skil
 Task delegation: Planner pushes tasks to ACT targeting specific role IDs. Agent Cards expose capabilities. NOT for conversation.
 
 ### `act` CLI (Agent Interface)
-~50-100 tokens vs 47K for MCP schemas. 21 commands: `register`, `context`, `task complete/progress/retry/submit-for-validation`, `brief update`, `pvm search`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`, `codebase impact/rules/communities/onboard`.
+~50-100 tokens vs 47K for MCP schemas. Commands: `register`, `context`, `task complete/progress/retry/submit-for-validation`, `brief update`, `pvm search`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`.
 
-### Three Knowledge Graphs
-1. **Code KG (Nomik)** — ships with ACT as runtime capability. Agents get project codebase graph.
+### Knowledge Graphs
+1. **Code KG** — no persistent graph. ACT matches Claude Code's bet: codebase intelligence is agentic search (Grep/Glob/Read) + context discipline, not an index. (The Nomik/Neo4j integration was removed — the Docker dependency was an ops burden and never on the alpha critical path.)
 2. **Skill Graph** — markdown + wikilinks replacing AGENT.md monolith. Progressive loading.
 3. **Coordination KG** — deferred. In-memory maps for now. Neo4j/Kuzu when FLUX needs causal traversal.
 
@@ -263,11 +263,6 @@ act-agent --project my-app     # for a specific project
 # Headless/internal modes (not for users)
 act-agent --agent dev-1 --role developer -p "..."  # spawned by Runner for Tier 2 swarm agents
 act-agent -p "single query"                         # OpenCode single-turn mode (legacy)
-
-# Nomik (codebase KG — requires Docker + Neo4j on port 7687)
-nomik rules              # architecture violations
-nomik communities        # functional clusters
-nomik scan:incremental . # update graph after changes
 ```
 
 ### Environment Variables
