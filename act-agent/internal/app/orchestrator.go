@@ -239,7 +239,7 @@ func (o *Orchestrator) HandleHumanInput(ctx context.Context, sessionID string, t
 	}
 	o.mu.Unlock()
 
-	o.runAgentTurn(ctx, sessionID, "planner", text, attachments...)
+	o.runAgentTurn(ctx, sessionID, "planner", text, true, attachments...)
 }
 
 // detectProjectState queries the ACT server for a project matching o.projectName.
@@ -562,7 +562,7 @@ func briefViewFromGetProject(name string, data map[string]any) BriefView {
 // runAgentTurn executes a single turn for the given role.
 // It sets the current speaker (for message ownership tagging), runs the agent,
 // and waits for completion.
-func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role string, content string, attachments ...message.Attachment) {
+func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role string, content string, fromHuman bool, attachments ...message.Attachment) {
 	agentSvc := o.getAgent(role)
 	if agentSvc == nil {
 		logging.Error("No Tier 1 agent registered for role — turn dropped", "role", role)
@@ -574,13 +574,14 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 	// (see prompt/planner.go). The orchestrator only watches output for
 	// PROJECT_BRIEF directives — no per-turn content injection.
 
-	// For non-Planner Tier 1 agents, the content is an orchestrator-generated
-	// prompt (Observer monitoring report, Assurance validation request, QA
-	// synthesis instructions). The user did not type it and shouldn't see it
-	// in the chat. Prepend the InternalPromptMarker so the chat list filters
-	// the resulting User-role message out of the rendered view. The LLM still
-	// sees the full content because we pass it as the actual message body.
-	if role != "planner" {
+	// Only real human input (HandleHumanInput → fromHuman) renders as a visible
+	// chat message. Everything else is orchestrator-injected — Observer/
+	// Assurance/QA prompts AND Planner prompts from autoroute / build / intake
+	// triggers — and must be hidden: prepend the InternalPromptMarker so the
+	// chat list filters the resulting User-role message out of the rendered
+	// view. The LLM still sees the full content (the marker is just text).
+	// Without this, injected Planner prompts render as if the human typed them.
+	if !fromHuman {
 		content = InternalPromptMarker + content
 	}
 
@@ -992,6 +993,51 @@ func normalizeRole(role string) string {
 	}
 }
 
+// tier1RoleLabelRe matches a leading role label the model may have emitted —
+// including a hallucinated "Human:"/"User:". Stripped before the authoritative
+// label is prepended so we never accumulate "Planner: Human: ...".
+var tier1RoleLabelRe = regexp.MustCompile(`(?i)^\s*(human|user|assistant|system|planner|observer|assurance|qa|qa_synthesizer)\s*:\s*`)
+
+// tier1DisplayLabel is the authoritative speaker label for a Tier 1 role.
+// Empty for anything that isn't a Tier 1 agent (leave such content untouched).
+func tier1DisplayLabel(role string) string {
+	switch normalizeRole(role) {
+	case "planner":
+		return "Planner"
+	case "observer":
+		return "Observer"
+	case "assurance":
+		return "Assurance"
+	case "qa_synthesizer":
+		return "QA"
+	default:
+		return ""
+	}
+}
+
+// applyRoleLabel asserts who-is-speaking in code: it strips any leading role
+// label the model emitted (incl. a hallucinated "Human:") and prepends the
+// authoritative label for the speaking role. Idempotent — re-running on an
+// already-labelled string yields the same result, so message re-fires and
+// session replay are safe. Empty content and non-Tier-1 roles pass through
+// unchanged.
+func applyRoleLabel(role, content string) string {
+	label := tier1DisplayLabel(role)
+	if label == "" || content == "" {
+		return content
+	}
+	stripped := content
+	// Strip repeatedly to catch stacked prefixes ("Human: Planner: ...").
+	for {
+		next := tier1RoleLabelRe.ReplaceAllString(stripped, "")
+		if next == stripped {
+			break
+		}
+		stripped = next
+	}
+	return label + ": " + strings.TrimLeft(stripped, " \t")
+}
+
 // SetOwner records which role produced a given message.
 func (o *Orchestrator) SetOwner(messageID string, role string) {
 	o.mu.Lock()
@@ -1108,6 +1154,21 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 				}
 				o.dispatchedMsgs[msg.ID] = true
 				o.mu.Unlock()
+
+				// Code-enforced role label: strip any leading prefix the model
+				// emitted (incl. a hallucinated "Human:") and prepend the
+				// authoritative speaker label. Who-is-speaking is a code-asserted
+				// invariant, not model-obeyed text. Idempotent + once-only (the
+				// dispatch guard above), so the re-published UpdatedEvent is a
+				// no-op on re-entry.
+				if labelled := applyRoleLabel(role, content); labelled != content {
+					msg.SetContent(labelled)
+					if err := o.app.Messages.Update(ctx, msg); err != nil {
+						logging.Warn("role_label_update_failed", "msg_id", msg.ID, "role", role, "error", err)
+					} else {
+						content = labelled
+					}
+				}
 
 				switch role {
 				case "planner":
@@ -1568,7 +1629,7 @@ func (o *Orchestrator) fireWhenPlannerIdle(ctx context.Context, sessionID, promp
 		}
 	}
 	logging.Info("planner_trigger_fire", "reason", reason, "prompt_bytes", len(prompt))
-	o.runAgentTurn(ctx, sessionID, "planner", prompt)
+	o.runAgentTurn(ctx, sessionID, "planner", prompt, false)
 }
 
 // handlePlannerTaskDirectives parses CREATE_TASK directives from a Planner
@@ -2033,7 +2094,7 @@ func (o *Orchestrator) runObserverCheck(ctx context.Context) {
 		"prompt_bytes", len(prompt),
 	)
 
-	o.runAgentTurn(ctx, sid, "observer", prompt)
+	o.runAgentTurn(ctx, sid, "observer", prompt, false)
 }
 
 // tier1Watchdog re-triggers Assurance or QA when their queue is non-empty,
@@ -2087,7 +2148,7 @@ func (o *Orchestrator) tier1Watchdog(ctx context.Context, sid string, snap *Stat
 			)
 			o.emitSystemMessage(ctx, sid, fmt.Sprintf("👁  Observer: QA idle with %d validated task(s) awaiting synthesis — re-triggering", pendingSynthesis))
 			prompt := fmt.Sprintf("Synthesis queue check — %d validated task(s) awaiting QA synthesis. Process the oldest validated task.", pendingSynthesis)
-			go o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt)
+			go o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt, false)
 			return true
 		}
 	}
@@ -2514,7 +2575,7 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 	// Run the Assurance turn. The task stays unseen at this point so if anything
 	// below fails (unparseable verdict, SubmitVerdict HTTP error), the next
 	// polling tick will retry, up to maxValidationAttempts.
-	o.runAgentTurn(ctx, sid, "assurance", prompt)
+	o.runAgentTurn(ctx, sid, "assurance", prompt, false)
 
 	msgs, err := o.app.Messages.List(ctx, sid)
 	if err != nil {
@@ -2667,7 +2728,7 @@ func (o *Orchestrator) routeToQA(ctx context.Context, t TaskSummary) {
 		AddedAt:         time.Now().UTC().Format(time.RFC3339),
 	}
 	prompt := buildSynthesisPrompt(output)
-	o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt)
+	o.runAgentTurn(ctx, sid, "qa_synthesizer", prompt, false)
 
 	// Verify the QA agent actually produced a synthesis reply before marking
 	// seen. If the LLM bailed (no reply, tool-only output, etc.) leave the task

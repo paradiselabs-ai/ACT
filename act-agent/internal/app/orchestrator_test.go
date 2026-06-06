@@ -6,6 +6,46 @@ import (
 	"time"
 )
 
+// --- applyRoleLabel tests (code-enforced who-is-speaking invariant) ---
+
+func TestApplyRoleLabel(t *testing.T) {
+	cases := []struct {
+		name, role, in, want string
+	}{
+		{"plain planner", "planner", "stop the synth", "Planner: stop the synth"},
+		{"strip hallucinated human", "planner", "Human: stop the synth", "Planner: stop the synth"},
+		{"strip lowercase human", "planner", "human: hi", "Planner: hi"},
+		{"idempotent already-labelled", "planner", "Planner: stop the synth", "Planner: stop the synth"},
+		{"stacked prefixes", "planner", "Human: Planner: go", "Planner: go"},
+		{"observer label", "observer", "@planner stuck task", "Observer: @planner stuck task"},
+		{"qa alias normalizes", "qa", "work shipped", "QA: work shipped"},
+		{"qa_synthesizer", "qa_synthesizer", "done", "QA: done"},
+		{"assurance", "assurance", `{"passed":true}`, `Assurance: {"passed":true}`},
+		{"empty stays empty", "planner", "", ""},
+		{"unknown role untouched", "developer", "Human: hi", "Human: hi"},
+		{"leading whitespace before label", "planner", "  Human:   hi", "Planner: hi"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := applyRoleLabel(c.role, c.in); got != c.want {
+				t.Errorf("applyRoleLabel(%q, %q) = %q, want %q", c.role, c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestApplyRoleLabelIdempotent(t *testing.T) {
+	// Re-applying must be a fixed point (session replay / message re-fire safety).
+	once := applyRoleLabel("observer", "Human: anomaly detected")
+	twice := applyRoleLabel("observer", once)
+	if once != twice {
+		t.Errorf("not idempotent: once=%q twice=%q", once, twice)
+	}
+	if once != "Observer: anomaly detected" {
+		t.Errorf("got %q", once)
+	}
+}
+
 // --- parseCreateTaskDirectives tests ---
 
 func TestParseCreateTaskDirectives_InlineDirective(t *testing.T) {

@@ -223,6 +223,19 @@ func (m *Message) AppendContent(delta string) {
 	}
 }
 
+// SetContent replaces the text of the first TextContent part (or appends one
+// if the message has none). Used to rewrite a finalized message body — e.g.
+// the orchestrator prepending an authoritative role label.
+func (m *Message) SetContent(text string) {
+	for i, part := range m.Parts {
+		if _, ok := part.(TextContent); ok {
+			m.Parts[i] = TextContent{Text: text}
+			return
+		}
+	}
+	m.Parts = append(m.Parts, TextContent{Text: text})
+}
+
 func (m *Message) AppendReasoningContent(delta string) {
 	found := false
 	for i, part := range m.Parts {
