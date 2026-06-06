@@ -1279,11 +1279,8 @@ func renderAutoRoutePrompt(variant autoRouteVariant, fromRole, fromContent strin
 
 	case variantFailVerdict:
 		return fmt.Sprintf(
-			"The Assurance agent posted a FAIL verdict. Gap analysis has already been auto-routed to the swarm agent — they will re-attempt the task without your involvement.\n\n"+
-				"Options (pick AT MOST one):\n"+
-				"  (a) If this is a repeated failure (3+ attempts) suggesting the agent is stuck, use act_cli task abandon <id> --reason \"<short why>\" and emit a CREATE_TASK to reassign to a different role.\n"+
-				"  (b) Write a short chat reply IF AND ONLY IF the human needs to be informed (e.g. major blocker).\n"+
-				"  (c) Stay silent. This is the correct default for a first or second failure — the swarm agent's retry will run.\n\n"+
+			"The Assurance agent posted a FAIL verdict. Gap analysis is already auto-routed to the swarm agent — they re-attempt without you.\n\n"+
+				"First or second failure: stay silent, the retry runs. Third+ failure on the same task: the agent is stuck — use act_cli task abandon <id> --reason \"<short why>\" and emit a CREATE_TASK to reassign to a different role. Inform the human only for a project-level blocker.\n"+
 				"Never write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
 			fromRole, fromContent,
 		)

@@ -371,6 +371,16 @@ func TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis(t *testing.T) 
 	if !strings.Contains(got, "task abandon") {
 		t.Errorf("variantFailVerdict must mention task abandon for repeated-failure path; got:\n%s", got)
 	}
+	// Fix 21: the trim must preserve the once/twice/three-times cadence that
+	// mirrors planner_section_validation.go (FAIL once → watch; twice → check
+	// criteria; three → reassign). Without this anchor the variant degrades
+	// into a near-duplicate of variantAnomaly.
+	if !strings.Contains(got, "First or second failure") {
+		t.Errorf("variantFailVerdict must keep the first/second-failure 'stay silent' cadence; got:\n%s", got)
+	}
+	if !strings.Contains(got, "Third+ failure") {
+		t.Errorf("variantFailVerdict must keep the third-failure 'reassign' cadence; got:\n%s", got)
+	}
 }
 
 func TestRenderAutoRoutePrompt_SystemEscalationPointsAtActCli(t *testing.T) {
