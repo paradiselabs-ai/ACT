@@ -534,7 +534,7 @@ Open by briefly presenting this understanding to the human and inviting correcti
 1. What do you want to build or change next? (becomes description + successCriteria)
 2. What should agents NOT touch? (becomes constraints / out-of-scope)
 
-On confirmation, emit PROJECT_BRIEF: as usual — techStack from the analysis, description/successCriteria from answer 1, constraints from answer 2, agentsInvolved chosen to fit the work.
+After both answers, summarize and ask "Ready to start?" — then STOP and end your turn. Do NOT emit PROJECT_BRIEF in that same message. Wait for the human to actually reply with confirmation, and only then, in your NEXT turn, emit PROJECT_BRIEF: by itself — techStack from the analysis, description/successCriteria from answer 1, constraints from answer 2, agentsInvolved chosen to fit the work.
 
 CODEBASE ANALYSIS
 %s`, project, analysis)
