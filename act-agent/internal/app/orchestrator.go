@@ -18,6 +18,7 @@ import (
 
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/acp"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/act"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/prompt"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
@@ -355,9 +356,9 @@ func (o *Orchestrator) runBrownfieldOnboard(ctx context.Context) {
 	// 2. Researcher enrichment — a one-shot headless read of the real code, seeded
 	//    by the scaffold. Any failure falls back to the scaffold.
 	analysis := scaffold
-	enrichCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	enrichCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
-	if enriched, err := runHeadlessAgent(enrichCtx, dir, name, "onboard-researcher", "researcher", brownfieldEnrichPrompt(scaffold)); err != nil {
+	if enriched, err := o.runResearcherEnrichment(enrichCtx, dir, name, brownfieldEnrichPrompt(scaffold)); err != nil {
 		logging.Warn("brownfield enrichment failed — using deterministic scaffold", "error", err)
 	} else {
 		analysis = enriched
@@ -397,6 +398,44 @@ func (o *Orchestrator) deterministicScaffold(ctx context.Context, dir string) st
 		return ""
 	}
 	return string(out)
+}
+
+// runResearcherEnrichment runs the codebase-read enrichment via whatever backend
+// the researcher role is configured for in ~/.act.json — claude-code (direct CLI
+// subprocess, mirroring the swarm runner) or act-agent (in-process LLM headless).
+// Honoring the config matters: a claude-code researcher has no provider/model, so
+// the act-agent headless path would fail.
+func (o *Orchestrator) runResearcherEnrichment(ctx context.Context, dir, project, prompt string) (string, error) {
+	backend := ""
+	if cfg := config.Get(); cfg != nil {
+		if a, ok := cfg.Agents[config.AgentConfigForRole("researcher")]; ok {
+			backend = a.Backend
+		}
+	}
+	if backend == "claude-code" {
+		return runClaudeCode(ctx, dir, prompt)
+	}
+	return runHeadlessAgent(ctx, dir, project, "onboard-researcher", "researcher", prompt)
+}
+
+// runClaudeCode runs the Claude Code CLI headlessly in dir (it reads the repo via
+// its own tools), returning its stdout. Mirrors the runner's claude-code path.
+func runClaudeCode(ctx context.Context, dir, prompt string) (string, error) {
+	path := os.Getenv("CLAUDE_PATH")
+	if path == "" {
+		path = "claude"
+	}
+	cmd := exec.CommandContext(ctx, path, "--print", "--dangerously-skip-permissions", prompt)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	res := strings.TrimSpace(string(out))
+	if res == "" {
+		return "", errors.New("claude-code returned empty output")
+	}
+	return res, nil
 }
 
 // runHeadlessAgent re-invokes this binary in headless mode to run one role's
