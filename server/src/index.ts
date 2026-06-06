@@ -580,17 +580,48 @@ app.get('/api/tasks/failed-permanently', (req, res) => {
 // (dev-1, backend-1, etc.) are shared across projects — a runner in project
 // A ends up executing a task from project B that happened to still be
 // assigned to the same agent ID. Always pass ?project= from the runner.
-app.get('/api/tasks/assigned', (req, res) => {
+// Self-healing heartbeat. The runner polls this every ~5s to fetch its assigned
+// task. It also doubles as the agent's liveness signal: each poll refreshes
+// lastSeen (so an actively-polling runner never trips the 5-min stale→offline
+// health check), and an idle agent is brought online (clearing any stale
+// currentTask left by a crashed prior session) and offered pending work via the
+// same sweep registration uses. Without this, a live runner gets marked offline,
+// is excluded from getAvailableAgents, and capable tasks sit pending forever.
+app.get('/api/tasks/assigned', async (req, res) => {
   const agentId = req.query.agent_id as string;
   const project = queryProject(req);
   if (!agentId) return res.status(400).json({ success: false, error: 'agent_id is required' });
 
-  let tasks = taskCoordinator.getTasksByAgent(agentId);
-  if (project) {
-    tasks = tasks.filter(t => (t.metadata?.projectName as string | undefined) === project);
+  const scoped = (t: { metadata?: { projectName?: unknown } }) =>
+    !project || (t.metadata?.projectName as string | undefined) === project;
+
+  const agent = agentRegistry.getAgent(agentId);
+  if (agent) {
+    const active = taskCoordinator.getTasksByAgent(agentId).filter(scoped)
+      .find(t => t.status === 'assigned' || t.status === 'in_progress');
+    if (active) {
+      // Working — refresh liveness while preserving busy + currentTask.
+      await agentRegistry.updateAgentStatus(agentId, 'busy', active.id);
+    } else if (project) {
+      // Idle — mark online (refreshes lastSeen, clears any stale currentTask so
+      // the agent re-enters getAvailableAgents), then pull pending work. Scope the
+      // sweep to THIS agent's project: a global retryPendingTasks() would let the
+      // poll grab an older or project-less pending task from another project and
+      // starve this project's queue. assignOptimalAgent already scopes the agent
+      // match to each task's project, so a per-project sweep is correct.
+      await agentRegistry.updateAgentStatus(agentId, 'online');
+      for (const t of taskCoordinator.getAllTasks(project).filter(t => t.status === 'pending')) {
+        try { await taskCoordinator.assignOptimalAgent(t.id); } catch { /* deps/no-match: stays pending */ }
+      }
+    } else {
+      // No project scope on the poll — just refresh liveness, don't sweep globally.
+      await agentRegistry.updateAgentStatus(agentId, 'online');
+    }
   }
-  const active = tasks.find(t => t.status === 'assigned' || t.status === 'in_progress');
-  res.json({ success: true, task: active || null });
+
+  const task = taskCoordinator.getTasksByAgent(agentId).filter(scoped)
+    .find(t => t.status === 'assigned' || t.status === 'in_progress');
+  res.json({ success: true, task: task || null });
 });
 
 // Get tasks pending validation (must be before /:taskId)
