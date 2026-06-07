@@ -282,6 +282,45 @@ func TestParseValidationVerdict_BoundaryAt95(t *testing.T) {
 	}
 }
 
+// TestParseValidationVerdict_EmptyCriteriaFailsClosed locks Fix 23 (kanban
+// assurance-fail-closed-empty-criteria / Round 6 finding #1). A task submitted
+// with no @success_criteria lets the Assurance LLM emit a 100 over an empty
+// criteriaResults array — pre-fix that became Passed=true and the unvalidated
+// work flowed into the deliverable with a green check. The orchestrator must
+// fail-close: a verdict that scored zero criteria cannot pass, whatever the
+// headline score, and the gap must explain why so the failure is actionable.
+func TestParseValidationVerdict_EmptyCriteriaFailsClosed(t *testing.T) {
+	raw := `{"score":100,"criteriaResults":[],"selfVerificationValid":true,"feedback":"tests pass"}`
+	verdict := parseValidationVerdict("task-empty", raw)
+	if verdict == nil {
+		t.Fatal("expected a verdict (the empty array still carries the criteriaResults key), got nil")
+	}
+	if verdict.Passed {
+		t.Error("FAIL-OPEN REGRESSION: empty criteriaResults at score 100 must NOT pass")
+	}
+	if verdict.OverallScore != 100 {
+		t.Errorf("score should be preserved as-reported (100), got %d", verdict.OverallScore)
+	}
+	if !strings.Contains(verdict.Gaps, "@success_criteria") {
+		t.Errorf("expected an explanatory gap naming @success_criteria, got %q", verdict.Gaps)
+	}
+}
+
+// TestParseValidationVerdict_EmptyCriteriaBrokenVerdict — even when a task DID
+// have criteria, a lazy/broken Assurance reply that returns score=100 with an
+// empty criteriaResults array scored nothing and must fail closed (same guard,
+// different cause).
+func TestParseValidationVerdict_EmptyCriteriaBrokenVerdict(t *testing.T) {
+	raw := `Verdict: {"score":98,"criteriaResults":[]}`
+	verdict := parseValidationVerdict("task-broken", raw)
+	if verdict == nil {
+		t.Fatal("expected a verdict, got nil")
+	}
+	if verdict.Passed {
+		t.Error("a verdict that scored zero criteria must fail closed even at 98")
+	}
+}
+
 func TestParseValidationVerdict_NoJSON(t *testing.T) {
 	raw := "I cannot validate this task right now"
 	verdict := parseValidationVerdict("t", raw)

@@ -3092,14 +3092,31 @@ func parseValidationVerdict(taskID, raw string) *ValidationVerdict {
 	}
 
 	const passThreshold = 95
+	// Fail-closed on empty criteria (kanban: assurance-fail-closed-empty-criteria).
+	// A verdict that scored ZERO criteria has no basis to pass, regardless of the
+	// headline score. An Assurance LLM handed a task with no @success_criteria
+	// emits {"score":100,"criteriaResults":[]} — "nothing to score against" is a
+	// validation *failure* (nothing was verified), not a pass. The 95% gate must
+	// not become a 100% bypass via a criteria-less submission. Decide it HERE at
+	// the orchestrator boundary so the gate is explicit and never left to the
+	// Assurance LLM's case-by-case judgement. (The base Planner prompt warns
+	// "verdict defaults to a meaningless 100%" — this is the code backstop that
+	// the warning previously had none of; Round 6 audit finding #1.)
+	emptyCriteria := len(parsed.CriteriaResults) == 0
+	gaps := parsed.Gaps
+	if emptyCriteria && parsed.OverallScore >= passThreshold {
+		gaps = "Validation failed: the task has no @success_criteria to score against, " +
+			"so a passing score has no basis. Re-emit the task with explicit, testable " +
+			"@success_criteria before resubmitting."
+	}
 	return &ValidationVerdict{
 		TaskID:                  taskID,
-		Passed:                  parsed.OverallScore >= passThreshold,
+		Passed:                  parsed.OverallScore >= passThreshold && !emptyCriteria,
 		OverallScore:            parsed.OverallScore,
 		CriteriaResults:         parsed.CriteriaResults,
 		SelfVerificationChecked: true,
 		SelfVerificationValid:   parsed.SelfVerificationValid,
-		Gaps:                    parsed.Gaps,
+		Gaps:                    gaps,
 		Feedback:                parsed.Feedback,
 		Timestamp:               time.Now().UTC().Format(time.RFC3339),
 	}
