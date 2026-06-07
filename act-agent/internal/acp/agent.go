@@ -217,18 +217,21 @@ func (a *ACPAgent) Run(ctx context.Context, sessionID, content string, attachmen
 // message to messages store, write empty assistant message, session/prompt,
 // drain chunks into the assistant message, finalise on stop_reason.
 func (a *ACPAgent) runTurn(ctx context.Context, sessionID, content string) agent.AgentEvent {
-	// Already per-agent-scoped: only `content` is sent to the external agent via
-	// session/prompt (no shared-transcript replay), and each ACPAgent keeps its own
-	// ACP session per ACT sessionID. The in-process agent's scopeHistory flag has no
-	// analogue here and is not needed — don't "add" it.
+	// Already per-agent-scoped for INPUT: only `content` is sent to the external
+	// agent via session/prompt (no shared-transcript replay), and each ACPAgent
+	// keeps its own ACP session per ACT sessionID. So the in-process historyMode
+	// has no analogue here — don't add filtering. We still stamp ThreadID on the
+	// DISPLAY messages below so the data is uniform with the in-process path (and
+	// so an in-process Planner that reads its thread sees ACP-produced turns too).
 	acpSessionID, err := a.ensureACPSession(ctx, sessionID)
 	if err != nil {
 		return a.errEvent(fmt.Errorf("ensure acp session: %w", err))
 	}
 
 	userMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
-		Role:  message.User,
-		Parts: []message.ContentPart{message.TextContent{Text: content}},
+		Role:     message.User,
+		Parts:    []message.ContentPart{message.TextContent{Text: content}},
+		ThreadID: a.role,
 	})
 	if err != nil {
 		return a.errEvent(fmt.Errorf("create user message: %w", err))
@@ -236,9 +239,10 @@ func (a *ACPAgent) runTurn(ctx context.Context, sessionID, content string) agent
 	_ = userMsg
 
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
-		Role:  message.Assistant,
-		Parts: []message.ContentPart{},
-		Model: models.ModelID(a.agentInfo.Name),
+		Role:     message.Assistant,
+		Parts:    []message.ContentPart{},
+		Model:    models.ModelID(a.agentInfo.Name),
+		ThreadID: a.role,
 	})
 	if err != nil {
 		return a.errEvent(fmt.Errorf("create assistant message: %w", err))

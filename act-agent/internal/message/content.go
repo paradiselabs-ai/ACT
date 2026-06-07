@@ -112,6 +112,11 @@ type Message struct {
 	ID        string
 	Role      MessageRole
 	SessionID string
+	// ThreadID tags which agent's logical "notebook" this message belongs to
+	// (the role that produced it). All Tier 1 agents share one display session,
+	// but each in-process agent scopes its INPUT history to its own ThreadID so
+	// it doesn't replay the other agents' traffic. "" = untagged (full-session).
+	ThreadID  string
 	Parts     []ContentPart
 	Model     models.ModelID
 	CreatedAt int64

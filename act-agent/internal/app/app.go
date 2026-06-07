@@ -118,12 +118,20 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 				app.LSPClients,
 			)
 			toolsN = len(roleTools)
-			// Scope history for every in-process role except the Planner: event-driven
-			// roles (Observer/Assurance/QA) get self-contained prompts and don't need
-			// the shared transcript. Keyed on role (not backend), so flipping a role to
-			// in-process later scopes it automatically. The Planner is the conversational
-			// partner and keeps full history.
-			agentSvc, err = agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools, role != "planner")
+			// Per-agent notebooks. Every in-process role stamps its own threadID (its
+			// role name) on the messages it creates, in the one shared display session.
+			// History mode keys on role, not backend, so flipping a role to in-process
+			// later scopes it automatically:
+			//   - Planner → HistoryThread: feeds only its own thread (human turns +
+			//     autoroute prompts + its replies), NOT the workers' shared-session
+			//     traffic. The conversational partner, but scoped to its conversation.
+			//   - Observer/Assurance/QA → HistoryNone: stateless, self-contained
+			//     snapshots; no prior history at all.
+			histMode := agent.HistoryNone
+			if role == "planner" {
+				histMode = agent.HistoryThread
+			}
+			agentSvc, err = agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools, role, histMode)
 		}
 		if err != nil {
 			logging.Warn("tier1_agent_wire_failed", "role", role, "config_key", string(agentName), "backend", backendChoice, "error", err)
@@ -333,7 +341,8 @@ func (a *App) CreateAgentForRole(role string) (agent.Service, error) {
 			a.History,
 			a.LSPClients,
 		),
-		false, // Tier 2 swarm agent: keeps full history of its own task session.
+		"",                 // no thread tag — Tier 2 runs alone in its own task session
+		agent.HistoryFull,  // keeps full history of that session
 	)
 }
 

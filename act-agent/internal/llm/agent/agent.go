@@ -69,23 +69,42 @@ type agent struct {
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
 
-	// scopeHistory makes a turn ignore the prior session transcript and feed the
-	// model only the current prompt. Set for in-process event-driven Tier 1 roles
-	// (Observer/Assurance/QA) whose prompts are self-contained snapshots — they
-	// don't need the shared NesTTY conversation, and replaying it every turn was
-	// ~90% baggage (one Observer turn measured ~66 msgs / ~13K tokens). The Planner
-	// keeps full history (scopeHistory=false) — it's the conversational partner.
-	scopeHistory bool
+	// threadID is this agent's logical "notebook" tag. It's stamped on every
+	// message the agent creates (its prompt + its reply) so that, in a shared
+	// NesTTY session, each agent's traffic is distinguishable. Tier 1 roles use
+	// their role name; "" means untagged.
+	threadID string
+	// historyMode controls what prior history this agent feeds the model:
+	//   HistoryFull   — the whole session (default; single-agent / Tier 2)
+	//   HistoryNone   — nothing but the current prompt (stateless workers:
+	//                   Observer/Assurance/QA — self-contained snapshots)
+	//   HistoryThread — only messages tagged with this agent's threadID (the
+	//                   Planner — its own conversation, not the other agents'
+	//                   traffic that shares the display session)
+	// This is what keeps an in-process agent from replaying the full shared
+	// transcript every turn (~90% baggage; one Observer turn measured ~13K tokens).
+	historyMode HistoryMode
 
 	activeRequests sync.Map
 }
+
+// HistoryMode selects which prior messages an agent feeds the model. See the
+// agent.historyMode field for the per-role rationale.
+type HistoryMode string
+
+const (
+	HistoryFull   HistoryMode = ""
+	HistoryNone   HistoryMode = "none"
+	HistoryThread HistoryMode = "thread"
+)
 
 func NewAgent(
 	agentName config.AgentName,
 	sessions session.Service,
 	messages message.Service,
 	agentTools []tools.BaseTool,
-	scopeHistory bool,
+	threadID string,
+	historyMode HistoryMode,
 ) (Service, error) {
 	agentProvider, err := createAgentProvider(agentName)
 	if err != nil {
@@ -119,22 +138,35 @@ func NewAgent(
 		tools:             agentTools,
 		titleProvider:     titleProvider,
 		summarizeProvider: summarizeProvider,
-		scopeHistory:      scopeHistory,
+		threadID:          threadID,
+		historyMode:       historyMode,
 		activeRequests:    sync.Map{},
 	}
 
 	return agent, nil
 }
 
-// scopedHistory returns the conversation history to feed the model. When scope
-// is set, it returns nil — the turn sees only the current prompt, not the prior
-// session transcript. Pure helper so the scoping invariant is unit-testable
-// without a provider mock.
-func scopedHistory(msgs []message.Message, scope bool) []message.Message {
-	if scope {
+// scopedHistory returns the conversation history to feed the model, per mode:
+//   - HistoryNone   → nil (only the current prompt is sent)
+//   - HistoryThread → only messages tagged with threadID (this agent's own thread)
+//   - HistoryFull   → msgs unchanged
+//
+// Pure helper so the scoping invariant is unit-testable without a provider mock.
+func scopedHistory(msgs []message.Message, mode HistoryMode, threadID string) []message.Message {
+	switch mode {
+	case HistoryNone:
 		return nil
+	case HistoryThread:
+		scoped := make([]message.Message, 0, len(msgs))
+		for _, m := range msgs {
+			if m.ThreadID == threadID {
+				scoped = append(scoped, m)
+			}
+		}
+		return scoped
+	default: // HistoryFull
+		return msgs
 	}
-	return msgs
 }
 
 func (a *agent) Model() models.Model {
@@ -299,9 +331,10 @@ func (a *agent) processGeneration(ctx context.Context, sessionID, content string
 		return a.err(fmt.Errorf("failed to create user message: %w", err))
 	}
 	// Append the new user message to the conversation history. scopedHistory drops
-	// the prior transcript for event-driven roles (see agent.scopeHistory) so they
-	// run on just this turn's self-contained prompt; the Planner keeps full history.
-	msgHistory := append(scopedHistory(msgs, a.scopeHistory), userMsg)
+	// or thread-filters the prior transcript per this agent's historyMode (see the
+	// agent.historyMode field) so it doesn't replay the other agents' shared-session
+	// traffic; the current turn's prompt is always included.
+	msgHistory := append(scopedHistory(msgs, a.historyMode, a.threadID), userMsg)
 
 	for {
 		// Check for cancellation before each iteration
@@ -344,8 +377,9 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 	parts := []message.ContentPart{message.TextContent{Text: content}}
 	parts = append(parts, attachmentParts...)
 	return a.messages.Create(ctx, sessionID, message.CreateMessageParams{
-		Role:  message.User,
-		Parts: parts,
+		Role:     message.User,
+		Parts:    parts,
+		ThreadID: a.threadID,
 	})
 }
 
@@ -354,9 +388,10 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 	eventChan := a.provider.StreamResponse(ctx, msgHistory, a.tools)
 
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
-		Role:  message.Assistant,
-		Parts: []message.ContentPart{},
-		Model: a.provider.Model().ID,
+		Role:     message.Assistant,
+		Parts:    []message.ContentPart{},
+		Model:    a.provider.Model().ID,
+		ThreadID: a.threadID,
 	})
 	if err != nil {
 		return assistantMsg, nil, fmt.Errorf("failed to create assistant message: %w", err)
@@ -451,8 +486,9 @@ out:
 		parts = append(parts, tr)
 	}
 	msg, err := a.messages.Create(context.Background(), assistantMsg.SessionID, message.CreateMessageParams{
-		Role:  message.Tool,
-		Parts: parts,
+		Role:     message.Tool,
+		Parts:    parts,
+		ThreadID: a.threadID, // must match the assistant tool-call's thread or HistoryThread orphans the tool_use
 	})
 	if err != nil {
 		return assistantMsg, nil, fmt.Errorf("failed to create cancelled tool message: %w", err)
@@ -693,7 +729,8 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		}
 		// Create a message in the new session with the summary
 		msg, err := a.messages.Create(summarizeCtx, oldSession.ID, message.CreateMessageParams{
-			Role: message.Assistant,
+			Role:     message.Assistant,
+			ThreadID: a.threadID,
 			Parts: []message.ContentPart{
 				message.TextContent{Text: summary},
 				message.Finish{
