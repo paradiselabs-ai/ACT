@@ -1,0 +1,53 @@
+{
+  "_doc": "Artifact freshness registry. Schema + rules: docs/constitution/UPDATE_LOOPS.md. Staled automatically by scripts/git-hooks/post-commit; marked fresh ONLY via scripts/freshness-refresh.sh after actually performing the refresh procedure.",
+  "artifacts": {
+    "architecture-flows": {
+      "paths": ["architecture-flows.json", "architecture-flows.html", "flows-explainer.html"],
+      "watch": ["act-agent/internal/", "act-agent/cmd/", "act-agent/cli/", "act-agent/runner/", "server/src/"],
+      "refresh": ".claude/architecture-flows-method.md",
+      "verified_against": null,
+      "status": "stale",
+      "staled_by": "known-stale at start of cleanup effort 2026-06-10 (predates per-agent notebooks, ACP work, Round 5b/6 fixes)"
+    },
+    "planner-prompts": {
+      "paths": ["docs/planner-prompt-audit/planner-prompts.json", "docs/planner-prompt-audit/planner-prompts.html"],
+      "watch": ["act-agent/internal/llm/prompt/", "act-agent/internal/app/orchestrator.go"],
+      "refresh": "docs/constitution/UPDATE_LOOPS.md §3 (re-extract fragments, re-grep every source_line)",
+      "verified_against": null,
+      "status": "stale",
+      "staled_by": "Round-6 finding: chat-leak entry cites a gate that was already replaced by !fromHuman; source_line stale"
+    },
+    "claude-md": {
+      "paths": ["CLAUDE.md", "AGENTS.md", "GEMINI.md"],
+      "watch": ["act-agent/internal/app/", "act-agent/internal/llm/", "act-agent/internal/config/", "act-agent/internal/acp/", "act-agent/cmd/", "act-agent/cli/", "act-agent/runner/", "server/src/"],
+      "refresh": "docs/constitution/UPDATE_LOOPS.md §3 (grep-verify section claims; fix only confirmed-wrong lines)",
+      "verified_against": null,
+      "status": "stale",
+      "staled_by": "being reconciled in the cleanup-constitution effort 2026-06-10"
+    },
+    "readme": {
+      "paths": ["README.md"],
+      "watch": ["act-agent/internal/llm/prompt/", "act-agent/internal/config/", "act-agent/cmd/", "server/src/index.ts"],
+      "refresh": "docs/constitution/UPDATE_LOOPS.md §3 (verify roles, backends, status line, quickstart against code)",
+      "verified_against": null,
+      "status": "stale",
+      "staled_by": "unverified at start of cleanup effort 2026-06-10"
+    },
+    "combined-analysis": {
+      "paths": ["docs/planner-prompt-audit/combined-analysis.md"],
+      "watch": ["act-agent/internal/llm/prompt/", "act-agent/internal/app/orchestrator.go"],
+      "refresh": "docs/constitution/UPDATE_LOOPS.md §3 (re-grep [FIXED] entries whose cited files changed)",
+      "verified_against": null,
+      "status": "stale",
+      "staled_by": "Round-6 finding: entry 3.5 'FIXED' overreaches (Planner-only)"
+    },
+    "handoff": {
+      "paths": ["docs/dev/HANDOFF.md"],
+      "watch": [],
+      "refresh": "not refreshed — rewritten at session end; older-than-branch-tip means advisory only (Constitution Art. 7)",
+      "verified_against": null,
+      "status": "stale",
+      "staled_by": "no tracked handoff exists yet; legacy F-handoff.md (root, gitignored) and .claude/HANDOFF.md are deprecated"
+    }
+  }
+}
