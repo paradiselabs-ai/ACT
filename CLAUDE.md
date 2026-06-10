@@ -1,3 +1,35 @@
+# ⛔ NEVER TRUST SINGLE-FILE SOURCES — THE CODEBASE IS THE ONLY TRUTH
+
+**NEVER trust single-file sources** (`architecture-flows.json`, this CLAUDE.md, `planner-prompts.json`, any one or few `docs/` files, HANDOFF files, kanban frontmatter) **to give reliable data about the current state of fixes, implementations, identified bugs, broken features, or desired features** — or any other information that directly affects steps moving forward.
+
+Why this is non-negotiable:
+- Assuming a bug is **un**fixed when it IS fixed → a duplicate fix lands on top of the real one → new bugs.
+- Assuming a feature is **un**implemented when it IS implemented (e.g. ACP) → a second implementation → two half-broken, conflicting, destructive systems that are very hard to synthesize.
+- This failure mode is not hypothetical: the Round-6 dual-path audit had BOTH independent analysis paths rank HIGH a "bug" that was already fixed, because both trusted a stale map file over the code. Only re-grepping the code caught it.
+
+**ALWAYS pull directly from the codebase itself**: grep and validate everything, and do manual file reads of the most vital parts. A doc citing `file:line` is NOT evidence — line numbers drift within commits on active branches; re-grep before trusting any citation.
+
+**When a doc and the code disagree: the code is the truth. Fix or omit the doc statement. NEVER change the codebase to make a doc statement true.**
+
+> `architecture-flows.html/.json` are currently **known stale** — do not consult them until they are rebuilt against the current codebase.
+
+***
+
+## 🚧 TEMPORARY FOCUS (active 2026-06-10 — remove when the cleanup system has proven itself)
+
+Current priority: **project cleanup + standardizing the methodology and constitution of progress tracking.** Master plan: `/Users/user/.claude/plans/cleanup-constitution.md`. Work happens on `feat/cleanup-constitution` (off `feat/remove-nomik`); merges back when scaffolding is clean and current; TUI e2e runs on the merged branch; PR → `NesTTY` only when alpha-worthy.
+
+The system being built (lives in `docs/constitution/` when done):
+
+1. **One always-current picture of development state.** Standards + workflows for: updating docs, reporting bugs, keeping a growing task log ordered by importance — every task scoped with a spec, Success Criteria, constraints, and **code-level invariants**.
+2. **A real update loop** keeping these in sync with the code: `architecture-flows.json/html`, `planner-prompts.json/html`, kanban (`.devtool/`), `CLAUDE.md`, `README.md`, `HANDOFF.md`/`F-handoff.md`.
+3. **Better doc organization**: upkeep, pruning, developer notes, ideas, future roadmap, dev log; public-facing docs (GitHub / DeepWiki) separated from internal dev-state docs.
+4. **Discoverability for every actor** — agents, users, AI editors (Windsurf / Devin Desktop): where to find, write, update, and read docs; how to structure a doc page; which loops (manual + hooked) keep each artifact fresh.
+5. **Where to publish feature implementations when completed** — a defined publication flow so finished work is recorded in one predictable place.
+
+Verification pipeline for this effort (in order): `F-handoff.md` → verify handoff → subagents with explicit **anti-trust operating mentality** (grep-only, never assume) → dual-path-analysis on the aggregated result → verify dual-analysis results → identify where statements don't match the codebase → identify the truth → fix or omit false info **in the scaffolding only** — never by changing the codebase to match.
+
+***
 
 ## Project Overview
 
