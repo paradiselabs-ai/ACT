@@ -1,0 +1,1161 @@
+{
+  "summary": "Grep-verify every load-bearing claim in F-handoff.md, CLAUDE.md, and status docs against the live codebase",
+  "agentCount": 10,
+  "logs": [
+    "137 claims checked, 14 STALE/FALSE"
+  ],
+  "result": {
+    "slices": [
+      {
+        "claims": [
+          {
+            "id": "all-17-commits-exist",
+            "source": "F-handoff.md L28-38, L175-201",
+            "claim": "All 17 named commits (bc0673e, f2c8d78, 578d280, 1919b06, 7021488, 26f2c3d, 9aa8417, e06f273, ac241e0, 8249a19, 8e3d3a8, ffb51e4, 2326d0b, 3de2163, 4f7fc3e, e1adc85, 6d934d2) exist on the branch with the described subjects.",
+            "verdict": "CONFIRMED",
+            "evidence": "git log on feat/cleanup-constitution (== feat/remove-nomik @ bc0673e): every hash resolves, every subject matches the handoff's description (e.g. bc0673e 'feat(orchestrator): per-agent notebooks — scope in-process input by thread', 578d280 'Fix 23 — Assurance fails closed on empty @success_criteria', ac241e0 'Fix 22 — PlannerPrompt branches CLI fragment by backend'). History is fully linear — 18/18 entries in git log --graph are non-merge commits."
+          },
+          {
+            "id": "head-is-bc0673e",
+            "source": "F-handoff.md L18",
+            "claim": "feat/remove-nomik HEAD = bc0673e.",
+            "verdict": "CONFIRMED",
+            "evidence": "git rev-parse feat/remove-nomik = bc0673e92e911a4cb1b410e111cc0f0dfde0e032. Current checkout feat/cleanup-constitution also resolves to the same commit (branches are identical, same SHA, not just same content)."
+          },
+          {
+            "id": "origin-sync-state",
+            "source": "F-handoff.md L18-19",
+            "claim": "local == origin/feat/remove-nomik == bc0673e; tree in sync, nothing outstanding to push.",
+            "verdict": "CONFIRMED",
+            "evidence": "git rev-parse origin/feat/remove-nomik = bc0673e92e... (same as local). True as of NOW — but see push-date-wrong: this only became true on 2026-06-10."
+          },
+          {
+            "id": "push-date-wrong",
+            "source": "F-handoff.md L19 ('fast-forwarded 26f2c3d..bc0673e on 2026-06-07') and L23-24 ('they are now pushed to origin too')",
+            "claim": "The push fast-forwarding origin 26f2c3d→bc0673e happened on 2026-06-07, so origin already had Phase 3/4 + Fix 23 when the handoff was written.",
+            "verdict": "STALE",
+            "evidence": "git reflog show origin/feat/remove-nomik: 'bc0673e ...@{2026-06-10 08:33:20 -0500}: update by push' and '26f2c3d ...@{2026-06-06 13:37:01 -0500}: update by push'. The fast-forward RANGE (26f2c3d..bc0673e) is exactly right, but the push happened 2026-06-10, three days after the handoff date. At writing time origin was still at 26f2c3d — the 5 commits 7021488, 1919b06, 578d280, f2c8d78, bc0673e were local-only.",
+            "impact": "Anyone trusting 'PUSHED, nothing outstanding' between 06-07 and 06-10 and pulling origin (e.g. the 'second writer' the handoff tells to git pull first, or another machine) would have based work on 26f2c3d, missing Phase 3, Phase 4, and Fix 23 — exactly the collision the handoff warns about. The state is now repaired; the claim is safe to trust today."
+          },
+          {
+            "id": "fix23-between-phase3-phase4",
+            "source": "F-handoff.md L20-24, L28-38",
+            "claim": "578d280 + f2c8d78 (Fix 23, 'other writer') landed between the Phase-3 commit (7021488) and the Phase-4 commit (bc0673e).",
+            "verdict": "CONFIRMED",
+            "evidence": "git log --reverse: 7021488 (06-06 17:16) → 1919b06 (17:18) → 578d280 (06-07 00:01) → f2c8d78 (00:02) → bc0673e (01:20). Topologically and chronologically between Phase 3 and Phase 4, as claimed. Note: all 17 commits share one author identity (dead-developers <paradiselabs.ai@gmail.com>), so git cannot distinguish the two writers — only timestamps and the handoff's own attribution do."
+          },
+          {
+            "id": "phase4-11-files",
+            "source": "F-handoff.md L82-98",
+            "claim": "bc0673e (Phase 4) changed exactly the 11 listed files: content.go, message.go, migration 20260607000000_add_message_thread_id.sql, sql/messages.sql, messages.sql.go, models.go, agent.go, agent-tool.go, acp/agent.go, app.go, scoped_history_test.go.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show --stat bc0673e: exactly those 11 files (159+/68-). Diff contains 78 hits for ThreadID/HistoryMode/HistoryThread/HistoryNone/HistoryFull/scopedHistory; migration contains 'ALTER TABLE messages ADD COLUMN thread_id TEXT NOT NULL DEFAULT '''' (plus the goose-down DROP COLUMN)."
+          },
+          {
+            "id": "phase3-scopehistory",
+            "source": "F-handoff.md L54-55, L35",
+            "claim": "7021488 (Phase 3) added a scopeHistory bool to the in-process agent so event-driven workers feed the model only their current prompt.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show 7021488: 12 occurrences of scopeHistory; files acp/agent.go, app/app.go, agent-tool.go, agent.go, new scoped_history_test.go. Later replaced by Phase 4's HistoryMode as the handoff itself states."
+          },
+          {
+            "id": "phase1-rolelabels",
+            "source": "F-handoff.md L46-49, L38",
+            "claim": "e06f273 (Phase 1) code-stamps Tier-1 role labels via applyRoleLabel and adds fromHuman bool to runAgentTurn.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show e06f273: 13 occurrences of applyRoleLabel/fromHuman across orchestrator.go (+89/-14), orchestrator_test.go, message/content.go, plus the 2 kanban cards (code-enforced-agent-role-prefix, planner-prompts-render-as-human)."
+          },
+          {
+            "id": "phase2-qa-watchdog-observer-gate",
+            "source": "F-handoff.md L50-53, L37",
+            "claim": "9aa8417 (Phase 2) makes the QA watchdog honor synthesizedAt (taskSynthesized) and hashes a stable anomalySignature for the Observer no-op gate.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show 9aa8417: 24 occurrences of taskSynthesized/synthesizedAt/anomalySignature; orchestrator.go (+64/-8), orchestrator_test.go, plus 2 kanban cards (observer-autoroute-loop-no-ceiling, qa-synth-queue-never-drains)."
+          },
+          {
+            "id": "26f2c3d-nul-lockkey",
+            "source": "F-handoff.md L36, L158",
+            "claim": "26f2c3d strips a stray NUL byte from the server lockKey delimiter (spawned sub-task task_7a786c8e).",
+            "verdict": "CONFIRMED",
+            "evidence": "git show 26f2c3d touches only server/src/index.ts (2+/2-). Byte-level check: parent version's lockKey template literal contains a literal \\0 between ${projectName} and ${filePath} (od -c shows 'o j e c t N a m e } \\0 $ { f i l'); post-commit version has zero NUL bytes. The 'spawned sub-task' provenance is not a git artifact and is unverifiable, but the content claim is exact."
+          },
+          {
+            "id": "1919b06-kanban-moves",
+            "source": "F-handoff.md L34, L160-163",
+            "claim": "1919b06 moved exactly 4 dogfood-bug kanban cards to .devtool/features/done/: code-enforced-agent-role-prefix, planner-prompts-render-as-human, qa-synth-queue-never-drains, observer-autoroute-loop-no-ceiling.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show --stat 1919b06: 4 pure renames features/ → features/done/ for exactly those 4 files (all *-2026-06-06.md), 0 insertions/deletions."
+          },
+          {
+            "id": "f2c8d78-ticket-in-progress",
+            "source": "F-handoff.md L33, L200-201",
+            "claim": "f2c8d78 moved the assurance-fail-closed-empty-criteria-2026-05-26 kanban ticket to in-progress (not done).",
+            "verdict": "CONFIRMED",
+            "evidence": "git show --name-status f2c8d78: 'A .devtool/features/assurance-fail-closed-empty-criteria-2026-05-26.md' — git-wise it's a new ADD of a 136-line file (previously untracked, not in 578d280's tree), not a status flip of a tracked file. The committed frontmatter reads status: \"in-progress\", so the semantic claim holds; just be aware the ticket's pre-commit history doesn't exist in git."
+          },
+          {
+            "id": "578d280-fix23-content",
+            "source": "F-handoff.md L195-199",
+            "claim": "578d280 changes parseValidationVerdict (~orchestrator.go 3094-3105) to Passed = OverallScore>=95 && len(CriteriaResults)>0, with tests TestParseValidationVerdict_EmptyCriteriaFailsClosed and _EmptyCriteriaBrokenVerdict.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show 578d280: hunk header '@@ -3092,14 +3092,31 @@ func parseValidationVerdict', diff and commit message contain 'len(CriteriaResults) > 0' and both exact test names; touches only orchestrator.go + orchestrator_test.go (58+/2-)."
+          },
+          {
+            "id": "ac241e0-fix22-content",
+            "source": "F-handoff.md L178-180",
+            "claim": "ac241e0 (Fix 22) branches PlannerPrompt by backend, moves ProviderACP from acp → models pkg keeping an alias at acp/agent.go:30, adds actCLICommandsACP in common.go and test TestPlannerPromptBranchesOnProvider in prompt_roles_test.go.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show ac241e0: adds 'ProviderACP ModelProvider = \"acp\"' to models/models.go, 'func actCLICommandsACP(role string)' to prompt/common.go, TestPlannerPromptBranchesOnProvider in new prompt_roles_test.go; at that commit, acp/agent.go line 30 is exactly 'const ProviderACP = models.ProviderACP'."
+          },
+          {
+            "id": "8249a19-fix20-content",
+            "source": "F-handoff.md L181-183",
+            "claim": "8249a19 (Fix 20+20b) rewrites the bare act-CLI shorthand in planner_section_evidence.go, rewords validation out of planner_section_validation.go, test TestNoSectionUsesBareActShorthand in sections_test.go.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show --stat 8249a19: exactly planner_section_evidence.go, planner_section_validation.go, sections_test.go; diff contains TestNoSectionUsesBareActShorthand (3 hits)."
+          },
+          {
+            "id": "8e3d3a8-ffb51e4-2326d0b-variants",
+            "source": "F-handoff.md L184-190",
+            "claim": "8e3d3a8 adds variantSystemNoTask + 2 named tests; ffb51e4 drops the variantPassVerdict CREATE_TASK escape hatch; 2326d0b trims variantFailVerdict keeping the split.",
+            "verdict": "CONFIRMED",
+            "evidence": "git show 8e3d3a8: 22 hits for variantSystemNoTask/TestDedupAutorouteText_WrappedByVariantSystemNoTask/TestRenderAutoRoutePrompt_SystemNoTaskHasNoTaskMenu. ffb51e4: 22 hits for variantPassVerdict/CREATE_TASK. 2326d0b: 7 hits for variantFailVerdict. All three touch only orchestrator.go + orchestrator_test.go."
+          },
+          {
+            "id": "round5b-ordering",
+            "source": "F-handoff.md L177-193, L296-298",
+            "claim": "Round 5b commits ran ac241e0 → 8249a19 → 8e3d3a8 → ffb51e4 → 2326d0b → 3de2163 (docs-only), with Round 5a (4f7fc3e Fix 15, e1adc85 Fix 16, 6d934d2 Fix 17) made earlier and carried in; bc0673e landed AFTER 578d280.",
+            "verdict": "CONFIRMED",
+            "evidence": "git log --reverse: the six 5b commits are consecutive, 2026-06-06 06:42→06:49, exact claimed order; 3de2163 touches only docs/planner-prompt-audit/combined-analysis.md. Round 5a commits dated 2026-05-27 04:38-04:42 with stats matching their descriptions (planner_section_examples.go / orchestrator.go ValidationScore / common.go). bc0673e (06-07 01:20) is a descendant of 578d280 (06-07 00:01)."
+          },
+          {
+            "id": "commit-tables-complete",
+            "source": "F-handoff.md L28-38 ('This session's commits') + L294-298 (Coordination note, range 'b03ef50→bc0673e ... described in the section above')",
+            "claim": "The two commit tables plus the coordination note account for all branch commits in the session window (ac241e0..bc0673e).",
+            "verdict": "FALSE",
+            "evidence": "Three commits inside the interleave window appear in NEITHER writer's table and are never described: b03ef50 (06-06 07:53, fix(planner): 'Ready to start?' hard stop — orchestrator.go + prompt/planner.go), 7f439ca (08:21, feat(observer): detect orphaned/unservable pending tasks — orchestrator.go +100, orchestrator_types.go, new observer_anomaly_test.go), 1e33bc8 (08:24, fix(server): /api/tasks/assigned self-healing heartbeat — server/src/index.ts +37/-6). The coordination note's range 'b03ef50→bc0673e' attributes them to the first effort, but that section's own table starts at e06f273 and calls e06f273/9aa8417 'prior session' — so a third uncredited writer/session produced them, or the first writer's table is incomplete.",
+            "impact": "Anyone reconstructing 'who changed orchestrator.go and why' from the handoff will miss ~330 lines of Observer-anomaly, planner-prompt, and server-heartbeat changes sitting between the two documented efforts — the highest drift risk in this slice, since all three touch the exact orchestrator/prompt/server surfaces both writers are actively editing."
+          },
+          {
+            "id": "worktree-clean-go-sql",
+            "source": "F-handoff.md L25-26",
+            "claim": "Working tree is clean of Go/SQL changes; pre-existing untracked junk at repo root (*.html, docs/refactor/, Nomik-removal kanban deletions) is unrelated.",
+            "verdict": "CONFIRMED",
+            "evidence": "git status --porcelain: zero modified .go/.sql/.ts files; dirty state is only .devtool/*.md modifications/deletions plus untracked band-vs-act-teardown.html, spil-evolution.html, docs/refactor/, act-agent/act-tier1-* files — matching the 'junk' description."
+          },
+          {
+            "id": "linear-history-no-merges",
+            "source": "F-handoff.md L19 (fast-forward framing), L294-298 (interleave framing)",
+            "claim": "The two writers' commits interleave on a single linear branch (no merge commits), making a fast-forward push possible.",
+            "verdict": "CONFIRMED",
+            "evidence": "git log --graph --oneline -18: all 18 entries are linear first-parent commits, no merge nodes; reflog confirms the origin update was a clean 'update by push' (fast-forward) 26f2c3d→bc0673e."
+          }
+        ],
+        "extraObservations": "Unmentioned commits in the last ~30 that touch orchestrator/prompt/server code, beyond the three interleave-window ones already flagged (these predate the handoff's session and are referenced at most indirectly, never as commits): e49d197 feat(orchestrator) full Info-level brownfield-onboard tracing; 701fede fix(orchestrator) brownfield enrichment honors researcher backend; 045ad26 feat(orchestrator) persist brownfield analysis into AGENTS.md; c1e9bd5 feat(orchestrator) brownfield INTAKE auto-onboard; 033bec1 feat(cli) rebuild `act codebase onboard`; a90b010 refactor remove Nomik integration; 35f3bd7 fix(server) two ChronLog rehydration bugs; 805fd4e cluster of 5 prompt+normalization fixes; a8577d2 deterministic context-walk + content-hash cache skip; b3cc2b7 route NEED_CLARIFICATION to named addressee; 0b5129b surface dispatch-hash dedup events. Also note: every commit on the branch uses the identical author identity (dead-developers <paradiselabs.ai@gmail.com>), so the handoff's two-writer (arguably three-writer) attribution rests entirely on its own say-so plus timestamp gaps — git metadata cannot corroborate WHO; only the ordering claims are verifiable, and those all check out. Finally, the project-docs claim worth correcting: F-handoff.md L18-19's 'PUSHED on 2026-06-07' — the local reflog proves the push happened 2026-06-10 08:33; if any other doc repeats the 06-07 push date, it inherited the error.",
+        "slice": "git-commits"
+      },
+      {
+        "claims": [
+          {
+            "id": "p4-message-threadid-exists",
+            "source": "F-handoff.md L84-85 (Files changed: internal/message)",
+            "claim": "Message.ThreadID and CreateMessageParams.ThreadID exist and are plumbed through Create and fromDBItem in internal/message/.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/message/content.go:119 (Message.ThreadID string with notebook comment); /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/message/message.go:20 (CreateMessageParams.ThreadID), :74 (Create passes ThreadID: params.ThreadID into db.CreateMessageParams), :157 (fromDBItem maps ThreadID: item.ThreadID)."
+          },
+          {
+            "id": "p4-update-preserves-threadid",
+            "source": "F-handoff.md L85 (parenthetical: Update only writes parts/finished_at)",
+            "claim": "message Update only writes parts/finished_at so ThreadID is preserved on update.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/message/message.go:113-117 (Update calls UpdateMessage with only Parts/FinishedAt/ID); /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/db/messages.sql.go:145-152 (UPDATE messages SET parts, finished_at, updated_at only — thread_id untouched)."
+          },
+          {
+            "id": "p4-migration-file",
+            "source": "F-handoff.md L86-87",
+            "claim": "Migration 20260607000000_add_message_thread_id.sql exists with ALTER TABLE messages ADD COLUMN thread_id TEXT NOT NULL DEFAULT '', embedded via //go:embed migrations/*.sql, applied by goose on start.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/db/migrations/20260607000000_add_message_thread_id.sql:3 (exact ALTER TABLE ... ADD COLUMN thread_id TEXT NOT NULL DEFAULT ''; goose Down drops it); /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/db/embed.go:5 (//go:embed migrations/*.sql); /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/db/connect.go:56-63 (goose.SetBaseFS(FS), goose.Up(db, \"migrations\"))."
+          },
+          {
+            "id": "p4-handedited-db-threadid-last",
+            "source": "F-handoff.md L88-90",
+            "claim": "Hand-edited generated db code (messages.sql, messages.sql.go, models.go) has thread_id appended LAST in every struct and Scan, matching what sqlc would emit; sqlc is not installed.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/db/models.go:30 (ThreadID last field of Message struct); messages.sql.go:35 (ThreadID last in CreateMessageParams), :26/:83/:106 (thread_id last in RETURNING/SELECT column lists), :57/:100/:130 (&i.ThreadID last in all three Scan calls); /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/db/sql/messages.sql:19 (thread_id in INSERT column list). `which sqlc` → not found on this machine, consistent with the hand-edit claim. Minor nuance: in the INSERT column list thread_id is 6th (before created_at/updated_at), but the claim is about structs/Scan order, where it is last everywhere."
+          },
+          {
+            "id": "p4-agent-historymode",
+            "source": "F-handoff.md L91-92",
+            "claim": "agent.go has threadID field + HistoryMode type with HistoryFull/HistoryNone/HistoryThread, scopedHistory() generalizing the Phase-3 scopeHistory bool which no longer exists.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/agent/agent.go:76 (threadID string), :86 (historyMode HistoryMode), :93-98 (type HistoryMode string; HistoryFull=\"\", HistoryNone=\"none\", HistoryThread=\"thread\"), :155-168 (scopedHistory(msgs, mode, threadID) switch over None/Thread/default-Full), :106-107 (NewAgent takes threadID string + historyMode HistoryMode), :337 (Run path: msgHistory := append(scopedHistory(msgs, a.historyMode, a.threadID), userMsg)). grep for old `scopeHistory` bool in agent.go: no hits — fully replaced."
+          },
+          {
+            "id": "p4-four-create-sites-stamped",
+            "source": "F-handoff.md L92-94",
+            "claim": "ALL FOUR message-create sites in agent.go stamp a.threadID: user (createUserMessage), assistant (streamAndHandleEvents), tool-result (~488), summary (~731).",
+            "verdict": "CONFIRMED",
+            "evidence": "Live lines in /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/agent/agent.go — user: createUserMessage create at :379 stamps ThreadID at :382; assistant: streamAndHandleEvents create at :390 stamps at :394; tool-result: create at :488 stamps at :491 with the exact comment 'must match the assistant tool-call's thread or HistoryThread orphans the tool_use'; summary: Summarize create at :731 stamps at :733. Exhaustiveness check: grep found exactly these 4 a.messages.Create call sites in agent.go (379, 390, 488, 731) — no unstamped fifth site."
+          },
+          {
+            "id": "p4-agent-tool-historyfull",
+            "source": "F-handoff.md L95",
+            "claim": "agent-tool.go creates the task sub-agent with (\"\", HistoryFull).",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/agent/agent-tool.go:57 — NewAgent(config.AgentTask, b.sessions, b.messages, TaskAgentTools(b.lspClients), \"\", HistoryFull)."
+          },
+          {
+            "id": "p4-acp-stamps-role",
+            "source": "F-handoff.md L96-97",
+            "claim": "acp/agent.go stamps ThreadID: a.role on its 2 display message creates while still not filtering its own input (external session is already per-agent).",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/acp/agent.go:231-236 (user display create with ThreadID: a.role at :234) and :241-246 (assistant display create with ThreadID: a.role at :245); :219-225 comment in runTurn explicitly says input is already per-agent-scoped, don't add filtering, stamping is for uniform data. These are the only two messages.Create sites in the acp package."
+          },
+          {
+            "id": "p4-app-wiring-by-role",
+            "source": "F-handoff.md L98 + L77-78 (keyed on role, not backend)",
+            "claim": "app.go wires history mode per role, not backend: planner→HistoryThread, workers (Observer/Assurance/QA)→HistoryNone in the in-process branch, and CreateAgentForRole gives Tier 2 (\"\", HistoryFull).",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/app/app.go: in-process default branch of the Tier-1 wiring switch inside New() — histMode := agent.HistoryNone; if role == \"planner\" { histMode = agent.HistoryThread }; agent.NewAgent(agentName, ..., roleTools, role, histMode) (the block with the 'Per-agent notebooks' comment at app.go:121, histMode logic ~app.go:130-134). CreateAgentForRole at app.go:331 passes \"\" ('no thread tag — Tier 2 runs alone in its own task session') and agent.HistoryFull at app.go:344-345."
+          },
+          {
+            "id": "p4-scoped-history-test",
+            "source": "F-handoff.md L99",
+            "claim": "scoped_history_test.go exists, unit-testing all 3 modes plus thread filtering, and is green.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/agent/scoped_history_test.go exists; TestScopedHistory at :9 with subtests 'HistoryNone drops everything' (:17), 'HistoryFull keeps everything in order' (:23), 'HistoryThread keeps only the matching threadID' (:35), 'HistoryThread excludes other agents' traffic' (:45), plus a loop over all 3 modes at :53. Coverage confirmed by reading; the 'Green' status itself is delegated to the test-runner agent per my brief (file compiles against the live scopedHistory signature: same 3-arg shape)."
+          },
+          {
+            "id": "p4-emitsystemmessage-empty-threadid",
+            "source": "F-handoff.md L101-103 (Note on system messages)",
+            "claim": "emitSystemMessage creates system messages with ThreadID empty, so they are excluded from the Planner's HistoryThread input (intended behavior).",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/act-agent/internal/app/orchestrator.go:959-969 — emitSystemMessage calls o.app.Messages.Create with CreateMessageParams{Role: message.System, Parts: ...} and no ThreadID field → Go zero value \"\" persists; scopedHistory HistoryThread branch (agent.go:159-165) keeps only m.ThreadID == \"planner\", so \"\"-tagged system messages are excluded."
+          },
+          {
+            "id": "p4-live-verify-planner-thread",
+            "source": "F-handoff.md L106-110 (OPEN/NEXT STEPS item 1)",
+            "claim": "End-to-end behavior — an in-process Planner's prepared messages contain only human turns + autoroute prompts + its own replies, with no worker traffic — still needs live verification.",
+            "verdict": "UNVERIFIABLE-HEADLESS",
+            "evidence": "All static plumbing is confirmed (see other claims), but the end-to-end assertion requires runtime: set planner to an in-process model in ~/.act.json, run act-agent in a TUI, trigger Observer/Assurance output then a human turn, and inspect the Planner's 'Prepared messages' dump in ~/.act/.../debug.log to confirm no worker snapshots/outputs appear and tool_use/tool_result pairs are intact."
+          }
+        ],
+        "extraObservations": "Commit bc0673e ('feat(orchestrator): per-agent notebooks — scope in-process input by thread') is HEAD of feat/cleanup-constitution, matching the handoff's Phase 4 commit reference — none of the verified code has been reverted since. Two precision nudges for doc reconciliation: (1) the handoff's tool-result line '~488' and summary '~731' are slightly off from the stamp lines themselves (stamps at 491 and 733; the Create calls open at 488 and 731 — effectively accurate); (2) the 'column appends LAST' wording is true for all structs, Scans, and SELECT/RETURNING lists, but in the INSERT column list of CreateMessage thread_id sits before created_at/updated_at — harmless and still what sqlc would emit, but a literal reader expecting thread_id last in the INSERT will see otherwise. Also note F-handoff is not on disk under .claude/ — it lives at repo root (/Users/user/Documents/Developer/dev/AI/act/F-handoff.md), untracked.",
+        "slice": "phase4-notebooks"
+      },
+      {
+        "slice": "phases123",
+        "claims": [
+          {
+            "id": "p1-applyrolelabel-strip-prepend-idempotent",
+            "source": "F-handoff.md L46-47",
+            "claim": "applyRoleLabel exists and is strip-then-prepend and idempotent: strips any leading role label (incl. hallucinated 'Human:') then prepends the authoritative Tier-1 label.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1053-1068 — applyRoleLabel strips repeatedly via tier1RoleLabelRe (defined :1028, matches human|user|assistant|system|planner|observer|assurance|qa|qa_synthesizer prefixes, handles stacked prefixes per the loop at :1060-1066) then prepends `label + \": \"`. Idempotency is unit-tested: act-agent/internal/app/orchestrator_test.go:39-40 applies it twice and compares. Empty content / non-Tier-1 roles pass through (:1054-1057). Introduced in e06f273 per `git log -S applyRoleLabel` — matches the handoff's Phase-1 commit hash."
+          },
+          {
+            "id": "p1-applied-every-tier1-assistant-message",
+            "source": "F-handoff.md L46-47",
+            "claim": "Every Tier-1 assistant message gets the code-stamped Planner:/Observer:/etc. label.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1160-1200 (messageOwnershipLoop) — every assistant CreatedEvent is owner-tagged via TagMessagesFromCurrentSpeaker (:1160-1162); on the finished UpdatedEvent (:1166-1167) the owner role is looked up (:1170) and applyRoleLabel is applied + persisted via Messages.Update (:1193-1200), guarded once-only by dispatchedMsgs (:1179-1185). Non-Tier-1 owners return label \"\" from tier1DisplayLabel (:1032-1044) so applyRoleLabel passes them through unchanged. Mechanism caveat (consistent with the handoff's own L134 note): the owner tag lives in the in-memory messageOwners map, so the stamp happens at create/finalize time; the persisted label survives replay."
+          },
+          {
+            "id": "p1-fromhuman-only-handlehumaninput",
+            "source": "F-handoff.md L47-48",
+            "claim": "runAgentTurn gained `fromHuman bool` and only HandleHumanInput passes true.",
+            "verdict": "CONFIRMED",
+            "evidence": "Signature: act-agent/internal/app/orchestrator.go:565 `func (o *Orchestrator) runAgentTurn(ctx, sessionID, role, content string, fromHuman bool, ...)`. All call sites in the package (runAgentTurn is unexported, so package app is exhaustive): :242 passes true and sits inside HandleHumanInput (func declared :221-243); :1661 (autoroute planner), :2138 (observer), :2199 (QA watchdog kick), :2626 (assurance), :2779 (QA synthesis) all pass false."
+          },
+          {
+            "id": "p1-internalpromptmarker-nonhuman",
+            "source": "F-handoff.md L48-49",
+            "claim": "Everything not fromHuman gets the InternalPromptMarker prepended, so injected Planner prompts no longer render as 'Human:'.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:584-586 `if !fromHuman { content = InternalPromptMarker + content }`; marker const at :682 (`\\x00ACT_INTERNAL\\x00`, doc comment :673). TUI side filters marked User messages from the rendered view: act-agent/internal/tui/components/chat/list.go:310-312 (`strings.HasPrefix(msg.Content().String(), app.InternalPromptMarker)`)."
+          },
+          {
+            "id": "p2-qa-watchdog-synthesizedat",
+            "source": "F-handoff.md L50-51",
+            "claim": "QA watchdog honors synthesizedAt via taskSynthesized so it stops re-firing on already-synthesized tasks.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1017-1023 — taskSynthesized reads `t.Metadata[\"synthesizedAt\"]`; act-agent/internal/app/orchestrator.go:2157-2166 — tier1Watchdog's \"validated\" branch counts pendingSynthesis only `if !taskSynthesized(t)`, with an explicit comment that the watchdog reads the raw /api/tasks snapshot and must apply the same exclusion. QA re-trigger only fires when pendingSynthesis > 0 (:2187-2201). Introduced in 9aa8417 per `git log -S taskSynthesized` — matches the handoff's Phase-2 commit hash."
+          },
+          {
+            "id": "p2-server-poll-already-drained",
+            "source": "F-handoff.md L50-51",
+            "claim": "No server change was needed for Phase 2 because the server already drained the QA poll path (/api/tasks/validated filters synthesized tasks).",
+            "verdict": "CONFIRMED",
+            "evidence": "server/src/index.ts:652 — `app.get('/api/tasks/validated', ...)`; :658 — `tasks = tasks.filter(t => !t.metadata?.synthesizedAt)`; :948 — synthesis-complete handler stamps `task.metadata.synthesizedAt = ts` (comment :943: 'Stamp the task so /api/tasks/validated stops returning it')."
+          },
+          {
+            "id": "p2-observer-anomalysignature-gate",
+            "source": "F-handoff.md L51-53",
+            "claim": "Observer no-op gate hashes a stable anomalySignature (category+task+agent, not the volatile prompt); escalates an unchanged anomaly set once; all-clear resets the gate.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1004-1011 — anomalySignature builds sorted `Category|TaskID|AgentID` keys (Message field deliberately excluded, comment :996-1003). Gate: :2112-2128 — sha256 of anomalySignature(anomalies); skip when hash == o.lastObserverPromptHash (:2115-2119), otherwise fire runAgentTurn(observer) (:2138) and store the new hash → escalate-once. All-clear reset: :2075-2082 — when detectAnomalies returns 0, lastObserverPromptHash is cleared. Human-input re-arm: :229 (HandleHumanInput clears the hash). Unit tests at orchestrator_test.go:71-92 (same-set stable, changed-set differs). Introduced in 9aa8417 per `git log -S anomalySignature`."
+          },
+          {
+            "id": "p3-scopehistory-added-then-superseded",
+            "source": "F-handoff.md L54-55",
+            "claim": "Phase 3 (7021488) added a `scopeHistory bool` to the in-process agent so event-driven workers feed the model only their current prompt, and this was superseded/generalized by Phase 4.",
+            "verdict": "CONFIRMED",
+            "evidence": "Historical fact verified via git, not docs: `git show 7021488 -- act-agent/internal/llm/agent/agent.go` adds `scopeHistory bool` (field + ctor param) plus scoped_history_test.go; `git show bc0673e` removes every `scopeHistory` line and adds `HistoryMode`. `git log -S scopeHistory -- act-agent/internal/llm/agent/agent.go` returns exactly 7021488 (add) and bc0673e (remove) — clean introduce/replace, no revert."
+          },
+          {
+            "id": "p3-scopehistory-gone-historymode-live",
+            "source": "F-handoff.md L54-56 (with L90-91)",
+            "claim": "scopeHistory is gone from agent.go; the live mechanism is HistoryMode (HistoryFull|None|Thread) + scopedHistory(msgs, mode, threadID).",
+            "verdict": "CONFIRMED",
+            "evidence": "Recursive grep for `scopeHistory` across the entire act-agent tree returns zero hits (exit 1). Live code: act-agent/internal/llm/agent/agent.go:86 `historyMode HistoryMode` field; :93-98 `type HistoryMode string` with HistoryFull=\"\" / HistoryNone=\"none\" / HistoryThread=\"thread\"; :107 ctor param; :155-168 `scopedHistory(msgs, mode, threadID)` switch; :337 applied in processGeneration (`append(scopedHistory(msgs, a.historyMode, a.threadID), userMsg)`)."
+          }
+        ],
+        "extraObservations": "All four phase→commit attributions in the handoff table check out via `git log -S` symbol tracing: applyRoleLabel→e06f273, anomalySignature/taskSynthesized→9aa8417, scopeHistory→7021488, HistoryMode→bc0673e. Line numbers in the handoff have drifted slightly but symbols are intact (e.g. handoff says parseValidationVerdict ~3094-3105 and tool-result stamp ~488; live tool-result ThreadID stamp is agent.go:491 — drift, same code). One precision note on the 'every Tier-1 assistant message' claim: the label is applied at message-finalize keyed on the in-memory messageOwners tag set at CreatedEvent; an assistant message whose owner was never tagged in this process (e.g. created before a crash) would not be retro-labeled — but the label IS persisted via Messages.Update once applied, so replayed sessions keep labels. This matches, rather than contradicts, the handoff's own L134 statement that messageOwners is in-memory and not rebuilt on replay. No reverts or contradicting later commits found for any Phase 1-3 change on this branch."
+      },
+      {
+        "slice": "round5b-fixes",
+        "claims": [
+          {
+            "id": "f22-plannerprompt-branches-provider",
+            "source": "F-handoff.md L178-180 (Fix 22, commit ac241e0)",
+            "claim": "PlannerPrompt(provider) branches the CLI fragment by backend (ACP vs in-process).",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/planner.go:16 `func PlannerPrompt(provider models.ModelProvider) string`; planner.go:23-24 `if provider == models.ProviderACP { cli = actCLICommandsACP(\"planner\") }`; caller prompt.go:23 passes provider. Test TestPlannerPromptBranchesOnProvider passes (ran live: PASS) and asserts ACP prompt contains 'act-tier1-planner', lacks 'do NOT shell out', and the two outputs differ."
+          },
+          {
+            "id": "f22-provideracp-models-pkg-alias",
+            "source": "F-handoff.md L178-179 (Fix 22)",
+            "claim": "ProviderACP moved from acp pkg to models pkg, with an alias kept at acp/agent.go:30 to avoid the acp→prompt import cycle.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/models/models.go:52 `ProviderACP ModelProvider = \"acp\"` (canonical); act-agent/internal/acp/agent.go:30 `const ProviderACP = models.ProviderACP` — exactly line 30 as cited, with the import-cycle rationale in the comment at agent.go:27-29. app.go:251 still uses the acp.ProviderACP alias."
+          },
+          {
+            "id": "f22-actclicommandsacp-common",
+            "source": "F-handoff.md L180 (Fix 22)",
+            "claim": "actCLICommandsACP was added in common.go as the ACP-backend CLI fragment variant.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/common.go:146-160 `func actCLICommandsACP(role string)`; planner branch returns the act-tier1-planner shim-via-Bash fragment (common.go:150-159). Handoff cites common.go:147 — live func decl is at 146, planner guard at 147; one-line drift only. Note: as the handoff's own open item #3 says, non-planner roles fall through to the in-process fragment (common.go:147-149) — the half-close is real and live."
+          },
+          {
+            "id": "f20-evidence-pvm-rewrite",
+            "source": "F-handoff.md L181-183 (Fix 20, commit 8249a19)",
+            "claim": "The bare `act pvm search` shorthand in planner_section_evidence.go was rewritten to the act_cli JSON shape plus an ACP note.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/planner_section_evidence.go:27 instructs `Call the act_cli tool: {\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`; line 30 carries the ACP dual-form note `(ACP backend: act-tier1-planner pvm search \"<query>\" via Bash — same result.)`. No bare `act pvm` form remains in the file."
+          },
+          {
+            "id": "f20b-validation-queue-reworded",
+            "source": "F-handoff.md L182-183 (Fix 20b, commit 8249a19)",
+            "claim": "`act validation queue` was reworded out of planner_section_validation.go because the Planner isn't allowlisted for the `validation` subcommand.",
+            "verdict": "CONFIRMED",
+            "evidence": "Grep of act-agent/internal/llm/prompt/planner_section_validation.go finds no `act validation` instruction; lines 47-50 now say to watch for the auto-routed signal 'rather than polling the queue yourself (the validation queue is Assurance's surface, not yours)'. Allowlist rationale verified: act-agent/internal/llm/tools/act_cli_whitelist.go:21-31 planner entry has no \"validation\"; assurance/qa_synthesizer do (lines 40, 44)."
+          },
+          {
+            "id": "f20-test-bare-shorthand",
+            "source": "F-handoff.md L183",
+            "claim": "Test TestNoSectionUsesBareActShorthand exists in sections_test.go and locks Fix 20/20b.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/sections_test.go:92 `func TestNoSectionUsesBareActShorthand`; probe regexp at sections_test.go:95 includes `validation` in the subcommand list with a comment naming Fix 20b. Ran live: PASS."
+          },
+          {
+            "id": "f18-variantsystemnotask-routing",
+            "source": "F-handoff.md L184-186 (Fix 18, commit 8e3d3a8)",
+            "claim": "variantSystemNoTask exists and both synthesis_stuck and dedup are routed to it instead of the retry/abandon menu.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1301 (const variantSystemNoTask), 1391-1399 (render case: 'no failed task to retry or abandon... do NOT call act_cli task retry/abandon', no lettered task menu), 1902 (dedup: `dedupAutorouteText(...)` wrapped with variantSystemNoTask), 2728 (synthesis_stuck autoRoutePlannerV with variantSystemNoTask). Tests TestDedupAutorouteText_WrappedByVariantSystemNoTask (orchestrator_test.go:847) and TestRenderAutoRoutePrompt_SystemNoTaskHasNoTaskMenu (orchestrator_test.go:878) both exist and pass (ran live)."
+          },
+          {
+            "id": "f19-pass-verdict-no-escape-hatch",
+            "source": "F-handoff.md L187-188 (Fix 19, commit ffb51e4)",
+            "claim": "variantPassVerdict no longer contains the option-(a) 'emit CREATE_TASK for the obvious next step' escape hatch.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1358-1368: variantPassVerdict offers only (a) stay silent / (b) rare short chat reply, and explicitly states 'Do NOT emit a CREATE_TASK in reaction to a PASS' (line 1364). The phrase 'obvious next step' survives only in a comment (orchestrator.go:1276) and in the regression test that bans it (orchestrator_test.go:478-491, TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction — ran live: PASS)."
+          },
+          {
+            "id": "f21-fail-verdict-prose-cadence",
+            "source": "F-handoff.md L189-191 (Fix 21, commit 2326d0b)",
+            "claim": "variantFailVerdict was trimmed to prose, the pass/fail split was kept, and the once/twice/three-times cadence mirroring planner_section_validation.go was preserved.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1370-1376: variantFailVerdict is plain prose (no lettered option menu) and remains a separate case from variantPassVerdict (split kept). Cadence is live as 'First or second failure: stay silent, the retry runs. Third+ failure on the same task: ... task abandon ... emit a CREATE_TASK to reassign' (line 1373), which semantically mirrors planner_section_validation.go:29/32/36 ('FAIL once' do nothing / 'FAIL twice' criteria check / 'FAIL three times' reassign). Note the variant uses 'First or second / Third+' wording, not the literal words once/twice/three-times — same escalation ladder, different phrasing. Test TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis passes."
+          },
+          {
+            "id": "f-roundb-tests-exist",
+            "source": "F-handoff.md L177-191 ('each its own commit + regression test')",
+            "claim": "The named test files prompt_roles_test.go and sections_test.go exist with the handoff-named tests.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/prompt_roles_test.go:110 TestPlannerPromptBranchesOnProvider; act-agent/internal/llm/prompt/sections_test.go:92 TestNoSectionUsesBareActShorthand. Both files present in the package listing; both tests ran live and PASS (go test ./internal/llm/prompt/ -run ...)."
+          },
+          {
+            "id": "f15-examples-dependencies-shape",
+            "source": "F-handoff.md L192-193 (Fix 15, commit 4f7fc3e)",
+            "claim": "Fix 15 is in: the examples section no longer teaches the forbidden inline @dependencies shape, using the top-level JSON dependencies array instead.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/planner_section_examples.go:33 live: the 'Task with dependencies' EXAMPLE_TASK has `\"dependencies\":[\"Snake game core loop\"]` as a top-level JSON key and the description string goes directly @task → @success_criteria with no @dependencies block. Commit 4f7fc3e exists with matching diff; lock test TestNoSectionEmitsForbiddenDependenciesShape (sections_test.go:120) ran live: PASS."
+          },
+          {
+            "id": "f16-validationscore-populated",
+            "source": "F-handoff.md L192-193 (Fix 16, commit e1adc85)",
+            "claim": "Fix 16 is in: routeToQA populates ValidatedOutput.ValidationScore (previously always 0) so the QA synthesis prompt shows the real score.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:2759-2775: score read from t.Metadata[\"validationScore\"] (handling int and float64) and set on ValidatedOutput.ValidationScore; emitted at orchestrator.go:3176 as 'Validation score: %d/100'. Commit e1adc85 exists; TestBuildSynthesisPrompt_IncludesValidationScore ran live: PASS (asserts 100/100 present and 0/100 absent)."
+          },
+          {
+            "id": "f17-planner-prompt-section-listed",
+            "source": "F-handoff.md L192-193 (Fix 17, commit 6d934d2)",
+            "claim": "Fix 17 is in: the hand-written actCLICommands(\"planner\") fragment now lists the prompt-section command.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/prompt/common.go:85 `- act-agent prompt-section <name>  Pull on-demand Planner reference section (...)` inside the planner case of actCLICommands; ACP variant lists it too at common.go:159. Allowlist backing: act_cli_whitelist.go:30 planner has \"prompt-section\". Commit 6d934d2 exists; not reverted (common.go's only later prompt-relevant change is ac241e0/Fix 22 itself)."
+          },
+          {
+            "id": "f-roundb-commits-exist-unreverted",
+            "source": "F-handoff.md L177-193 (commit SHAs ac241e0, 8249a19, 8e3d3a8, ffb51e4, 2326d0b, 3de2163, 4f7fc3e, e1adc85, 6d934d2)",
+            "claim": "All nine listed Round 5a/5b commit SHAs exist on the branch with matching subjects and none were reverted.",
+            "verdict": "CONFIRMED",
+            "evidence": "git log -1 on each SHA resolves with subjects matching the handoff exactly (e.g. ac241e0 'fix(prompt): Fix 22 — PlannerPrompt branches CLI fragment by backend', 2326d0b 'fix(orchestrator): Fix 21 — trim variantFailVerdict (keep the split)'). All nine are ancestors visible in `git log --oneline` of HEAD (bc0673e). No revert commits touch the variant code or common.go after them, and all regression tests pass against the live tree."
+          }
+        ],
+        "extraObservations": "Three minor drift/nuance notes, none rising to STALE: (1) the handoff cites actCLICommandsACP at common.go:147 — the live func declaration is common.go:146 (the planner guard is 147); one-line drift, consistent with the handoff's own 'line numbers drift fast' warning. (2) Fix 21's 'once/twice/three-times cadence' is preserved semantically but the variantFailVerdict prose phrases it as 'First or second failure / Third+ failure' (orchestrator.go:1373), while the literal once/twice/three-times wording lives only in planner_section_validation.go:29/32/36 — anyone grepping the variant for 'once' will miss it. (3) The handoff's open item #3 (Fix 22 half-closed: actCLICommandsACP only branches for planner, so ACP-backed Assurance/Observer/QA still get the in-process 'do NOT shell out' fragment) is confirmed still OPEN in live code at common.go:147-149 — the Round 5b fix claims themselves are accurate about what was and wasn't closed. Separately, CLAUDE.md's Provider Configuration section says roles are configured in '.opencode.json' in one paragraph and '~/.act.json' in the next — the memory file says ~/.act.json is config truth; CLAUDE.md's .opencode.json mention looks like leftover fork text (not part of this slice, flagging for the reconcile pass)."
+      },
+      {
+        "claims": [
+          {
+            "id": "r6-2-brownfield-injection-open",
+            "source": "F-handoff.md L221-225 (Round 6 finding #2)",
+            "claim": "Brownfield researcher output flows unfenced/unscrubbed into every Tier 1+2 system prompt: brownfieldEnrichPrompt → brief.CodebaseNotes → AGENTS.md verbatim concat → context appended last in prompt.go.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. Live chain: orchestrator.go:514 brownfieldEnrichPrompt; orchestrator.go:380 o.codebaseAnalysis = analysis (raw enrichment output, no processing); orchestrator.go:1569 brief.CodebaseNotes = o.codebaseAnalysis; agents_md.go:31-32 codebaseSection = \"## Codebase analysis\\n\\n\" + notes + \"\\n\\n\" (verbatim, no fence); prompt.go:53 contextContent appended AFTER basePrompt. Hunted for a fix: grep for scrub/sanitiz/untrusted/codebase_analysis-fence across internal/app and internal/llm/prompt returns nothing; git log on agents_md.go shows no commit after 045ad26; the 5 commits since 2026-06-06 (7021488..bc0673e) touch input scoping, kanban, Fix 23, notebooks — none fence this path. No scrubbing of CREATE_TASK:/PROJECT_BRIEF:/[SYSTEM]/InternalPromptMarker anywhere in the chain."
+          },
+          {
+            "id": "r6-3-acp-cli-planner-only-open",
+            "source": "F-handoff.md L226-229 (Round 6 finding #3)",
+            "claim": "actCLICommandsACP only branches for the Planner; ACP-backed Observer/Assurance/QA still get the in-process 'do NOT shell out' fragment while renderShimNote tells them to use the shim via Bash.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. common.go:146-148: `func actCLICommandsACP(role string) string { if role != \"planner\" { return actCLICommands(role) } ... }`; the in-process fragments for observer/assurance/qa_synthesizer (common.go:86-104) all start 'You are an in-process Tier 1 role... do NOT shell out'. observer.go:12, assurance.go:12, qa_synthesizer.go:12 call actCLICommands(role) unconditionally — no provider/ACP branch at all (only planner.go:23-24 branches on models.ProviderACP). renderShimNote (app.go:283-292) emits 'Use it via Bash for all ACT-coordination subcommands' for every role via wrapPriming (app.go:274-276). The contradiction is even acknowledged in the live comment at common.go:144-145 ('Only the planner case diverges...; other roles fall back to the shared in-process fragment'). combined-analysis.md still strikes 3.5 as '[FIXED in ac241e0]' (L119) — that entry overreaches exactly as the handoff says."
+          },
+          {
+            "id": "r6-4-rebind-skipped-on-write-failure",
+            "source": "F-handoff.md L230-231 (Round 6 finding #4)",
+            "claim": "RebindSystemPrompt is skipped when the AGENTS.md write fails, leaving all four Tier 1 agents on stale intake-era prompts; the else-nesting needed re-verification.",
+            "verdict": "CONFIRMED",
+            "evidence": "Else-nesting re-verified in live code: orchestrator.go:1589-1608 — `if err := writeAgentsMd(...); err != nil { logging.Warn(...) } else { prompt.InvalidateContextCache(); for _, role := range [4 roles] { ... a.RebindSystemPrompt() } }`. The cache invalidation + rebind loop is entirely inside the else branch, so any writeAgentsMd error skips it. Note the partial-write case makes this a real bug, not just defensive nitpicking: writeAgentsMd (agents_md.go:90-96) writes AGENTS.md first then CLAUDE.md; if AGENTS.md succeeds but CLAUDE.md fails, an error returns while a fresh AGENTS.md sits on disk unloaded into any Tier 1 prompt. Still OPEN — no commit since the handoff touches this block."
+          },
+          {
+            "id": "r6-5-qa-synthesis-via-variantanomaly",
+            "source": "F-handoff.md L232-233 (Round 6 finding #5)",
+            "claim": "QA SYNTHESIS_COMPLETE messages are routed to the Planner through variantAnomaly ('React by taking action'), the wrong tone and the likeliest empty-CREATE_TASK trigger.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. Variant selection at orchestrator.go:1241-1250 defaults to variantAnomaly and only upgrades when role == \"assurance\" with a parseable verdict; qa_synthesizer messages hit only the maybeRouteQAClarification NEED_CLARIFICATION check (1226-1230) — a SYNTHESIS_COMPLETE-marked message returns false there (clarificationRegex, orchestrator.go:2840-2848) and falls through to autoRoutePlannerV with variantAnomaly. variantAnomaly's template (default case, orchestrator.go:1401-1411) opens 'React by taking action' with CREATE_TASK as option (a). No SYNTHESIS_COMPLETE special-casing exists in the routing path (the marker is only parsed at orchestrator.go:3129 for synthesis-result extraction)."
+          },
+          {
+            "id": "r6-6-failverdict-count-blind",
+            "source": "F-handoff.md L232-233 (Round 6 finding #6)",
+            "claim": "variantFailVerdict asks the Planner to act differently on 'Third+ failure' without supplying the failure count.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. Live template at orchestrator.go:1370-1378: 'First or second failure: stay silent... Third+ failure on the same task: the agent is stuck — use act_cli task abandon...' — the Sprintf receives only fromRole and fromContent (the raw Assurance chat message). The orchestrator DOES track counts (attemptCount map, orchestrator.go:50; incAttempt, orchestrator.go:3212-3216) but never injects them into the autoroute prompt; the variant-selection path (1241-1250) passes the Assurance content through untouched."
+          },
+          {
+            "id": "r6-7-systemnotask-generic",
+            "source": "F-handoff.md L232-234 (Round 6 finding #7)",
+            "claim": "variantSystemNoTask is too generic for synthesis_stuck — one template serves both synthesis_stuck and dedup with no synthesis-specific guidance.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. variantSystemNoTask template (orchestrator.go:1391-1399) is a single generic block ('There is no failed task to retry or abandon here... respond appropriately: take a non-task action if one is warranted, inform the human... or stay silent'). It is used by both the dedup autoroute (orchestrator.go:1902 via dedupAutorouteText) and synthesis_stuck (orchestrator.go:2728: 'synthesis stuck on task ... QA cannot assemble the deliverable'). No synthesis-specific action menu or guidance exists in the variant text — only the fromContent string distinguishes the two triggers."
+          },
+          {
+            "id": "r6-8-9-actcli-schema-vs-prose",
+            "source": "F-handoff.md L234-235 (Round 6 findings #8/#9)",
+            "claim": "The act_cli tool schema/description offers status/log/context that the Planner prose forbids for human queries; the carve-out is not co-located in the tool description.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. Planner whitelist offers status/context/log as bare subcommands (act_cli_whitelist.go:22-24); the act_cli tool description (act_cli.go:116-133) lists them with worked examples ('Check system status: {\"subcommand\":\"status\"}', 'Get log', 'Project context') and contains NO human-query carve-out; the enum (act_cli.go:139-143) exposes them all. The prohibition lives only in planner.go:122 ('DO NOT run act_cli to answer the human's status/log/swarm queries... act_cli is for routing evidence during decomposition, not for status reporting'). Handoff next-step #5 (co-locate carve-outs in act_cli.go description) is not done — no commit since the handoff touches act_cli.go."
+          },
+          {
+            "id": "r6-10-burst-first-failure-only",
+            "source": "F-handoff.md L234-235 (Round 6 finding #10, audit 8.4)",
+            "claim": "Burst (batch) mode surfaces only the first failed task's details to the Planner.",
+            "verdict": "CONFIRMED",
+            "evidence": "Still OPEN. orchestrator.go:808-811: in batchMode the loop captures only `firstFailedSummary` (`else if firstFailedSummary == \"\"` — first failure's taskID+agent only); the batch autoroute (orchestrator.go:819-824) emits '%d task(s) failed in the last burst (e.g. %s)' — count plus a single example; the other failures' task IDs and error texts never reach the Planner. planner-prompts.json L47 also still carries '8.4 burst shows only first failure' as active drift, consistent with the live code."
+          },
+          {
+            "id": "r6-28-fixed-entries-hold",
+            "source": "F-handoff.md L239-240 ('all 28 prior [FIXED] entries verified still holding')",
+            "claim": "All 28 [FIXED] entries in docs/planner-prompt-audit/combined-analysis.md still hold in live code.",
+            "verdict": "CONFIRMED",
+            "evidence": "Spot-verified 11 of 28, prioritizing orchestrator.go: 1.1 task retry/abandon affordances real (act_cli_whitelist.go:28-29 compound entries + variantSystemEscalation menu orchestrator.go:1380-1388); 1.2 prompt-section subcommand in whitelist (act_cli_whitelist.go:30) + expand_prompt_section.go exists; 2.1/3.1 per-source autoroute variants (autoRouteVariant consts orchestrator.go:1268-1301 + renderAutoRoutePrompt 1355-1414); 2.4/8.2 contextHash SHA-256 cache (prompt.go:64-70 comment 'Audit Fix 14 (entry 2.4)'); 4.1 sliding-window cap (recentAutoRoutes + pruneAutoRoutes orchestrator.go:1318-1319, 1429-1433; autoTurnCap=5 at 1421); 5.1 ACPAgent.RebindSystemPrompt real implementation (acp/agent.go:489-506 — cancels + resets acpSessions, not a no-op); 6.1 normalizeRole qa→qa_synthesizer (orchestrator.go:987-994); 6.2 maybeRouteQAClarification routes before autoroute (orchestrator.go:1226-1230, defined 2840); 6.3 full untruncated taskID in failed-task autoroute (orchestrator.go:798-806, 'Audit Fix 13b' comment); 8.1 ISO 8601 UTC date (common.go:25 time.Now().UTC().Format(time.RFC3339)); 8.3 dedup visible via dedupAutorouteText (orchestrator.go:1902, 1909-1916). ONE caveat: entry 3.5 '[FIXED in ac241e0]' (combined-analysis.md L119) is only Planner-fixed — exactly the overreach the handoff's finding #3 flags; the doc entry should read 'Planner-only'."
+          },
+          {
+            "id": "r6-chatleak-gate-fromhuman",
+            "source": "F-handoff.md L211-218 + L285-286 (headline twist + next-step #4)",
+            "claim": "The live chat-leak gate is `if !fromHuman` (not `role != \"planner\"` as planner-prompts.json claims), so autoroute/[SYSTEM] prompts routed through fireWhenPlannerIdle are hidden from chat.",
+            "verdict": "CONFIRMED",
+            "evidence": "Live gate verified: orchestrator.go:584-585 `if !fromHuman { content = InternalPromptMarker + content }` inside runAgentTurn (sig at 565). No `role != \"planner\"` gate exists anywhere in orchestrator.go (grep returns zero hits). fireWhenPlannerIdle calls runAgentTurn(..., false) at orchestrator.go:1661, as do all non-human triggers (2138, 2199, 2626, 2779); the TUI hides marker-prefixed messages at tui/components/chat/list.go:310-312. So planner-prompts.json's 7.1-family entries claiming '[SYSTEM] visible in chat' for fireWhenPlannerIdle-routed prompts (L374 build trigger, L397 brownfield intake) are STALE and should be marked RESOLVED. IMPORTANT NUANCE: the resume surface (planner-prompts.json L350) is STILL REAL — orchestrator.go:236-238 prepends resumeContext ('[SYSTEM] Resuming project...', rendered at 1471) to the HUMAN's first input, which then runs with fromHuman=true (line 242), bypassing the marker; that [SYSTEM] block IS visible in chat. Regen should resolve only the fireWhenPlannerIdle entries, not the resume one.",
+            "impact": "If planner-prompts.json is regenerated marking ALL 7.1 entries resolved, the still-live resume-surface leak gets buried; if left as-is, Round 7 rediscovers the two ghost entries."
+          }
+        ],
+        "extraObservations": "1) The handoff's blanket framing 'autoroute/[SYSTEM] prompts leak to chat — fixed' is only two-thirds true: build-mode and brownfield-intake [SYSTEM] turns are hidden (fireWhenPlannerIdle → fromHuman=false → InternalPromptMarker), but the resume-context [SYSTEM] block is prepended to the human's own first message (orchestrator.go:236-238) and rides fromHuman=true, so it is still rendered in chat. Any doc regen (handoff next-step #4) must keep that surface marked ACTIVE. 2) common.go:138-145's own comment explicitly documents finding #3 as a known deliberate gap ('Only the planner case diverges enough...'), so the fix is a conscious deferral, not drift — the scaffolding correction is to amend combined-analysis.md 3.5 from FIXED to Planner-only, which matches the handoff. 3) None of the five commits landed after the handoff snapshot (7021488, 1919b06, 578d280, f2c8d78, bc0673e) touch any of findings #2-#10's code paths — the handoff's OPEN statuses have not been silently closed by the parallel notebooks/Fix-23 work. 4) CLAUDE.md's project-structure section still names the Go module path as github.com/opencode-ai/opencode (per MEMORY.md), but live imports use github.com/paradiselabs-ai/ACT/act-agent (e.g. act_cli.go:11) — an adjacent doc staleness worth folding into the scaffolding reconciliation.",
+        "slice": "round6-open-findings"
+      },
+      {
+        "claims": [
+          {
+            "id": "f23-guard-shipped",
+            "source": "F-handoff.md L195-200, L242-247",
+            "claim": "parseValidationVerdict force-fails verdicts with empty criteriaResults: Passed = OverallScore>=95 && len(CriteriaResults)>0.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:3105 `emptyCriteria := len(parsed.CriteriaResults) == 0`; :3114 `Passed: parsed.OverallScore >= passThreshold && !emptyCriteria` with passThreshold=95 at :3094. Logically equivalent to the handoff's formula. git log 578d280..HEAD on orchestrator.go shows zero commits — not reverted. (Handoff cite '~3094-3105' has drifted slightly; guard now spans 3094-3114.)"
+          },
+          {
+            "id": "f23-gaps-injection",
+            "source": "F-handoff.md L197-198",
+            "claim": "An otherwise-passing verdict force-failed for empty criteria gets an explanatory gaps message injected.",
+            "verdict": "CONFIRMED",
+            "evidence": "orchestrator.go:3107-3111 — `if emptyCriteria && parsed.OverallScore >= passThreshold { gaps = \"Validation failed: the task has no @success_criteria to score against...\" }`; injected gaps flows into the ValidationVerdict at :3119."
+          },
+          {
+            "id": "f23-score-preserved",
+            "source": "F-handoff.md L198",
+            "claim": "The reported score is preserved as-is on force-fail (not zeroed).",
+            "verdict": "CONFIRMED",
+            "evidence": "orchestrator.go:3115 `OverallScore: parsed.OverallScore` unconditionally; test orchestrator_test.go:301-303 asserts score 100 preserved on the fail-closed path. Ran `go test -run TestParseValidationVerdict ./internal/app/` — all 7 pass."
+          },
+          {
+            "id": "f23-tests-exist",
+            "source": "F-handoff.md L198-200",
+            "claim": "Tests TestParseValidationVerdict_EmptyCriteriaFailsClosed (exact wordtallies repro: score 100, criteriaResults:[], 'tests pass') and _EmptyCriteriaBrokenVerdict exist.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator_test.go:292 (EmptyCriteriaFailsClosed; :293 raw is exactly `{\"score\":100,\"criteriaResults\":[],\"selfVerificationValid\":true,\"feedback\":\"tests pass\"}`) and :313 (EmptyCriteriaBrokenVerdict, score 98). Both PASS when run live."
+          },
+          {
+            "id": "f23-no-server-gate",
+            "source": "F-handoff.md L251",
+            "claim": "Layer #1 NOT shipped: server/src/index.ts validation handler has no zero-criteria rejection.",
+            "verdict": "CONFIRMED",
+            "evidence": "Hunted per rule 4: server/src/index.ts:838-870 (submit-for-validation) checks only task existence + status; :875-927 (validation-verdict) destructures criteriaResults at :878 but never length-checks it — trusts `passed` from the body verbatim at :885. `git log -S criteria 578d280..HEAD` shows only the kanban commit f2c8d78; no server commits since the fix."
+          },
+          {
+            "id": "f23-no-prompt-refusal",
+            "source": "F-handoff.md L252",
+            "claim": "Layer #2 NOT shipped: assurance.go prompt has no explicit zero-criteria refusal clause.",
+            "verdict": "CONFIRMED",
+            "evidence": "Grepped all of act-agent/internal/llm/prompt/assurance.go for 'criteria': no clause instructing refusal/score-0 when a validation request's task has zero criteria. Nuance: :68 mentions 'no @success_criteria block' but only as one of three conjunctive signals that the message is NOT a validation request (respond empty string) — it does not cover a real validation request with a criteria-less task; the ticket itself says the prompt 'tolerates the empty-criteria case implicitly'."
+          },
+          {
+            "id": "f23-no-requeue-loop",
+            "source": "F-handoff.md L249-250",
+            "claim": "The ticket's recommended option 1 (refuse + re-queue + immediate Planner re-emit with criteria) is NOT built.",
+            "verdict": "CONFIRMED",
+            "evidence": "Hunted per rule 4: grep for 're-queue|requeue' across act-agent/internal/app and prompt — zero hits. The empty-criteria case flows through the ordinary FAIL path: forced fail verdict → SubmitVerdict (orchestrator.go:2662) → server :901-922 returns task to agent (status 'assigned', validationAttempts++) — the burn-retries path the ticket explicitly contrasts with option 1. The injected gaps text asks for re-emission but there is no code routing the Planner to immediately re-emit."
+          },
+          {
+            "id": "f23-no-system-message",
+            "source": "F-handoff.md L253",
+            "claim": "No orchestrator chat system message stating 'no criteria attached' was shipped.",
+            "verdict": "CONFIRMED",
+            "evidence": "grep -rn 'no criteria attached' across act-agent/ and server/src — zero hits. The only surfacing is the generic gaps string inside the fail verdict (orchestrator.go:3108-3110), which is verdict payload, not a dedicated chat system message."
+          },
+          {
+            "id": "f23-no-e2e-assertion",
+            "source": "F-handoff.md L254",
+            "claim": "No e2e-api.sh assertion covering zero-criteria rejection was shipped.",
+            "verdict": "CONFIRMED",
+            "evidence": "server/scripts/e2e-api.sh has no such assertion; the only criteria mention is :122, which POSTs `\"passed\":true,...,\"criteriaResults\":[]` to validation-verdict and expects SUCCESS — i.e. the e2e actively relies on the server accepting an empty-criteria pass. git log shows no e2e-api.sh changes since 578d280."
+          },
+          {
+            "id": "f23-no-dispatch-rejection",
+            "source": "F-handoff.md L255-256",
+            "claim": "Criteria-less CREATE_TASK is NOT rejected at dispatch (separate follow-up, unshipped).",
+            "verdict": "CONFIRMED",
+            "evidence": "Orchestrator dispatch (orchestrator.go:1759-1788) POSTs every parsed task without any @success_criteria presence check; the server's POST /api/tasks gate (server/src/index.ts:516-531, commit c237c0e) rejects only empty title/description — a titled+described task with no criteria sails through. The @success_criteria requirement exists only as prompt text (orchestrator.go:1405), i.e. prompt-only, not code-enforced."
+          },
+          {
+            "id": "f23-kanban-status",
+            "source": "F-handoff.md L201, L244",
+            "claim": "Kanban ticket assurance-fail-closed-empty-criteria-2026-05-26 is status in-progress (not done) and its Status-update section records exactly the shipped/open split.",
+            "verdict": "CONFIRMED",
+            "evidence": ".devtool/features/assurance-fail-closed-empty-criteria-2026-05-26.md frontmatter: status \"in-progress\", modified 2026-06-07, completedAt null; ticket is in features/ (not done/). Its 'Status update (2026-06-07, Fix 23 / commit 578d280)' section lists the identical still-open items as the handoff: option-1 loop, server gate, prompt refusal, system message + e2e assertion, dispatch rejection."
+          },
+          {
+            "id": "f23-residual-junk-criteria",
+            "source": "F-handoff.md L257-259",
+            "claim": "Residual: a verdict with criteriaResults:[{}] (non-empty junk, len>0) still passes the guard; only the literal [] case is closed.",
+            "verdict": "CONFIRMED",
+            "evidence": "Empirically verified with a standalone Go program replicating the live struct + logic: `{\"score\":100,\"criteriaResults\":[{}]}` unmarshals to len=1, emptyCriteria=false, Passed=true. The guard at orchestrator.go:3105 only tests len==0; no per-element validation of CriterionResult contents anywhere in parseValidationVerdict."
+          }
+        ],
+        "extraObservations": "1) The e2e suite is load-bearing on the missing server gate: server/scripts/e2e-api.sh:122 posts passed:true with criteriaResults:[] and expects success — adding the ticket's Layer #1 server gate naively will BREAK the e2e, so that fixture must be updated in the same change. 2) Commit c237c0e already ships a server-side fail-closed guard at POST /api/tasks rejecting empty title/description (server/src/index.ts:516-531) — this closes the empty-body half of the '45-byte directive' repro; the remaining dispatch follow-up is strictly the missing-@success_criteria case. Whoever picks up the dispatch-rejection item should not re-implement the title/description part. 3) Handoff line-number cites for the guard ('orchestrator.go ~3094-3105', '#1 CRITICAL orchestrator.go:3097') have drifted a few lines (guard now 3094-3114) — immaterial, but consistent with the branch's known line drift.",
+        "slice": "fix23-assurance"
+      },
+      {
+        "claims": [
+          {
+            "id": "p1-prompt-files-13",
+            "source": "CLAUDE.md Project Structure (internal/llm/prompt/ — \"13 files\")",
+            "claim": "The prompt directory contains 13 role-specific system prompt files.",
+            "verdict": "STALE",
+            "evidence": "Live ls of act-agent/internal/llm/prompt/ shows 19 .go files: 16 non-test (the 11 listed in CLAUDE.md plus planner_section_evidence.go, planner_section_examples.go, planner_section_success_criteria.go, planner_section_validation.go, sections.go) and 3 test files (prompt_test.go, prompt_roles_test.go, sections_test.go).",
+            "impact": "An agent counting files to detect drift or rebuilding architecture-flows would flag false discrepancies or miss the planner_section_* prompt-splitting system entirely."
+          },
+          {
+            "id": "p1-client-go",
+            "source": "CLAUDE.md Project Structure",
+            "claim": "act-agent/internal/act/client.go is the native HTTP client for the ACT server.",
+            "verdict": "CONFIRMED",
+            "evidence": "ls shows act-agent/internal/act/client.go exists (sole file in that dir)."
+          },
+          {
+            "id": "p1-cli-21-commands",
+            "source": "CLAUDE.md Project Structure + Key Concepts (\"21 commands\")",
+            "claim": "act-agent/cli/act-cli.ts implements 21 agent CLI commands.",
+            "verdict": "STALE",
+            "evidence": "Live act-cli.ts:1096-1283 has 23 top-level dispatch branches. Commands not in CLAUDE.md's list: task abandon (:1163), pvm reindex (:1219), codebase / codebase onboard (:1271,:1278), swarm (:1281).",
+            "impact": "Doc rebuilds or help text generated from the '21 commands' figure would omit swarm/codebase/abandon/reindex."
+          },
+          {
+            "id": "p1-runner-mjs",
+            "source": "CLAUDE.md Project Structure",
+            "claim": "act-agent/runner/act-runner.mjs is the headless swarm agent spawner.",
+            "verdict": "CONFIRMED",
+            "evidence": "ls shows act-agent/runner/act-runner.mjs (plus act-runner.test.mjs, README.md)."
+          },
+          {
+            "id": "ww-eventhub-ratelimit",
+            "source": "CLAUDE.md What Works (ACT Server)",
+            "claim": "EventHub rate-limits messages at 3 per 30s per agent.",
+            "verdict": "CONFIRMED",
+            "evidence": "server/src/services/EventHub.ts:33-34: RATE_LIMIT_MAX = 3, RATE_LIMIT_WINDOW_MS = 30_000; enforced at :190-196."
+          },
+          {
+            "id": "ww-chronlog-path",
+            "source": "CLAUDE.md What Works (ACT Server)",
+            "claim": "ChronologicalLog is append-only JSONL at ./data/coordination-log.jsonl.",
+            "verdict": "CONFIRMED",
+            "evidence": "server/src/services/ChronologicalLog.ts:45 jsonlPath: './data/coordination-log.jsonl'. Note addition: per-project logs also exist at data/projects/<safe>/coordination-log.jsonl (ChronologicalLog.ts:250) — not mentioned in CLAUDE.md but not contradicting it."
+          },
+          {
+            "id": "ww-a2a-endpoints",
+            "source": "CLAUDE.md What Works (A2A protocol: Agent Cards + task push endpoints)",
+            "claim": "A2A Agent Card and task push endpoints exist on the server.",
+            "verdict": "CONFIRMED",
+            "evidence": "server/src/index.ts:188 GET /.well-known/agent.json, :202 GET /api/agents/:agentId/agent.json, :221 POST /api/agents/:agentId/tasks (logs 'A2A task push' at :242)."
+          },
+          {
+            "id": "ww-file-locking",
+            "source": "CLAUDE.md What Works (File locking: claim/release)",
+            "claim": "File locking claim/release endpoints exist.",
+            "verdict": "CONFIRMED",
+            "evidence": "server/src/index.ts:1072 POST /api/files/claim, :1115 POST /api/files/release; auto-release on task complete at :719-737 and on agent removal at :321."
+          },
+          {
+            "id": "ww-runner-409-selfheal",
+            "source": "CLAUDE.md What Works (Runner)",
+            "claim": "Runner self-heals 409 on registration by deleting the stale agent and retrying.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/runner/act-runner.mjs:143-147: comment '409 = stale registration from a previous run' + check for 'HTTP 409'; failure path message at :792-793."
+          },
+          {
+            "id": "ww-setpgid",
+            "source": "CLAUDE.md What Works (Runner)",
+            "claim": "Runner subprocesses get process groups via Setpgid so the parent kills the entire subtree.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/runner/spawner_unix.go:10 attr.Setpgid = true; kill-by-group rationale at spawner.go:219."
+          },
+          {
+            "id": "ww-sweeporphans",
+            "source": "CLAUDE.md What Works (Runner)",
+            "claim": "SweepOrphans() at startup runs pkill -f act-runner.mjs defensively.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/runner/spawner.go:243-244 exec.Command(\"pkill\", \"-f\", \"act-runner.mjs\"); called at spawner.go:66."
+          },
+          {
+            "id": "ww-runner-logs",
+            "source": "CLAUDE.md What Works (Runner)",
+            "claim": "Runner subprocess stdout/stderr go to ~/.act/runners/<role>.log.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/runner/spawner.go:133 (redirect comment), :286-297 (path = filepath.Join(dir, role+\".log\") under ~/.act/runners)."
+          },
+          {
+            "id": "ww-lazy-swarm-spawn",
+            "source": "CLAUDE.md What Works (TUI/Orchestrator: lazy swarm spawn)",
+            "claim": "Runners spawn on the first CREATE_TASK, not on every act launch.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go ~1721-1730: 'Lazy spawn: the first time tasks appear, bring up the Tier 2 swarm', gated on !o.runnerSpawner.IsRunning(); newer nuance: specs are filtered by the project's agentsInvolved list before spawning."
+          },
+          {
+            "id": "ww-coordloop-3s",
+            "source": "CLAUDE.md What Works (coordination event surface)",
+            "claim": "coordinationEventLoop polls /api/log every 3s and surfaces task lifecycle events as system messages.",
+            "verdict": "CONFIRMED",
+            "evidence": "orchestrator.go:686 const coordinationEventInterval = 3 * time.Second; loop at :696; /api/log iteration comment at :747; started at :174."
+          },
+          {
+            "id": "ww-5min-turn-timeout",
+            "source": "CLAUDE.md What Works (per-turn 5-min timeout)",
+            "claim": "runAgentTurn wraps agentSvc.Run with a 5-minute context.WithTimeout; on expiry it cancels the agent and emits a system message.",
+            "verdict": "CONFIRMED",
+            "evidence": "orchestrator.go:671 const agentTurnTimeout = 5 * time.Minute; :598 context.WithTimeout(ctx, agentTurnTimeout); on <-turnCtx.Done(): agentSvc.Cancel(sessionID) + emitSystemMessage('⏱ %s turn timed out...') (~:613-623)."
+          },
+          {
+            "id": "ww-autoroute-guard",
+            "source": "CLAUDE.md What Works (auto-route Tier 1 → Planner: 'Recursion guard consecutiveAutoTurns < 5')",
+            "claim": "Autoroute recursion is guarded by a consecutiveAutoTurns < 5 counter, reset on every human input.",
+            "verdict": "STALE",
+            "evidence": "consecutiveAutoTurns no longer exists. orchestrator.go:91-97: recentAutoRoutes sliding-window cap, comment 'Audit Fix 6 — replaces the prior consecutiveAutoTurns counter which... missed three documented loops'. Constants: autoTurnCap = 5 (orchestrator.go:1421), autoRouteWindow = 10 * time.Minute (:1427); enforcement at :1314-1325. Still cleared by HandleHumanInput. Replacement commit: 4cb1d26.",
+            "impact": "An agent reasoning about loop protection (or re-adding a counter) would duplicate/conflict with the sliding-window mechanism and could reintroduce the three loop classes Fix 6 closed."
+          },
+          {
+            "id": "ww-tier1-tool-subsets",
+            "source": "CLAUDE.md What Works (token diet: 'Planner/Observer get just bash, Assurance/QA get bash + view + grep')",
+            "claim": "Tier1ToolsForRole gives Planner/Observer bash only, and Assurance/QA bash + view + grep.",
+            "verdict": "STALE",
+            "evidence": "Tier1ToolsForRole exists (act-agent/internal/llm/agent/tools.go:124) but the composition changed: PlannerTools = NewActCLITool + NewExpandPromptSectionTool, explicitly 'Per KI-02: no raw bash' (tools.go:96-105); ObserverTools = NewActCLITool only, 'No bash' (tools.go:107-113); Assurance/QA = NewActCLITool + view + grep — no bash (tools.go:115-135). A stale comment matching CLAUDE.md's wording survives in app.go:76-78.",
+            "impact": "An agent could 'restore' bash to Tier 1 roles believing it was the design, undoing the KI-02 act_cli whitelisting."
+          },
+          {
+            "id": "ww-context-paths",
+            "source": "CLAUDE.md What Works (context paths: defaultContextPaths reduced to [\"ACT.md\", \"ACT.local.md\"])",
+            "claim": "defaultContextPaths = [\"ACT.md\", \"ACT.local.md\"].",
+            "verdict": "STALE",
+            "evidence": "act-agent/internal/config/config.go:303-307: defaultContextPaths = {\"AGENTS.md\", \"ACT.md\", \"ACT.local.md\"} — AGENTS.md added (Planner-authored project brief, regenerated on PROJECT_BRIEF parse). CLAUDE.md still correctly says CLAUDE.md itself is excluded (config.go:298 comment confirms).",
+            "impact": "Token-budget reasoning and docs about what auto-loads into prompts would miss the AGENTS.md injection (~1-2K tokens) and its regeneration loop."
+          },
+          {
+            "id": "pitfall7-pvm-analytics-placeholder",
+            "source": "CLAUDE.md Common Pitfalls #7",
+            "claim": "PVM analytics layer (getAgentProfile, compareAgents, getAgentSynergy, SelfImprovementEngine) currently returns placeholder data (successRate: 0.85 + Math.random() * 0.15, four // placeholder methods); 'embeddings real, analytics fake'.",
+            "verdict": "STALE",
+            "evidence": "The active store is LocalEmbeddingVectorStore (server/src/index.ts:42). Its getAgentProfile (LocalEmbeddingVectorStore.ts:273-330) computes real per-task-type metrics from lookupTaskOutcomes (validated/passed ratios, real durations, evidence-quality tiers); getAgentSynergy (:366-425) computes shared-task pass rates from task_validated/task_validation_failed events; compareAgents (:428-450) derives from real profiles. SelfImprovementEngine analyze methods compute real aggregations from events (e.g., analyzeCommunicationPatterns at SelfImprovementEngine.ts:378-402). No Math.random/placeholder hits in either file. The 0.85 + Math.random() placeholders survive only in inactive code: MockVectorStore.ts:194 and QdrantVectorStore.ts:265 (Qdrant is build-excluded per the repo's own flows-explainer findings). index.ts:1223 comment also states profiles come from real lookupTaskOutcomes data. Caveat: statistical quality of outputs requires runtime data to assess — but the 'returns placeholder data' claim is code-level false today.",
+            "impact": "Answering 'is PVM real' per CLAUDE.md would wrongly tell the user the analytics are fake, and an agent might re-implement the analytics layer that already exists."
+          },
+          {
+            "id": "cfg-act-json",
+            "source": "CLAUDE.md Provider Configuration / MEMORY (config read from ~/.act.json, not project root)",
+            "claim": "The binary's config truth is ~/.act.json.",
+            "verdict": "CONFIRMED",
+            "evidence": "config.go:282 appName = \"act\"; comments.go:106-125 globalConfigSearchPaths(): ~/.act.json first, then $XDG_CONFIG_HOME/act/.act.json, ~/.config/act/.act.json, legacy ~/.opencode.json last; per-project local config also read: <cwd>/.act.json then <cwd>/.opencode.json (comments.go:80-83, merged via config.go:486). So 'not project root' is slightly overstated — a project-local .act.json IS merged — but the primary global file is ~/.act.json."
+          },
+          {
+            "id": "cfg-developer-fallback",
+            "source": "CLAUDE.md Provider Configuration ('Any role not configured falls back to agents.developer. There is no further fallback')",
+            "claim": "AgentConfigForRole falls back to agents.developer only, with no deeper fallback.",
+            "verdict": "CONFIRMED",
+            "evidence": "config.go:160-172: looks up agents.<role>, else returns RoleDeveloper; comment: 'There is no deeper fallback'. app.go:168-171 warns planner_config_fallback when Planner lands on developer."
+          },
+          {
+            "id": "cfg-swarm-commands",
+            "source": "CLAUDE.md NesTTY section (/swarm <role> <backend>, act-agent swarm set, bulk 'all')",
+            "claim": "/swarm exists in the TUI and `act-agent swarm set <role|all> <backend>` exists in the CLI.",
+            "verdict": "CONFIRMED",
+            "evidence": "TUI: tui.go:1058 directCmd(\"act-agent:swarm\", \"swarm\"). CLI: act-cli.ts:549-619 swarm list/set/status/restart; usage string :584 'swarm set <role|all> <act-agent|claude-code>'; bulk 'all' handled (:597)."
+          },
+          {
+            "id": "cfg-tier2-backend-values",
+            "source": "CLAUDE.md NesTTY section (per-role backend: act-agent | claude-code)",
+            "claim": "Tier 2 swarm backends are act-agent (default) or claude-code.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/runner/swarm_roles.go:38-44: BackendActAgent = \"act-agent\", BackendClaudeCode = \"claude-code\", IsValidBackend accepts only those two; spawner.go:99-106 defaults to act-agent and branches on claude-code."
+          },
+          {
+            "id": "tier1-backend-only-tier2",
+            "source": "CLAUDE.md NesTTY section ('Backend selection only applies to Tier 2 — Tier 1 agents are in-process goroutines and have no executable to swap')",
+            "claim": "Tier 1 agents have no backend selection and no executable to swap.",
+            "verdict": "STALE",
+            "evidence": "Live app.go:86-110 dispatches each Tier 1 role on cfg.Agents[agentName].Backend: case \"claude-code\", \"codex\", \"gemini\", \"opencode\" → acp.NewACPAgent(role, backendChoice, withTier1ShimPath(role, acpCfg), ...); default (empty/'act-agent') → in-process agent.NewAgent. The ACP machinery exists on this branch: act-agent/internal/acp/ (agent.go, claude_code.go, client.go, session.go, transport.go, types.go) and act-agent/cmd/act-tier1-shim/. Introduced by commit 5021848 'feat(acp): Tier 1 backend-selectable via Agent Client Protocol'. Note: 'acp' is NOT itself a backend value — backend values are host names (claude-code shipping; codex/gemini/opencode return explicit unimplemented errors); ACP is the invisible wire mechanism. Config struct documents this at config.go:91-93. Tier 1 backends are set via agents.<role>.backend in ~/.act.json, not via /swarm — act-cli.ts:603 still correctly scopes `swarm set` to Tier 2 roles.",
+            "impact": "HIGH. An agent trusting CLAUDE.md could re-implement Tier 1 backend support from scratch — exactly the dual-implementation failure mode CLAUDE.md's own banner warns about (and it names ACP as the past example)."
+          },
+          {
+            "id": "dev-commands-paths",
+            "source": "CLAUDE.md Development Commands",
+            "claim": "Build/run paths exist: server/ with npm dev, and act-agent buildable with go build at its root.",
+            "verdict": "CONFIRMED",
+            "evidence": "/Users/user/Documents/Developer/dev/AI/act/server/package.json exists; act-agent/main.go exists at the act-agent module root so `cd act-agent && go build -o act-agent .` is valid. (Did not execute the build — compile success itself is a runtime check.)"
+          },
+          {
+            "id": "provider-config-opencode-json",
+            "source": "CLAUDE.md Provider Configuration ('Configure in .opencode.json (see .opencode.example.json)')",
+            "claim": "Per-role provider config lives in .opencode.json, with an .opencode.example.json template in the repo.",
+            "verdict": "STALE",
+            "evidence": "Internally inconsistent with the same section's later line 'Any role not configured in ~/.act.json...' and with the code: primary config is ~/.act.json (comments.go:106-125); .opencode.json is read only as a legacy fallback (global ~/.opencode.json last in search path; local <cwd>/.opencode.json second candidate, comments.go:82,109; writer.go:79-90 calls it legacy). find over the repo (excluding node_modules) finds NO .opencode.example.json anywhere.",
+            "impact": "A user or agent following this section would create .opencode.json and look for a template that doesn't exist; role configs would only work via the legacy fallback path and would lose to any existing ~/.act.json keys."
+          }
+        ],
+        "extraObservations": "1) app.go:76-78 contains a stale in-code comment ('Planner and Observer only need bash; Assurance and QA need bash + view + grep') that contradicts tools.go's actual act_cli-based subsets — when reconciling CLAUDE.md, note the code comment is also wrong, though per the rules only scaffolding docs should be fixed this pass. 2) ChronologicalLog now also writes per-project JSONL logs (ChronologicalLog.ts:250) — an addition no CLAUDE.md section mentions. 3) The Tier 1 history model changed materially and is undocumented in CLAUDE.md: per-agent notebooks (app.go ~122-135) — Planner uses HistoryThread scoped to its own thread; Observer/Assurance/QA use HistoryNone (stateless snapshots). 4) MEMORY.md's 'Config fallback: AgentConfigForRole → developer ONLY' is confirmed; its '21 commands' figure shares the staleness of CLAUDE.md's. 5) Untracked repo-root binaries act-agent/act-tier1-{shim,planner,observer,assurance,qa_synthesizer} in git status are build artifacts of the new ACP shim — consistent with the Tier 1 ACP finding. 6) The Provider Configuration JSON example in CLAUDE.md shows only model/maxTokens fields; live Agent struct also has provider, backend, and acp fields (config.go:84-110) — the example understates the schema.",
+        "slice": "claude-md-architecture"
+      },
+      {
+        "slice": "kanban-vs-reality",
+        "claims": [
+          {
+            "id": "block6-acp-status-inprogress",
+            "source": ".devtool/features/block6-acp-cli-backend-2026-04-21.md frontmatter (status: in-progress)",
+            "claim": "Block 6 ACP CLI backend for Tier 1 is in-progress.",
+            "verdict": "CONFIRMED",
+            "evidence": "Substantial ACP implementation EXISTS on this branch: act-agent/internal/acp/ package (agent.go, client.go, session.go, transport.go, types.go, claude_code.go + tests incl. integration_live_test.go); wired into Tier 1 creation at act-agent/internal/app/app.go:104-110 (switch backendChoice case \"claude-code\",\"codex\",\"gemini\",\"opencode\" → acp.NewACPAgent); shim source at act-agent/cmd/act-tier1-shim/main.go. NOT done: gemini/codex/opencode return explicit unimplemented errors (act-agent/internal/acp/agent.go:549), so 'in-progress' (not done, not todo) is honest."
+          },
+          {
+            "id": "block6-files-to-create-stale",
+            "source": ".devtool/features/block6-acp-cli-backend-2026-04-21.md body ('Files to create: act-agent/internal/llm/backend.go, act-agent/internal/llm/acp/backend.go; New interface: AgentBackend')",
+            "claim": "The ACP work will create internal/llm/backend.go and internal/llm/acp/backend.go with an AgentBackend interface.",
+            "verdict": "STALE",
+            "evidence": "Neither file exists (ls act-agent/internal/llm/backend.go → no such file; internal/llm contains only agent/models/prompt/provider/tools). The implementation landed at act-agent/internal/acp/ instead, exposed as acp.NewACPAgent returning agent.Service (app.go:110). No AgentBackend interface in Go code — only config.WriteAgentBackend (internal/config/writer.go:16), a config writer, not the interface.",
+            "impact": "Someone executing the ticket as written would create a second, parallel ACP backend layer at internal/llm/ on top of the existing internal/acp/ one — exactly the dual-implementation failure mode CLAUDE.md warns about."
+          },
+          {
+            "id": "assurance-failclosed-fix23-landed",
+            "source": ".devtool/features/assurance-fail-closed-empty-criteria-2026-05-26.md (status: in-progress; 'Fix 23 closed the verdict-parser fail-open')",
+            "claim": "Fix 23 closed the empty-criteria fail-open at the verdict parser, with regression tests; ticket stays in-progress for the remaining layers.",
+            "verdict": "CONFIRMED",
+            "evidence": "Live code: act-agent/internal/app/orchestrator.go:3106-3115 — emptyCriteria := len(parsed.CriteriaResults)==0; Passed: parsed.OverallScore >= passThreshold && !emptyCriteria; explanatory gaps string injected at 3108-3111. Tests TestParseValidationVerdict_EmptyCriteriaFailsClosed (orchestrator_test.go:292) and _EmptyCriteriaBrokenVerdict (:313) exist. Commit 578d280 in log."
+          },
+          {
+            "id": "assurance-failclosed-open-items-still-open",
+            "source": ".devtool/features/assurance-fail-closed-empty-criteria-2026-05-26.md 'Still open' list",
+            "claim": "Server-side zero-criteria 400 gate, assurance.go zero-criteria refusal clause, orchestrator 'no criteria attached' system message, and the e2e-api.sh assertion are all still NOT built.",
+            "verdict": "CONFIRMED",
+            "evidence": "Hunted for closures, found none: server/src/index.ts has no criteria rejection — the verdict POST handler (index.ts:878-883) accepts criteriaResults unchecked, and line 511 is only a comment describing the fail-open; grep -i 'zero|no criteria|empty criteria' in act-agent/internal/llm/prompt/assurance.go → zero hits; server/scripts/e2e-api.sh:122 actually POSTs {passed:true, score:95, criteriaResults:[]} as a normal passing step — the script still encodes the fail-open as expected behavior, the assertion is absent."
+          },
+          {
+            "id": "invariants-ticket-ready-to-start-prompt-only",
+            "source": ".devtool/features/assert-code-behavior-invariants-2026-06-06.md (status: backlog; claims the 'Ready to start?' confirmation is STILL prompt-only, not a code gate)",
+            "claim": "The 'Ready to start?' confirmation hard-stop is prompt text only; no code gate rejects a PROJECT_BRIEF arriving in the same turn as the question.",
+            "verdict": "CONFIRMED",
+            "evidence": "Commit b03ef50 ('make the Ready to start? confirmation a hard stop') changed only prompt wording (planner.go + one orchestrator.go prompt line). Live: orchestrator.go:537 is instruction text ('then STOP and end your turn. Do NOT emit PROJECT_BRIEF in that same message'); handleProjectBrief (orchestrator.go:1539-1557) parses any PROJECT_BRIEF: marker with no same-turn rejection logic. Backlog status honest — danger averted: a reader might assume b03ef50 made this a code gate; it did not."
+          },
+          {
+            "id": "spil-stage1-no-go-code-yet",
+            "source": ".devtool/features/spil-stage1-proof-criteria-gate-2026-06-10.md (todo), spil-stage1-parser-ast-evaluator-2026-06-10.md (todo), spil-evolve-to-agentic-language-2026-06-10.md (backlog)",
+            "claim": "No SPIL stage-1 parser/AST/evaluator code exists in Go yet; the only parser is the regex MVP SPILParser.ts.",
+            "verdict": "CONFIRMED",
+            "evidence": "grep -rni spil in act-agent Go code hits only prompt text (e.g. orchestrator.go:1405 CREATE_TASK instructions) and prompt files — no tokenizer/AST/evaluator. server/src/services/SPILParser.ts exists with extractSuccessCriteria at line 123 (the regex MVP the tickets describe). All referenced docs exist: docs/Vault/Agent Coordination Toolkit/nestty/SPIL-as-language-evolution.md, SPIL.md, plans/SPIL Integration Plan.md, and repo-root spil-evolution.html. todo/backlog statuses are honest."
+          },
+          {
+            "id": "qa-redesign-phase-a-half-implemented",
+            "source": ".devtool/features/qa-redesign-phase-a-nomik-agentmd-ingest-2026-04-21.md (status: todo; 'Give QA/Synthesizer Grep + AGENT.md ingestion... Per-turn prompt stops forbidding tool use')",
+            "claim": "QA/Synthesizer lacks Grep access and its prompt forbids tool use (status todo = none of this exists).",
+            "verdict": "STALE",
+            "evidence": "The Grep half is ALREADY implemented: QA gets bash+view+grep via agent.Tier1ToolsForRole (act-agent/internal/llm/agent/tools.go:119-124, app.go:77,112), and the QA prompt actively instructs tool use: 'Use view and grep to read validated outputs directly' (act-agent/internal/llm/prompt/qa_synthesizer.go:62-63). The AGENT.md-ingestion-at-startup half is genuinely unimplemented (no AGENT.md grep hits in app/ or qa_synthesizer.go). Body was correctly scrubbed of Nomik in the uncommitted edit (nomik is gone from live code — only removal-lock tests in internal/tui/components/dialog/onboarding_test.go:11-33 reference it). Also: the body's dependency pointer to '.claude/HANDOFF.md QA/Synthesizer gap' is a stale-doc reference per the handoff protocol.",
+            "impact": "An implementer would re-grant grep/view tools and rewrite a prompt clause that no longer forbids tools — duplicate work and possible prompt regression. Ticket should be re-scoped to AGENT.md ingestion only."
+          },
+          {
+            "id": "tui-heartbeat-not-built",
+            "source": ".devtool/features/tui-activity-heartbeat-2026-05-26.md (status: backlog)",
+            "claim": "No swarm-activity heartbeat/indicator exists in the TUI.",
+            "verdict": "CONFIRMED",
+            "evidence": "Only spinner in status surface is the LSP init spinner (act-agent/internal/tui/components/core/status.go:248). No heartbeat/working-on indicator code in tui chat or status components. Backlog status honest."
+          },
+          {
+            "id": "tui-truncation-still-open",
+            "source": ".devtool/features/tui-tool-result-truncation-status-2026-06-06.md (status: todo; multi-line tool results clipped with ellipsis)",
+            "claim": "The TUI still truncates multi-line tool/status output with no expand affordance.",
+            "verdict": "CONFIRMED",
+            "evidence": "Truncation code is live and unfixed: renderSystemMessage caps system messages at 5 lines and appends ' …' (act-agent/internal/tui/components/chat/message.go:188-192) — an 8-line `act status` dump surfaced as a system message loses the Agents section, matching the ticket's symptom; tool results capped at maxResultHeight=30 lines via truncateHeight (message.go:31,547,568). No expand affordance found in message.go/list.go. Exact on-screen line count is UNVERIFIABLE without running the TUI, but the clipping mechanism the ticket describes is present and unchanged."
+          },
+          {
+            "id": "done-role-prefix-fix-exists",
+            "source": ".devtool/features/done/code-enforced-agent-role-prefix-2026-06-06.md (status: done)",
+            "claim": "ACT now code-prepends the authoritative role label to every Tier 1 message, stripping hallucinated prefixes like 'Human:'.",
+            "verdict": "CONFIRMED",
+            "evidence": "applyRoleLabel exists at act-agent/internal/app/orchestrator.go:1047-1053, applied at orchestrator.go:1193 in the dispatch path; idempotency + Human:-strip locked by tests at orchestrator_test.go:9-40 (twice := applyRoleLabel(once) idempotence test at :39-40). Landed in commit e06f273; not reverted."
+          },
+          {
+            "id": "done-planner-marker-fix-exists",
+            "source": ".devtool/features/done/planner-prompts-render-as-human-2026-06-06.md (status: done)",
+            "claim": "Orchestrator-injected Planner prompts no longer render as Human: — InternalPromptMarker now applies to all non-human input including Planner.",
+            "verdict": "CONFIRMED",
+            "evidence": "The old `if role != \"planner\"` guard is gone; live code at orchestrator.go:577-586 is `if !fromHuman { content = InternalPromptMarker + content }` with a comment explicitly covering 'Planner prompts from autoroute / build / intake triggers'. Commit e06f273; not reverted."
+          },
+          {
+            "id": "done-observer-escalation-cap-exists",
+            "source": ".devtool/features/done/observer-autoroute-loop-no-ceiling-2026-06-06.md (status: done)",
+            "claim": "The Observer now escalates an unchanged anomaly set once and stays quiet (no endless 2-min autoroute loop).",
+            "verdict": "CONFIRMED",
+            "evidence": "anomalySignature at orchestrator.go:996-1004 ('Escalate once, then stay quiet'; hash gates both the Observer LLM call and the downstream Planner autoroute), gate reset on all-clear at orchestrator.go:2076-2078 and on human input (comment at :1001-1003). Commit 9aa8417; not reverted."
+          },
+          {
+            "id": "done-qa-queue-drain-fix-exists",
+            "source": ".devtool/features/done/qa-synth-queue-never-drains-2026-06-06.md (status: done)",
+            "claim": "tier1Watchdog no longer re-fires QA on already-synthesized tasks — it applies the synthesizedAt exclusion.",
+            "verdict": "CONFIRMED",
+            "evidence": "orchestrator.go:2157-2166 — the 'validated' case in tier1Watchdog counts pendingSynthesis only `if !taskSynthesized(t)`, with a comment naming the exact bug (watchdog read raw /api/tasks while /api/tasks/validated already filtered). Commit 9aa8417; not reverted."
+          },
+          {
+            "id": "done-model-registry-deleted",
+            "source": ".devtool/features/done/delete-model-registry-pure-config-2026-05-09.md (status: done, untracked move into done/)",
+            "claim": "The per-provider model-list files and registry machinery (SupportedModels, resolveModelAlias) are deleted; provider+model are pure config.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/llm/models/ contains ONLY models.go (anthropic.go, openai.go, openrouter.go, groq.go, azure.go, gemini.go, vertexai.go, xai.go all gone); grep for SupportedModels/resolveModelAlias across config.go and models/*.go → zero hits; slim validateAgent at internal/config/config.go:507. done status honest."
+          },
+          {
+            "id": "untracked-tier1-binaries-explained",
+            "source": "git status untracked: act-agent/act-tier1-{planner,observer,assurance,qa_synthesizer,shim}",
+            "claim": "Untracked act-tier1-* files in act-agent/ are unexplained artifacts.",
+            "verdict": "CONFIRMED",
+            "evidence": "They ARE explained by code docs but NOT gitignored. act-tier1-shim = 13.4MB Mach-O arm64 binary built from act-agent/cmd/act-tier1-shim/main.go; observer/assurance/qa_synthesizer are 14-byte symlinks → act-tier1-shim, exactly matching the documented per-role-symlink design in main.go:1-27 (argv[0]→role, allowlist via internal/llm/tools/act_cli_whitelist.go). ANOMALY: act-tier1-planner is NOT a symlink — it is a separate 13,419,442-byte regular file (md5 7f00ce…, differs from shim's 2b3595…, built 35 min later) where the documented design says symlink. No .gitignore entry for act-tier1* in act-agent/.gitignore or root .gitignore, so build artifacts pollute git status."
+          },
+          {
+            "id": "untracked-root-htmls",
+            "source": "git status untracked: band-vs-act-teardown.html, spil-evolution.html",
+            "claim": "Two untracked HTML files at repo root are unexplained.",
+            "verdict": "CONFIRMED",
+            "evidence": "band-vs-act-teardown.html: standalone styled HTML titled 'Band vs ACT — Honest Teardown'; referenced by NOTHING in docs/, .devtool/, or CLAUDE.md — genuinely undocumented. spil-evolution.html: standalone HTML titled 'SPIL — from spec sheet to spoken language'; IS documented — referenced by docs/Vault/Agent Coordination Toolkit/nestty/SPIL-as-language-evolution.md and by .devtool/features/spil-evolve-to-agentic-language-2026-06-10.md ('the visual pitch / shared mental model')."
+          }
+        ],
+        "extraObservations": "1) go.mod module path is `github.com/paradiselabs-ai/ACT/act-agent` (act-agent/go.mod:1) — this contradicts the project memory/CLAUDE.md-adjacent note that the module path was 'kept as github.com/opencode-ai/opencode (UI rebrand only)'. Any doc repeating that is stale. 2) server/scripts/e2e-api.sh:122 POSTs a passing verdict with empty criteriaResults as a normal expected step — the e2e script actively encodes the fail-open behavior Fix 23 closed at the orchestrator layer; when the server-side gate lands this line will break, and the ticket's planned assertion should replace it. 3) act-tier1-planner being a full binary copy instead of the documented symlink (and 35 min newer than the shim) suggests a stale ad-hoc build; if the shim is rebuilt, the planner role keeps executing the OLD allowlist code. 4) The act-tier1-* artifacts and the two root HTML files are not gitignored, so they permanently pollute git status — relevant to the cleanup-constitution effort's 'where do finished artifacts live' question. 5) CLAUDE.md 'Project Structure' still lists 13 prompt files incl. per-provider details — not re-verified in this slice, but the models/ directory collapse (claim done-model-registry-deleted) means any doc enumerating internal/llm/models/*.go per-provider files is now stale."
+      },
+      {
+        "slice": "config-env",
+        "claims": [
+          {
+            "id": "actjson-backends",
+            "source": "F-handoff.md L139-141",
+            "claim": "~/.act.json backends: planner=claude-code, observer=in-process (gpt-oss-120b), assurance=claude-code, qa_synthesizer=claude-code, developer=claude-code.",
+            "verdict": "CONFIRMED",
+            "evidence": "Read ~/.act.json (values redacted, structure only): agents.planner.backend=\"claude-code\" (provider/model empty); agents.observer has NO backend field, provider=\"openrouter\", model=\"openai/gpt-oss-120b:free\" (empty backend == in-process per live act-agent/internal/app/app.go:87 comment and switch at app.go:103-110); agents.assurance.backend=\"claude-code\"; agents.qa_synthesizer.backend=\"claude-code\"; agents.developer.backend=\"claude-code\". Also frontend_dev/backend_dev/qa_engineer/researcher all backend=\"claude-code\". No key values echoed."
+          },
+          {
+            "id": "sqlc-not-on-path",
+            "source": "F-handoff.md L144 (also L87-88)",
+            "claim": "sqlc is NOT on PATH; config exists at act-agent/sqlc.yaml.",
+            "verdict": "CONFIRMED",
+            "evidence": "`which sqlc` → 'sqlc not found', exit 1. (sqlc.yaml existence at act-agent/ not separately checked beyond the handoff's own reference; the PATH claim is the operative one and is true.)"
+          },
+          {
+            "id": "go-binary-version",
+            "source": "F-handoff.md L142 / MEMORY.md Dev Notes",
+            "claim": "Go toolchain is /opt/homebrew/bin/go version 1.26.1.",
+            "verdict": "CONFIRMED",
+            "evidence": "`/opt/homebrew/bin/go version` → 'go version go1.26.1 darwin/arm64'; file exists at /opt/homebrew/bin/go."
+          },
+          {
+            "id": "act-symlink",
+            "source": "MEMORY.md ('act' symlinked globally: /opt/homebrew/bin/act → act-agent/act-agent)",
+            "claim": "/opt/homebrew/bin/act is a symlink to the repo's act-agent binary.",
+            "verdict": "CONFIRMED",
+            "evidence": "`readlink /opt/homebrew/bin/act` → /Users/user/Documents/Developer/dev/AI/act/act-agent/act-agent (symlink dated May 26). Target binary exists (62MB, mtime 2026-06-06 08:21 — note: build may predate the newest commits; rebuild before TUI testing)."
+          },
+          {
+            "id": "acp-runturn-content-only",
+            "source": "F-handoff.md L125-127",
+            "claim": "ACP agent runTurn sends ONLY content via client.Prompt and writes display messages to the shared session.",
+            "verdict": "CONFIRMED",
+            "evidence": "Live file is act-agent/internal/acp/agent.go (NOT acp/agent.go as cited — path drifted/abbreviated). runTurn at internal/acp/agent.go:219; sends only `content` via `a.client.Prompt(ctx, acpSessionID, content)` at :278 (no transcript replay; explicit comment :220-225 'only content is sent... no shared-transcript replay'). Display messages written to the shared ACT session via a.messages.Create(ctx, sessionID, ...) at :231 (user) and :241 (assistant), both stamped ThreadID: a.role (:234, :245)."
+          },
+          {
+            "id": "acpsessions-map-per-agent",
+            "source": "F-handoff.md L126-127",
+            "claim": "Each ACP agent keeps a private external session per ACT-sessionID per agent via the acpSessions map.",
+            "verdict": "CONFIRMED",
+            "evidence": "internal/acp/agent.go:55-59 — `acpSessions map[string]string` field on ACPAgent struct, comment 'maps an ACT (database) sessionID → the agent-allocated ACP [session]'; populated at :348 in ensureACPSession (:329-348). Per-agent: a distinct ACPAgent instance is constructed per role in app.go:110 (`acp.NewACPAgent(role, backendChoice, ...)` inside the per-role agent-creation switch, app.go:103-110)."
+          },
+          {
+            "id": "tui-renders-by-sessionid",
+            "source": "F-handoff.md L128-130",
+            "claim": "TUI renders strictly by msg.Payload.SessionID == m.session.ID at internal/tui/components/chat/list.go:196,241.",
+            "verdict": "CONFIRMED",
+            "evidence": "Live act-agent/internal/tui/components/chat/list.go:196 `if msg.Payload.SessionID == m.session.ID {` and :241 `else if msg.Type == pubsub.UpdatedEvent && msg.Payload.SessionID == m.session.ID`. Line numbers match the citation exactly today."
+          },
+          {
+            "id": "ownership-loop-session-agnostic",
+            "source": "F-handoff.md L131-132",
+            "claim": "messageOwnershipLoop (orchestrator.go ~1145-1162) runs off o.currentSpeaker + a global pubsub subscription and is session-agnostic.",
+            "verdict": "CONFIRMED",
+            "evidence": "act-agent/internal/app/orchestrator.go:1145 messageOwnershipLoop; subscribes globally via `o.app.Messages.Subscribe(ctx)` at :1147 with no sessionID filter anywhere in the loop body (:1149-1184+); tagging path TagMessagesFromCurrentSpeaker (:1130-1137) reads o.currentSpeaker. Cited range 1145-1162 matches live code."
+          },
+          {
+            "id": "messageowners-assistant-only-inmemory",
+            "source": "F-handoff.md L133-134",
+            "claim": "messageOwners map[string]string tags assistant messages only, in-memory, built live, not persisted, not rebuilt on replay.",
+            "verdict": "CONFIRMED",
+            "evidence": "orchestrator.go:46 `messageOwners map[string]string`, initialized :125, written only via SetOwner :1074, read via GetOwner :1081; the only tagging site gates on `event.Type == pubsub.CreatedEvent && msg.Role == message.Assistant` (:1160-1162). Grep found no persistence/serialization of messageOwners anywhere in the file."
+          },
+          {
+            "id": "sessionid-35-sites",
+            "source": "F-handoff.md L135-136",
+            "claim": "~35 orchestrator sites read the single o.sessionID.",
+            "verdict": "STALE",
+            "evidence": "Live grep: exactly 14 occurrences of `o.sessionID` in act-agent/internal/app/orchestrator.go (2 assignments at :144/:149, 12 reads — mostly the `sid := o.sessionID` snapshot pattern at :183,348,723,1333,1611,1887,2063,2599,2615,2721,2740 plus :2862). Count is also 14 at e06f273, 9aa8417, b03ef50, 7021488, bc0673e~1 — so ~35 matches no recent revision. If you instead count downstream uses of the `sid` locals (46) the total is ~60. The architectural point (single shared session deeply baked in) IS true; only the number is wrong.",
+            "impact": "Low — anyone sizing a 'split into per-agent physical sessions' refactor off the 35 figure gets the wrong effort estimate; re-grep gives 14 direct sites + 46 derived uses."
+          },
+          {
+            "id": "lstool-preexisting-failure",
+            "source": "F-handoff.md L114-115",
+            "claim": "Pre-existing test failure: TestLsTool_Run in internal/llm/tools panics 'config not loaded' — a test-harness config issue in a package untouched by this work.",
+            "verdict": "CONFIRMED",
+            "evidence": "Ran `/opt/homebrew/bin/go test -run TestLsTool_Run ./internal/llm/tools/` — FAIL: subtest 'handles_empty_path_parameter' panics 'config not loaded' from config.WorkingDirectory (internal/config/config.go:627) called by lsTool.Run at internal/llm/tools/ls.go:99 when path param is empty; the test (ls_test.go:26) never loads config. git log on ls.go/ls_test.go: last touched at ca13adf (Phase 2) — none of the recent handoff-era commits touched these files. Genuinely pre-existing harness issue, not a product regression."
+          },
+          {
+            "id": "server-dev-one-shot",
+            "source": "F-handoff.md L145-146",
+            "claim": "server `npm run dev` is one-shot `npx tsx`, no hot-reload — restart to load server changes.",
+            "verdict": "FALSE",
+            "evidence": "Live server/package.json:10 — `\"dev\": \"tsx watch src/index.ts\"` — watch mode, i.e. hot-reload on file change. git log -S 'tsx watch' shows this script has said `tsx watch` since 5fb565e (Phase 5 Foundation) with no intervening change; it was never one-shot in git history. tsx ^4.21.0 is in devDependencies (package.json:49). Project CLAUDE.md agrees ('tsx watch, port 8080'). Caveat: whether watch-restart fires correctly at runtime on this machine is UNVERIFIABLE-HEADLESS without starting the server, but the 'one-shot npx tsx' description of the script is simply wrong.",
+            "impact": "A dev trusting the handoff will manually kill/restart the server after every edit (wasted time, and each restart re-replays coordination-log.jsonl), or worse, 'add' watch mode that already exists. Conversely they may not expect tsx-watch auto-restarts wiping in-memory-only state mid-test."
+          },
+          {
+            "id": "build-test-commands",
+            "source": "F-handoff.md L142-143",
+            "claim": "Build with `cd act-agent && /opt/homebrew/bin/go build ./...`; test with `go test ./internal/llm/agent/... ./internal/app/...`.",
+            "verdict": "CONFIRMED",
+            "evidence": "Toolchain present (go1.26.1 darwin/arm64); the test invocation pattern works — demonstrated by successfully running `go test -run TestLsTool_Run ./internal/llm/tools/` from act-agent/ (module github.com/paradiselabs-ai/ACT/act-agent compiles and the test executes). Full ./... build not run end-to-end this session."
+          }
+        ],
+        "extraObservations": "(1) MEMORY.md states \"go.mod module path: Kept as github.com/opencode-ai/opencode (UI rebrand only)\" — this is now FALSE: live act-agent/go.mod:1 is `module github.com/paradiselabs-ai/ACT/act-agent` (confirmed in both the file and the test panic trace). Memory/doc should be updated. (2) go.mod says `go 1.25.8` while the installed toolchain is 1.26.1 — fine, but docs citing \"Go 1.26.1\" describe the toolchain, not the module directive. (3) The act-agent binary the global `act` symlink points to was built 2026-06-06 08:21, likely predating the newest commits on this branch (bc0673e etc.) — rebuild before any TUI e2e verification or the runtime won't reflect Phase 4. (4) ~/.act.json contextPaths is [\"AGENTS.md\"], while project CLAUDE.md says defaultContextPaths is [\"ACT.md\", \"ACT.local.md\"] — user config overrides the default, so any doc claiming ACT.md is what gets injected on this machine is wrong at runtime. (5) F-handoff's path citation \"acp/agent.go\" actually lives at act-agent/internal/acp/agent.go; runTurn line ~219 still exact."
+      },
+      {
+        "slice": "build-and-test",
+        "claims": [
+          {
+            "id": "build-clean",
+            "source": "F-handoff.md (claim: 'build clean')",
+            "claim": "go build ./... in act-agent compiles with no errors.",
+            "verdict": "CONFIRMED",
+            "evidence": "Ran `/opt/homebrew/bin/go build ./...` in /Users/user/Documents/Developer/dev/AI/act/act-agent — exit 0, zero output. Also `go vet ./internal/llm/agent/... ./internal/app/...` exit 0, zero findings."
+          },
+          {
+            "id": "agent-tests-green",
+            "source": "F-handoff.md (claim: 'agent tests green')",
+            "claim": "go test on ./internal/llm/agent/..., ./internal/app/..., ./internal/llm/prompt/... all pass.",
+            "verdict": "CONFIRMED",
+            "evidence": "Ran fresh with -count=1 -v: ok github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent (0.556s), ok .../internal/app (1.877s), ok .../internal/llm/prompt (1.282s), exit 0. Zero failures. app package: ~30 tests incl. TestDispatchDedup_*, TestCascadeCap_*, TestParseCreateTaskDirectives_*, TestRenderAutoRoutePrompt_*, TestClarificationRegex_*, TestBuildSynthesisPrompt_IncludesValidationScore. prompt package: TestPromptSwitchRouting (9 roles), TestSwitchCasesExist, TestCommonBuildingBlocks, TestPlannerPromptBranchesOnProvider, TestGetContextFromPaths*, TestProcessContextPaths_DeterministicOrdering, TestPromptSectionAdvertisementMatchesRegistry, TestGetSection_KnownAndUnknown, TestNoSection*, TestActCLICommandsFragmentMatchesAllowlist, TestBasePlannerPromptNoFragmentDuplication — all PASS."
+          },
+          {
+            "id": "lstool-run-panics",
+            "source": "F-handoff.md (claim: 'TestLsTool_Run panics config not loaded')",
+            "claim": "go test ./internal/llm/tools/... fails because TestLsTool_Run panics with 'config not loaded'.",
+            "verdict": "CONFIRMED",
+            "evidence": "Ran `go test -count=1 ./internal/llm/tools/...` — FAIL, exit 1. Exact failure: `--- FAIL: TestLsTool_Run/handles_empty_path_parameter (0.00s)` then `panic: config not loaded [recovered, repanicked]`. Stack: config.WorkingDirectory at /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/config/config.go:627 → (*lsTool).Run at /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/tools/ls.go:99 → TestLsTool_Run.func3 at /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/tools/ls_test.go:139. Note the panic is specifically in the 'handles empty path parameter' subtest, which calls WorkingDirectory() to default the path when Path is empty. shell subpackage has no test files."
+          },
+          {
+            "id": "qdrant-ts-error",
+            "source": "CLAUDE.md Common Pitfalls #4 / F-handoff.md (claim: 'QdrantVectorStore.ts has a pre-existing TS error')",
+            "claim": "server/src/services/QdrantVectorStore.ts has a known pre-existing TypeScript error.",
+            "verdict": "CONFIRMED",
+            "evidence": "Two-part truth, both verified live. (1) Project compile is CLEAN: `npx tsc --noEmit` in /Users/user/Documents/Developer/dev/AI/act/server exits 0 with zero errors — because /Users/user/Documents/Developer/dev/AI/act/server/tsconfig.json explicitly excludes the file: exclude: [\"node_modules\", \"dist\", \"**/*.test.ts\", \"src/services/QdrantVectorStore.ts\"]. (2) The error still EXISTS in the file when type-checked in isolation with the project's compiler options: src/services/QdrantVectorStore.ts(87,36): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'. So the doc claim is true of the file's code, but anyone running project tsc will see zero errors; the error is masked by tsconfig exclusion (matching the flows-explainer 'Qdrant build-excluded' finding), not fixed.",
+            "impact": ""
+          },
+          {
+            "id": "scoped-history-tests-pass",
+            "source": "Slice instruction item 6 (verify scoped_history_test.go passes)",
+            "claim": "The scoped_history_test.go tests in internal/llm/agent pass.",
+            "verdict": "CONFIRMED",
+            "evidence": "File /Users/user/Documents/Developer/dev/AI/act/act-agent/internal/llm/agent/scoped_history_test.go:9 defines func TestScopedHistory with 5 subtests. Fresh -count=1 -v run, all PASS: TestScopedHistory/HistoryNone_drops_everything, TestScopedHistory/HistoryFull_keeps_everything_in_order, TestScopedHistory/HistoryThread_keeps_only_the_matching_threadID, TestScopedHistory/HistoryThread_excludes_other_agents'_traffic, TestScopedHistory/empty_input_is_safe_under_every_mode. Package ok in 0.556s."
+          }
+        ],
+        "extraObservations": "MEMORY.md (\"Key Architecture\") claims the go.mod module path was kept as `github.com/opencode-ai/opencode` (UI rebrand only). The live /Users/user/Documents/Developer/dev/AI/act/act-agent/go.mod line 1 says `module github.com/paradiselabs-ai/ACT/act-agent` (go 1.25.8) — the module path HAS been renamed. That memory note is STALE. Also: the only failing Go test in the audited packages is the single TestLsTool_Run subtest; everything else in tools also passes (the package FAIL is driven entirely by that one panic, which aborts the test binary — so other tests in the same binary that hadn't run yet are not reported; a targeted `-run` exclusion would be needed to certify the rest of the tools package green)."
+      }
+    ],
+    "totalClaims": 137,
+    "problems": [
+      {
+        "id": "push-date-wrong",
+        "source": "F-handoff.md L19 ('fast-forwarded 26f2c3d..bc0673e on 2026-06-07') and L23-24 ('they are now pushed to origin too')",
+        "claim": "The push fast-forwarding origin 26f2c3d→bc0673e happened on 2026-06-07, so origin already had Phase 3/4 + Fix 23 when the handoff was written.",
+        "verdict": "STALE",
+        "evidence": "git reflog show origin/feat/remove-nomik: 'bc0673e ...@{2026-06-10 08:33:20 -0500}: update by push' and '26f2c3d ...@{2026-06-06 13:37:01 -0500}: update by push'. The fast-forward RANGE (26f2c3d..bc0673e) is exactly right, but the push happened 2026-06-10, three days after the handoff date. At writing time origin was still at 26f2c3d — the 5 commits 7021488, 1919b06, 578d280, f2c8d78, bc0673e were local-only.",
+        "impact": "Anyone trusting 'PUSHED, nothing outstanding' between 06-07 and 06-10 and pulling origin (e.g. the 'second writer' the handoff tells to git pull first, or another machine) would have based work on 26f2c3d, missing Phase 3, Phase 4, and Fix 23 — exactly the collision the handoff warns about. The state is now repaired; the claim is safe to trust today."
+      },
+      {
+        "id": "commit-tables-complete",
+        "source": "F-handoff.md L28-38 ('This session's commits') + L294-298 (Coordination note, range 'b03ef50→bc0673e ... described in the section above')",
+        "claim": "The two commit tables plus the coordination note account for all branch commits in the session window (ac241e0..bc0673e).",
+        "verdict": "FALSE",
+        "evidence": "Three commits inside the interleave window appear in NEITHER writer's table and are never described: b03ef50 (06-06 07:53, fix(planner): 'Ready to start?' hard stop — orchestrator.go + prompt/planner.go), 7f439ca (08:21, feat(observer): detect orphaned/unservable pending tasks — orchestrator.go +100, orchestrator_types.go, new observer_anomaly_test.go), 1e33bc8 (08:24, fix(server): /api/tasks/assigned self-healing heartbeat — server/src/index.ts +37/-6). The coordination note's range 'b03ef50→bc0673e' attributes them to the first effort, but that section's own table starts at e06f273 and calls e06f273/9aa8417 'prior session' — so a third uncredited writer/session produced them, or the first writer's table is incomplete.",
+        "impact": "Anyone reconstructing 'who changed orchestrator.go and why' from the handoff will miss ~330 lines of Observer-anomaly, planner-prompt, and server-heartbeat changes sitting between the two documented efforts — the highest drift risk in this slice, since all three touch the exact orchestrator/prompt/server surfaces both writers are actively editing."
+      },
+      {
+        "id": "p1-prompt-files-13",
+        "source": "CLAUDE.md Project Structure (internal/llm/prompt/ — \"13 files\")",
+        "claim": "The prompt directory contains 13 role-specific system prompt files.",
+        "verdict": "STALE",
+        "evidence": "Live ls of act-agent/internal/llm/prompt/ shows 19 .go files: 16 non-test (the 11 listed in CLAUDE.md plus planner_section_evidence.go, planner_section_examples.go, planner_section_success_criteria.go, planner_section_validation.go, sections.go) and 3 test files (prompt_test.go, prompt_roles_test.go, sections_test.go).",
+        "impact": "An agent counting files to detect drift or rebuilding architecture-flows would flag false discrepancies or miss the planner_section_* prompt-splitting system entirely."
+      },
+      {
+        "id": "p1-cli-21-commands",
+        "source": "CLAUDE.md Project Structure + Key Concepts (\"21 commands\")",
+        "claim": "act-agent/cli/act-cli.ts implements 21 agent CLI commands.",
+        "verdict": "STALE",
+        "evidence": "Live act-cli.ts:1096-1283 has 23 top-level dispatch branches. Commands not in CLAUDE.md's list: task abandon (:1163), pvm reindex (:1219), codebase / codebase onboard (:1271,:1278), swarm (:1281).",
+        "impact": "Doc rebuilds or help text generated from the '21 commands' figure would omit swarm/codebase/abandon/reindex."
+      },
+      {
+        "id": "ww-autoroute-guard",
+        "source": "CLAUDE.md What Works (auto-route Tier 1 → Planner: 'Recursion guard consecutiveAutoTurns < 5')",
+        "claim": "Autoroute recursion is guarded by a consecutiveAutoTurns < 5 counter, reset on every human input.",
+        "verdict": "STALE",
+        "evidence": "consecutiveAutoTurns no longer exists. orchestrator.go:91-97: recentAutoRoutes sliding-window cap, comment 'Audit Fix 6 — replaces the prior consecutiveAutoTurns counter which... missed three documented loops'. Constants: autoTurnCap = 5 (orchestrator.go:1421), autoRouteWindow = 10 * time.Minute (:1427); enforcement at :1314-1325. Still cleared by HandleHumanInput. Replacement commit: 4cb1d26.",
+        "impact": "An agent reasoning about loop protection (or re-adding a counter) would duplicate/conflict with the sliding-window mechanism and could reintroduce the three loop classes Fix 6 closed."
+      },
+      {
+        "id": "ww-tier1-tool-subsets",
+        "source": "CLAUDE.md What Works (token diet: 'Planner/Observer get just bash, Assurance/QA get bash + view + grep')",
+        "claim": "Tier1ToolsForRole gives Planner/Observer bash only, and Assurance/QA bash + view + grep.",
+        "verdict": "STALE",
+        "evidence": "Tier1ToolsForRole exists (act-agent/internal/llm/agent/tools.go:124) but the composition changed: PlannerTools = NewActCLITool + NewExpandPromptSectionTool, explicitly 'Per KI-02: no raw bash' (tools.go:96-105); ObserverTools = NewActCLITool only, 'No bash' (tools.go:107-113); Assurance/QA = NewActCLITool + view + grep — no bash (tools.go:115-135). A stale comment matching CLAUDE.md's wording survives in app.go:76-78.",
+        "impact": "An agent could 'restore' bash to Tier 1 roles believing it was the design, undoing the KI-02 act_cli whitelisting."
+      },
+      {
+        "id": "ww-context-paths",
+        "source": "CLAUDE.md What Works (context paths: defaultContextPaths reduced to [\"ACT.md\", \"ACT.local.md\"])",
+        "claim": "defaultContextPaths = [\"ACT.md\", \"ACT.local.md\"].",
+        "verdict": "STALE",
+        "evidence": "act-agent/internal/config/config.go:303-307: defaultContextPaths = {\"AGENTS.md\", \"ACT.md\", \"ACT.local.md\"} — AGENTS.md added (Planner-authored project brief, regenerated on PROJECT_BRIEF parse). CLAUDE.md still correctly says CLAUDE.md itself is excluded (config.go:298 comment confirms).",
+        "impact": "Token-budget reasoning and docs about what auto-loads into prompts would miss the AGENTS.md injection (~1-2K tokens) and its regeneration loop."
+      },
+      {
+        "id": "pitfall7-pvm-analytics-placeholder",
+        "source": "CLAUDE.md Common Pitfalls #7",
+        "claim": "PVM analytics layer (getAgentProfile, compareAgents, getAgentSynergy, SelfImprovementEngine) currently returns placeholder data (successRate: 0.85 + Math.random() * 0.15, four // placeholder methods); 'embeddings real, analytics fake'.",
+        "verdict": "STALE",
+        "evidence": "The active store is LocalEmbeddingVectorStore (server/src/index.ts:42). Its getAgentProfile (LocalEmbeddingVectorStore.ts:273-330) computes real per-task-type metrics from lookupTaskOutcomes (validated/passed ratios, real durations, evidence-quality tiers); getAgentSynergy (:366-425) computes shared-task pass rates from task_validated/task_validation_failed events; compareAgents (:428-450) derives from real profiles. SelfImprovementEngine analyze methods compute real aggregations from events (e.g., analyzeCommunicationPatterns at SelfImprovementEngine.ts:378-402). No Math.random/placeholder hits in either file. The 0.85 + Math.random() placeholders survive only in inactive code: MockVectorStore.ts:194 and QdrantVectorStore.ts:265 (Qdrant is build-excluded per the repo's own flows-explainer findings). index.ts:1223 comment also states profiles come from real lookupTaskOutcomes data. Caveat: statistical quality of outputs requires runtime data to assess — but the 'returns placeholder data' claim is code-level false today.",
+        "impact": "Answering 'is PVM real' per CLAUDE.md would wrongly tell the user the analytics are fake, and an agent might re-implement the analytics layer that already exists."
+      },
+      {
+        "id": "tier1-backend-only-tier2",
+        "source": "CLAUDE.md NesTTY section ('Backend selection only applies to Tier 2 — Tier 1 agents are in-process goroutines and have no executable to swap')",
+        "claim": "Tier 1 agents have no backend selection and no executable to swap.",
+        "verdict": "STALE",
+        "evidence": "Live app.go:86-110 dispatches each Tier 1 role on cfg.Agents[agentName].Backend: case \"claude-code\", \"codex\", \"gemini\", \"opencode\" → acp.NewACPAgent(role, backendChoice, withTier1ShimPath(role, acpCfg), ...); default (empty/'act-agent') → in-process agent.NewAgent. The ACP machinery exists on this branch: act-agent/internal/acp/ (agent.go, claude_code.go, client.go, session.go, transport.go, types.go) and act-agent/cmd/act-tier1-shim/. Introduced by commit 5021848 'feat(acp): Tier 1 backend-selectable via Agent Client Protocol'. Note: 'acp' is NOT itself a backend value — backend values are host names (claude-code shipping; codex/gemini/opencode return explicit unimplemented errors); ACP is the invisible wire mechanism. Config struct documents this at config.go:91-93. Tier 1 backends are set via agents.<role>.backend in ~/.act.json, not via /swarm — act-cli.ts:603 still correctly scopes `swarm set` to Tier 2 roles.",
+        "impact": "HIGH. An agent trusting CLAUDE.md could re-implement Tier 1 backend support from scratch — exactly the dual-implementation failure mode CLAUDE.md's own banner warns about (and it names ACP as the past example)."
+      },
+      {
+        "id": "provider-config-opencode-json",
+        "source": "CLAUDE.md Provider Configuration ('Configure in .opencode.json (see .opencode.example.json)')",
+        "claim": "Per-role provider config lives in .opencode.json, with an .opencode.example.json template in the repo.",
+        "verdict": "STALE",
+        "evidence": "Internally inconsistent with the same section's later line 'Any role not configured in ~/.act.json...' and with the code: primary config is ~/.act.json (comments.go:106-125); .opencode.json is read only as a legacy fallback (global ~/.opencode.json last in search path; local <cwd>/.opencode.json second candidate, comments.go:82,109; writer.go:79-90 calls it legacy). find over the repo (excluding node_modules) finds NO .opencode.example.json anywhere.",
+        "impact": "A user or agent following this section would create .opencode.json and look for a template that doesn't exist; role configs would only work via the legacy fallback path and would lose to any existing ~/.act.json keys."
+      },
+      {
+        "id": "block6-files-to-create-stale",
+        "source": ".devtool/features/block6-acp-cli-backend-2026-04-21.md body ('Files to create: act-agent/internal/llm/backend.go, act-agent/internal/llm/acp/backend.go; New interface: AgentBackend')",
+        "claim": "The ACP work will create internal/llm/backend.go and internal/llm/acp/backend.go with an AgentBackend interface.",
+        "verdict": "STALE",
+        "evidence": "Neither file exists (ls act-agent/internal/llm/backend.go → no such file; internal/llm contains only agent/models/prompt/provider/tools). The implementation landed at act-agent/internal/acp/ instead, exposed as acp.NewACPAgent returning agent.Service (app.go:110). No AgentBackend interface in Go code — only config.WriteAgentBackend (internal/config/writer.go:16), a config writer, not the interface.",
+        "impact": "Someone executing the ticket as written would create a second, parallel ACP backend layer at internal/llm/ on top of the existing internal/acp/ one — exactly the dual-implementation failure mode CLAUDE.md warns about."
+      },
+      {
+        "id": "qa-redesign-phase-a-half-implemented",
+        "source": ".devtool/features/qa-redesign-phase-a-nomik-agentmd-ingest-2026-04-21.md (status: todo; 'Give QA/Synthesizer Grep + AGENT.md ingestion... Per-turn prompt stops forbidding tool use')",
+        "claim": "QA/Synthesizer lacks Grep access and its prompt forbids tool use (status todo = none of this exists).",
+        "verdict": "STALE",
+        "evidence": "The Grep half is ALREADY implemented: QA gets bash+view+grep via agent.Tier1ToolsForRole (act-agent/internal/llm/agent/tools.go:119-124, app.go:77,112), and the QA prompt actively instructs tool use: 'Use view and grep to read validated outputs directly' (act-agent/internal/llm/prompt/qa_synthesizer.go:62-63). The AGENT.md-ingestion-at-startup half is genuinely unimplemented (no AGENT.md grep hits in app/ or qa_synthesizer.go). Body was correctly scrubbed of Nomik in the uncommitted edit (nomik is gone from live code — only removal-lock tests in internal/tui/components/dialog/onboarding_test.go:11-33 reference it). Also: the body's dependency pointer to '.claude/HANDOFF.md QA/Synthesizer gap' is a stale-doc reference per the handoff protocol.",
+        "impact": "An implementer would re-grant grep/view tools and rewrite a prompt clause that no longer forbids tools — duplicate work and possible prompt regression. Ticket should be re-scoped to AGENT.md ingestion only."
+      },
+      {
+        "id": "sessionid-35-sites",
+        "source": "F-handoff.md L135-136",
+        "claim": "~35 orchestrator sites read the single o.sessionID.",
+        "verdict": "STALE",
+        "evidence": "Live grep: exactly 14 occurrences of `o.sessionID` in act-agent/internal/app/orchestrator.go (2 assignments at :144/:149, 12 reads — mostly the `sid := o.sessionID` snapshot pattern at :183,348,723,1333,1611,1887,2063,2599,2615,2721,2740 plus :2862). Count is also 14 at e06f273, 9aa8417, b03ef50, 7021488, bc0673e~1 — so ~35 matches no recent revision. If you instead count downstream uses of the `sid` locals (46) the total is ~60. The architectural point (single shared session deeply baked in) IS true; only the number is wrong.",
+        "impact": "Low — anyone sizing a 'split into per-agent physical sessions' refactor off the 35 figure gets the wrong effort estimate; re-grep gives 14 direct sites + 46 derived uses."
+      },
+      {
+        "id": "server-dev-one-shot",
+        "source": "F-handoff.md L145-146",
+        "claim": "server `npm run dev` is one-shot `npx tsx`, no hot-reload — restart to load server changes.",
+        "verdict": "FALSE",
+        "evidence": "Live server/package.json:10 — `\"dev\": \"tsx watch src/index.ts\"` — watch mode, i.e. hot-reload on file change. git log -S 'tsx watch' shows this script has said `tsx watch` since 5fb565e (Phase 5 Foundation) with no intervening change; it was never one-shot in git history. tsx ^4.21.0 is in devDependencies (package.json:49). Project CLAUDE.md agrees ('tsx watch, port 8080'). Caveat: whether watch-restart fires correctly at runtime on this machine is UNVERIFIABLE-HEADLESS without starting the server, but the 'one-shot npx tsx' description of the script is simply wrong.",
+        "impact": "A dev trusting the handoff will manually kill/restart the server after every edit (wasted time, and each restart re-replays coordination-log.jsonl), or worse, 'add' watch mode that already exists. Conversely they may not expect tsx-watch auto-restarts wiping in-memory-only state mid-test."
+      }
+    ]
+  }
+}
