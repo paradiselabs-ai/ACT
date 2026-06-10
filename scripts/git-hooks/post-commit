@@ -1,0 +1,40 @@
+#!/bin/sh
+# Freshness staler — flips artifacts to "stale" in docs/constitution/freshness.json
+# when a commit touches their watched code paths. Zero tokens, pure local.
+# Canonical copy: scripts/git-hooks/post-commit (installed via scripts/install-hooks.sh).
+# Rules: docs/constitution/UPDATE_LOOPS.md
+
+REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 0
+REGISTRY="$REPO_ROOT/docs/constitution/freshness.json"
+[ -f "$REGISTRY" ] || exit 0
+
+git diff-tree --no-commit-id --name-only -r HEAD | python3 - "$REGISTRY" "$(git rev-parse --short HEAD)" <<'PY'
+import json, sys
+
+registry_path, commit = sys.argv[1], sys.argv[2]
+changed = [l.strip() for l in sys.stdin if l.strip()]
+if not changed:
+    sys.exit(0)
+
+with open(registry_path) as f:
+    reg = json.load(f)
+
+dirty = False
+for name, art in reg.get("artifacts", {}).items():
+    own = art.get("paths", [])
+    watch = art.get("watch", [])
+    touched_watch = any(c.startswith(w) for c in changed for w in watch)
+    touched_self = any(c == p for c in changed for p in own)
+    # A commit that touches watched code but NOT the artifact itself stales it.
+    if touched_watch and not touched_self and art.get("status") != "stale":
+        art["status"] = "stale"
+        art["staled_by"] = commit
+        dirty = True
+        print(f"freshness: '{name}' is now STALE (commit {commit} touched watched paths)")
+
+if dirty:
+    with open(registry_path, "w") as f:
+        json.dump(reg, f, indent=2)
+        f.write("\n")
+PY
+exit 0

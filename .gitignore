@@ -18,6 +18,11 @@ WINDSURF_ACT_GUIDANCE.md
 *discussion*
 *-prompt*
 *instance*
+# Rescue: `*-prompt*` above would swallow the whole planner prompt-audit docs
+# directory (its NAME matches). Audit outputs + planner-prompts.json/html are
+# project truth sources and must be tracked (docs/constitution/DOC_STANDARDS.md §6).
+!docs/planner-prompt-audit/
+!docs/planner-prompt-audit/**
 
 # ── Coordination files (runtime / internal) ──
 act-coordination-*.json
@@ -46,6 +51,7 @@ taskade agentics.md
 !README.md
 !CLAUDE.md
 !AGENTS.md
+!GEMINI.md
 !docs/**/*.md
 !nestty/*.md
 !tests/*.md
@@ -187,8 +193,8 @@ docs-assembler-config.json
 .DS_Store
 github.comparadiselabs-ai-act-tree-nestty.md
 
-CLAUDE.md
-AGENTS.md
+# (removed 2026-06-10: trailing `CLAUDE.md` + `AGENTS.md` re-ignore lines that
+# contradicted the negations above — they made check-ignore lie about both files)
 .codex/
 .qodo/
 .story/
