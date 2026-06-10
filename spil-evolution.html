@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SPIL — from spec sheet to spoken language</title>
+<style>
+  :root{
+    --bg:#0c0e14; --bg2:#12151f; --card:#161a26; --line:#222838;
+    --ink:#e8ecf5; --mut:#8b94a8; --dim:#5b6478;
+    --gold:#f4c14b; --blue:#5aa9ff; --green:#54d18c; --mag:#d977f0; --cyan:#46d6d6; --red:#ff6b6b;
+    --mono:'SF Mono',ui-monospace,'JetBrains Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  a{color:var(--blue);text-decoration:none}
+
+  /* HERO */
+  header.hero{position:relative;overflow:hidden;padding:72px 0 56px;border-bottom:1px solid var(--line);
+    background:radial-gradient(1100px 380px at 50% -120px,rgba(90,169,255,.14),transparent 70%),
+               radial-gradient(700px 300px at 90% 0,rgba(217,119,240,.10),transparent 70%);}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:var(--gold);margin-bottom:18px}
+  h1{font-size:54px;line-height:1.02;margin:0 0 18px;font-weight:800;letter-spacing:-.02em}
+  h1 .a{color:var(--mut);font-weight:500}
+  h1 .b{background:linear-gradient(95deg,var(--gold),var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:20px;color:var(--mut);max-width:740px;margin:0}
+  .lede b{color:var(--ink);font-weight:600}
+
+  .thesis{display:flex;gap:0;margin-top:38px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--bg2)}
+  .thesis div{flex:1;padding:20px 22px}
+  .thesis div+div{border-left:1px solid var(--line)}
+  .thesis .tag{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .thesis .big{font-size:19px;font-weight:700}
+  .thesis .now .big{color:var(--blue)} .thesis .next .big{color:var(--gold)}
+  .thesis .now .word{color:var(--blue)} .thesis .next .word{color:var(--gold)}
+
+  /* SECTIONS */
+  section{padding:54px 0;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--cyan);margin-bottom:10px}
+  h2{font-size:32px;margin:0 0 10px;font-weight:780;letter-spacing:-.015em}
+  .sub{color:var(--mut);font-size:17px;max-width:760px;margin:0 0 28px}
+  .sub b{color:var(--ink)}
+
+  /* plain-english callout (vibespeak) */
+  .vibe{display:flex;gap:12px;align-items:flex-start;background:linear-gradient(90deg,rgba(244,193,75,.08),transparent);
+    border-left:3px solid var(--gold);border-radius:0 10px 10px 0;padding:14px 18px;margin:22px 0;font-size:16px}
+  .vibe .ico{font-size:18px;line-height:1.4}
+  .vibe b{color:var(--gold)}
+  .vibe small{color:var(--dim);font-size:13px}
+
+  /* code */
+  pre{margin:0;background:#0a0c12;border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow-x:auto;
+    font-family:var(--mono);font-size:13px;line-height:1.6}
+  code{font-family:var(--mono)}
+  .k{color:var(--gold)}      /* @keyword */
+  .d{color:var(--cyan)}      /* > directive */
+  .s{color:var(--green)}     /* string */
+  .c{color:var(--dim);font-style:italic} /* comment */
+  .fn{color:var(--mag)}      /* function/form */
+  .v{color:var(--blue)}      /* var */
+  .p{color:var(--mut)}       /* punctuation */
+  .x{color:var(--red)}       /* not-executed marker */
+  .ok{color:var(--green)}
+
+  /* two-col */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .panel .head{padding:13px 18px;font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+    display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}
+  .panel.now .head{color:var(--blue);background:rgba(90,169,255,.06)}
+  .panel.next .head{color:var(--gold);background:rgba(244,193,75,.06)}
+  .panel .head .pill{font-size:10px;padding:3px 8px;border-radius:20px;letter-spacing:.1em}
+  .panel.now .pill{background:rgba(90,169,255,.15);color:var(--blue)}
+  .panel.next .pill{background:rgba(244,193,75,.15);color:var(--gold)}
+  .panel .body{padding:0}
+  .panel pre{border:0;border-radius:0;background:transparent}
+  .panel .note{padding:12px 18px;border-top:1px solid var(--line);font-size:13px;color:var(--mut)}
+  .panel .note b{color:var(--ink)}
+
+  /* stage rail */
+  .rail{display:grid;grid-template-columns:1fr 44px 1fr 44px 1fr;align-items:stretch;gap:0;margin-top:8px}
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .stage .n{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+  .stage h3{margin:6px 0 4px;font-size:20px}
+  .stage .verb{font-family:var(--mono);font-size:13px;margin-bottom:10px}
+  .stage p{margin:0;font-size:14px;color:var(--mut)}
+  .stage.s0{border-color:rgba(90,169,255,.4)} .stage.s0 .verb{color:var(--blue)}
+  .stage.s1{border-color:rgba(244,193,75,.45)} .stage.s1 .verb{color:var(--gold)}
+  .stage.s2{border-color:rgba(217,119,240,.45)} .stage.s2 .verb{color:var(--mag)}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:24px}
+
+  /* dual-nature split */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px}
+  .half{border:1px solid var(--line);border-radius:14px;padding:22px;background:var(--card)}
+  .half .sym{font-family:var(--mono);font-size:34px;font-weight:800;line-height:1}
+  .half.at{border-top:3px solid var(--gold)} .half.at .sym{color:var(--gold)}
+  .half.gt{border-top:3px solid var(--cyan)} .half.gt .sym{color:var(--cyan)}
+  .half h3{margin:10px 0 4px;font-size:19px}
+  .half .who{font-family:var(--mono);font-size:12px;color:var(--dim);margin-bottom:12px;letter-spacing:.06em}
+  .half ul{margin:0;padding-left:18px;color:var(--mut);font-size:14px}
+  .half li{margin:5px 0}
+  .half li b{color:var(--ink)}
+
+  /* pillars */
+  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:8px}
+  .pillar{border:1px solid var(--line);border-radius:14px;padding:22px;background:linear-gradient(180deg,var(--card),var(--bg2))}
+  .pillar .em{font-size:26px}
+  .pillar h3{margin:10px 0 6px;font-size:18px}
+  .pillar p{margin:0 0 12px;font-size:14px;color:var(--mut)}
+  .pillar .mini{font-family:var(--mono);font-size:12px;background:#0a0c12;border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:var(--mut)}
+  .pillar.p1{border-top:3px solid var(--green)} .pillar.p1 h3{color:var(--green)}
+  .pillar.p2{border-top:3px solid var(--gold)} .pillar.p2 h3{color:var(--gold)}
+  .pillar.p3{border-top:3px solid var(--mag)} .pillar.p3 h3{color:var(--mag)}
+
+  /* how-table */
+  table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
+  th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  td b{color:var(--ink)} td .f{font-family:var(--mono);font-size:12px;color:var(--cyan)}
+  tr td:first-child{color:var(--mut);white-space:nowrap}
+  .chg{color:var(--gold);font-weight:700} .keep{color:var(--green);font-weight:700}
+
+  .foot{padding:48px 0 70px;color:var(--mut)}
+  .foot h2{color:var(--ink)}
+  .honest{background:rgba(255,107,107,.06);border:1px solid rgba(255,107,107,.25);border-radius:12px;padding:18px 20px;font-size:15px}
+  .honest b{color:var(--red)}
+  .tldr{background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--green);border-radius:0 12px 12px 0;padding:18px 22px;margin-top:20px;font-size:16px}
+  .tldr b{color:var(--green)}
+
+  @media(max-width:860px){
+    h1{font-size:38px}
+    .cols,.split,.pillars{grid-template-columns:1fr}
+    .rail{grid-template-columns:1fr}
+    .arrow{transform:rotate(90deg);height:30px}
+    .thesis{flex-direction:column}.thesis div+div{border-left:0;border-top:1px solid var(--line)}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">ACT · SPIL evolution</div>
+    <h1><span class="a">SPIL today is a </span><span class="b">spec sheet</span>.<br><span class="a">It could be a </span><span class="b">language</span>.</h1>
+    <p class="lede">Right now SPIL is <b>writing you do to an agent</b> — structured notes the model reads. The leap is making it <b>writing the machine runs</b> — a real program the orchestrator evaluates. Same syntax. Totally different job.</p>
+
+    <div class="thesis">
+      <div class="now">
+        <div class="tag">SPIL now</div>
+        <div class="big">The model <span class="word">reads</span> it.</div>
+        <small style="color:var(--dim)">A smart prompt. Describes the work. Hopes the agent complies.</small>
+      </div>
+      <div class="next">
+        <div class="tag">SPIL next</div>
+        <div class="big">The machine <span class="word">runs</span> it.</div>
+        <small style="color:var(--dim)">A program. Enforces the work. Code makes compliance non-optional.</small>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ WHAT SPIL IS NOW ============ -->
+<section>
+  <div class="wrap">
+    <div class="kicker">Where the line sits today</div>
+    <h2>What SPIL actually is right now</h2>
+    <p class="sub">A two-part format: <b><span style="color:var(--gold)">@keywords</span></b> for structure, <b><span style="color:var(--cyan)">&gt;</span> directives</b> for plain-English intent. The Planner writes it into a task. It's good — clean, ordered, readable by both human and model. But here's the catch ↓</p>
+
+    <div class="vibe">
+      <span class="ico">🫥</span>
+      <div><b>Almost none of it is "run."</b> Of every <span style="color:var(--gold)">@section</span> you write, the code only ever pulls out <span style="color:var(--gold)">@success_criteria</span> — and only at the very end, to hand Assurance (the grading agent) a checklist. Everything else is just <span style="color:var(--cyan)">text the model skims</span>. <small>Verified in <code>server/src/services/SPILParser.ts</code> — <code>extractSuccessCriteria</code> is the one function marked IN PRODUCTION.</small></div>
+    </div>
+
+    <div class="panel now" style="margin-top:6px">
+      <div class="head"><span>task/build-auth.spil &nbsp;— as ACT treats it today</span><span class="pill">DATA · model-read</span></div>
+      <div class="body">
+<pre><code><span class="k">@task</span> <span class="s">"Build Auth System"</span>          <span class="c">← text. stored as-is.</span>
+<span class="k">@depends_on</span> <span class="p">[]</span>                    <span class="x">← NOT scheduled. just words.</span>
+<span class="c">// CORE</span>
+<span class="d">&gt;</span> <span class="s">"Implement JWT auth. Other tasks are blocked on this."</span>  <span class="x">← not enforced</span>
+
+<span class="k">@context</span><span class="p">:</span>                          <span class="x">← NOT auto-injected. model must notice it.</span>
+  user_service<span class="p">:</span> <span class="s">"/src/services/UserService.ts — reuse, don't recreate"</span>
+
+<span class="k">@success_criteria</span><span class="p">:</span>                 <span class="ok">← THE ONE PART code reads ✓</span>
+  <span class="p">-</span> POST /auth/login returns ApiResponse&lt;{ accessToken }&gt;
+  <span class="p">-</span> Auth middleware validates token on /api/* routes
+  <span class="p">-</span> Unit tests pass
+
+<span class="k">@error_handling</span><span class="p">:</span>                   <span class="x">← conditions are prose. nothing evaluates them.</span>
+  expired_token<span class="p">:</span>
+    condition<span class="p">:</span> <span class="s">"accessToken exp &lt; now"</span>   <span class="x">← never checked by code</span></code></pre>
+      </div>
+      <div class="note"><b>Translation:</b> SPIL today is a beautifully-organized <b>sticky note</b>. The structure helps the model think straight (that's the CTD ordering idea — foundations first). But the <span class="x">red lines</span> are promises on paper. If the agent ignores <code>@depends_on</code> or skips the <code>@context</code> file, nothing stops it. Only the final grade is wired to code.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE THREE STAGES ============ -->
+<section>
+  <div class="wrap">
+    <div class="kicker">The path</div>
+    <h2>Three stages: note → contract → language</h2>
+    <p class="sub">It doesn't jump straight to "lisp." It crosses in two steps, and <b>the value lands at stage 1</b> — long before it's a full language.</p>
+
+    <div class="rail">
+      <div class="stage s0">
+        <div class="n">Stage 0 · today</div>
+        <h3>The Note</h3>
+        <div class="verb">model READS</div>
+        <p>Structured prompt. One field (<code>@success_criteria</code>) reaches code, at grading time. Helps the model; binds nothing.</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage s1">
+        <div class="n">Stage 1 · the bridge</div>
+        <h3>The Contract</h3>
+        <div class="verb">machine RUNS</div>
+        <p>Full parser → tree. Every <code>@form</code> becomes an instruction the orchestrator executes: deps become real schedule edges, criteria become a fail-closed gate, error conditions get checked.</p>
+      </div>
+      <div class="arrow">→</div>
+      <div class="stage s2">
+        <div class="n">Stage 2 · the language</div>
+        <h3>The Language</h3>
+        <div class="verb">program EVALUATES</div>
+        <p>S-expression core (code = data). Forms compose, macros generate tasks, the swarm is the runtime. An agentic orchestration language.</p>
+      </div>
+    </div>
+
+    <div class="vibe" style="margin-top:24px">
+      <span class="ico">💡</span>
+      <div><b>The whole trick is one move:</b> stop <i>reading</i> the <span style="color:var(--gold)">@</span> parts and start <i>executing</i> them. That single shift — data the model interprets → instructions code enforces — is what turns a spec into a program. The lisp part (stage 2) is just what makes it composable after.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE DUAL NATURE / THE SPLIT ============ -->
+<section>
+  <div class="wrap">
+    <div class="kicker">Why SPIL is uniquely able to do this</div>
+    <h2>The split already baked in: <span style="color:var(--gold)">@</span> vs <span style="color:var(--cyan)">&gt;</span></h2>
+    <p class="sub">SPIL's two symbols aren't decoration. They're already a clean line between <b>"the deterministic part"</b> and <b>"the model part"</b> — which is exactly the seam you need to grow a language without losing the LLM's flexibility.</p>
+
+    <div class="split">
+      <div class="half at">
+        <div class="sym">@</div>
+        <h3>becomes machine-executed</h3>
+        <div class="who">→ runs on ACT's deterministic layer (the orchestrator/server)</div>
+        <ul>
+          <li><b>@depends_on</b> → a real edge in the task graph. Scheduler won't start you until upstream is done.</li>
+          <li><b>@success_criteria</b> → a runtime gate. Fails closed: no pass, no merge. Already half-wired (Assurance 95%).</li>
+          <li><b>@error_handling</b> → guards the evaluator actually checks, not prose.</li>
+          <li><b>@context</b> → auto-fetched into the window before the turn fires.</li>
+        </ul>
+      </div>
+      <div class="half gt">
+        <div class="sym">&gt;</div>
+        <h3>stays model-interpreted</h3>
+        <div class="who">→ stays the LLM's job (and that's the point)</div>
+        <ul>
+          <li><b>&gt; directives</b> remain natural-language intent — taste, nuance, "do it this way."</li>
+          <li>This is the <b>context-engineering</b> layer: a language primitive that decides <i>what text enters the window, when</i>.</li>
+          <li>You keep the model's flexibility exactly where rigid code would be brittle.</li>
+          <li>Manifest + lazy-load (<code>spil get</code>) already point here — fetch the section, not the file.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="vibe" style="margin-top:24px">
+      <span class="ico">🧩</span>
+      <div><b>This is the part most "agent DSLs" get wrong.</b> They try to make the whole thing executable and lose the model's judgment, or keep it all prose and enforce nothing. SPIL already separates the two. You just teach the machine to run the <span style="color:var(--gold)">@</span> half and keep letting the model read the <span style="color:var(--cyan)">&gt;</span> half.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE HOMOICONIC LEAP ============ -->
+<section>
+  <div class="wrap">
+    <div class="kicker">Stage 2 · why lisp / scheme</div>
+    <h2>The leap: when tasks can write tasks</h2>
+    <p class="sub">Stage 1 makes SPIL <b>run</b>. Stage 2 makes it <b>compose</b>. Recast the <span style="color:var(--gold)">@</span>-forms as s-expressions and you get the lisp superpower: <b>the program is data the program can edit</b>. Now the Planner doesn't write 12 tasks by hand — it writes one macro that generates them.</p>
+
+    <div class="cols">
+      <div class="panel now">
+        <div class="head"><span>stage 1 — runs, but static</span><span class="pill">CONTRACT</span></div>
+        <div class="body">
+<pre><code><span class="c">; one task, hand-written, executed</span>
+<span class="k">@task</span> <span class="s">"Build auth login route"</span>
+<span class="k">@depends_on</span> <span class="p">[</span><span class="s">"db-schema"</span><span class="p">]</span>
+<span class="k">@success_criteria</span><span class="p">:</span>
+  <span class="p">-</span> returns ApiResponse&lt;{token}&gt;
+  <span class="p">-</span> tests pass
+
+<span class="c">; ...and 6 more routes,</span>
+<span class="c">; copy-pasted by hand, each</span>
+<span class="c">; a separate CREATE_TASK.</span></code></pre>
+        </div>
+        <div class="note">Executable — but you still author every task by hand. The Planner is a typist.</div>
+      </div>
+
+      <div class="panel next">
+        <div class="head"><span>stage 2 — composes itself</span><span class="pill">LANGUAGE</span></div>
+        <div class="body">
+<pre><code><span class="c">; one form generates the whole CRUD swarm</span>
+<span class="p">(</span><span class="fn">for-each-route</span> <span class="p">[</span><span class="s">"login"</span> <span class="s">"logout"</span> <span class="s">"refresh"</span><span class="p">]</span>
+  <span class="p">(</span><span class="fn">task</span> <span class="v">route</span>
+    <span class="p">(</span><span class="fn">delegate</span> <span class="v">backend_dev</span><span class="p">)</span>
+    <span class="p">(</span><span class="fn">depends-on</span> <span class="s">"db-schema"</span><span class="p">)</span>
+    <span class="p">(</span><span class="fn">criteria</span>
+      <span class="p">(</span><span class="fn">returns</span> <span class="s">"ApiResponse&lt;{token}&gt;"</span><span class="p">)</span>
+      <span class="p">(</span><span class="fn">tests-pass</span><span class="p">))</span>
+    <span class="d">&gt;</span> <span class="s">"follow existing middleware patterns"</span><span class="p">))</span>
+
+<span class="c">; criteria = a real gate. delegate = real</span>
+<span class="c">; routing. the &gt; line still goes to the model.</span></code></pre>
+        </div>
+        <div class="note"><b>Same primitives, now composable.</b> <code>criteria</code> is the enforced gate from stage 1. <code>delegate</code> hits the real router. The <span class="d">&gt;</span> line still flows to the LLM. The macro wrote 3 enforced tasks from one line.</div>
+      </div>
+    </div>
+
+    <div class="vibe" style="margin-top:24px">
+      <span class="ico">🌀</span>
+      <div><b>Why lisp specifically:</b> a task graph <i>is</i> a tree, and s-expressions <i>are</i> trees written down. There's no gap to bridge — the syntax and the data structure are the same shape. That's "homoiconic" (<span style="color:var(--dim)">code and data look identical</span>), and it's the one feature that lets the orchestration language safely generate and rewrite its own plans.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ THE THREE PILLARS ============ -->
+<section>
+  <div class="wrap">
+    <div class="kicker">What you actually get</div>
+    <h2>The three things it becomes</h2>
+    <p class="sub">These are the exact phrases that are hot right now — and SPIL maps onto all three because the <span style="color:var(--gold)">@</span>/<span style="color:var(--cyan)">&gt;</span> split already gives you the machine half and the model half.</p>
+
+    <div class="pillars">
+      <div class="pillar p1">
+        <div class="em">🕸️</div>
+        <h3>Multi-agent orchestration</h3>
+        <p>Delegation, dependencies, await, spawn — as evaluable forms, not prose the Planner hopes gets followed.</p>
+        <div class="mini">(delegate backend_dev)<br>(await "db-schema")<br>(spawn 3 qa_engineer)</div>
+      </div>
+      <div class="pillar p2">
+        <div class="em">🔒</div>
+        <h3>Spec-driven programmed invariance</h3>
+        <p>The spec <i>is</i> the enforcement. <code>@success_criteria</code> stops being a hope and becomes a fail-closed gate code runs. The thing you specified is the thing that's guaranteed.</p>
+        <div class="mini">(criteria (returns …)<br>&nbsp; (tests-pass))<br>; no pass → no merge</div>
+      </div>
+      <div class="pillar p3">
+        <div class="em">🪟</div>
+        <h3>Context-engineering language</h3>
+        <p>The <span class="d">&gt;</span> directives + manifest/lazy-load become first-class control over <i>what enters the window, when</i>. Context as something you <i>program</i>, not pile up.</p>
+        <div class="mini">(inject @context :when turn-start)<br>(load-section @error_handling<br>&nbsp; :only-if needed)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ WHAT PART / HOW ============ -->
+<section>
+  <div class="wrap">
+    <div class="kicker">The concrete answer: what part, and how</div>
+    <h2>What changes, what stays</h2>
+    <p class="sub">The crossing from "data framework" to "language" is one component: a <b>parser that emits a tree + an evaluator that runs it</b>, living in the deterministic layer (<code>orchestrator.go</code> / the server). The format barely changes. The <i>handling</i> of it does.</p>
+
+    <table>
+      <thead><tr><th>Piece</th><th>Today</th><th>To become a language</th><th></th></tr></thead>
+      <tbody>
+        <tr>
+          <td>The syntax</td>
+          <td>@keywords + &gt; directives, free text</td>
+          <td>Same symbols; add nesting + (optionally) s-expr form at stage 2</td>
+          <td class="keep">mostly KEEP</td>
+        </tr>
+        <tr>
+          <td>The parser</td>
+          <td><span class="f">SPILParser.ts</span> — regex, extracts <code>@success_criteria</code> only</td>
+          <td>Real tokenizer → AST (tree). Every <code>@form</code> becomes a node with meaning</td>
+          <td class="chg">BUILD</td>
+        </tr>
+        <tr>
+          <td>The evaluator</td>
+          <td><b>doesn't exist</b> — nothing "runs" SPIL</td>
+          <td>New: walks the tree, executes forms against ACT's existing orchestrator calls (delegate→router, depends_on→scheduler, criteria→Assurance gate)</td>
+          <td class="chg">BUILD</td>
+        </tr>
+        <tr>
+          <td>@success_criteria</td>
+          <td>Parsed at grading time; 95% gate exists</td>
+          <td>Becomes the canonical fail-closed invariant the evaluator enforces pre-merge</td>
+          <td class="chg">PROMOTE</td>
+        </tr>
+        <tr>
+          <td>&gt; directives</td>
+          <td>Text the model reads</td>
+          <td><b>Stay exactly that</b> — the model-interpreted context layer. Don't make these executable.</td>
+          <td class="keep">KEEP</td>
+        </tr>
+        <tr>
+          <td>The runtime</td>
+          <td>The swarm (Tier 2 agents)</td>
+          <td>Same swarm — it's already your runtime. The evaluator just dispatches to it.</td>
+          <td class="keep">KEEP</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="vibe" style="margin-top:24px">
+      <span class="ico">🛠️</span>
+      <div><b>Where it lives:</b> the evaluator belongs in ACT's deterministic middle (<code>orchestrator.go</code> + server), per the Three-Layer rule — Planner decides, <b>ACT executes state</b>, Runner spawns. You're not adding a layer; you're filling in the one that already exists. The Planner already emits SPIL; today the server stores it as text — tomorrow the server <i>evaluates</i> it.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ HONEST FOOTER ============ -->
+<section class="foot">
+  <div class="wrap">
+    <div class="kicker" style="color:var(--red)">Keeping it honest</div>
+    <h2>The one real risk — and why this version dodges it</h2>
+    <div class="honest">
+      <b>The trap with custom languages:</b> models write them badly because there's no training data. But that only bites when agents must write <i>the user's project code</i> in your language. <b>This isn't that.</b> SPIL-as-language is the <i>orchestration</i> layer — ACT's internal wiring for who-does-what, not the Python/TS the swarm ships. You own 100% of that corpus, the domain is narrow, and the user never has to read it. That's the safe wedge. Defaulting to a custom lisp for user deliverables on silence is still a bad idea — pick boring, safe Python there.
+    </div>
+
+    <div class="tldr">
+      <b>TL;DR —</b> SPIL today: a sticky note the model reads, one field wired to code. To become an agentic language it needs one new thing — <b>a parser-plus-evaluator that runs the <span style="color:var(--gold)">@</span> forms</b> while leaving the <span style="color:var(--cyan)">&gt;</span> forms for the model. That single move gives you all three buzzwords at once: <b>orchestration</b> (delegate/await as real ops), <b>programmed invariance</b> (criteria as a fail-closed gate), and a <b>context-engineering language</b> (directives + lazy-load as window control). The lisp/s-expr step comes last and only adds composability. Start at stage 1 — it's where the value is, and it's mostly promoting code you already have.
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

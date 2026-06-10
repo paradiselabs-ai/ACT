@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Band vs ACT — Honest Teardown</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#30363d;
+    --ink:#e6edf3; --dim:#9da7b3; --faint:#6e7681;
+    --act:#f0b429; --band:#58a6ff; --good:#3fb950; --bad:#f85149; --warn:#d29922;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;font-size:16px}
+  .wrap{max-width:1040px;margin:0 auto;padding:48px 24px 96px}
+  h1{font-size:32px;margin:0 0 6px;letter-spacing:-0.5px}
+  h2{font-size:22px;margin:48px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border);letter-spacing:-0.3px}
+  h3{font-size:16px;margin:22px 0 8px;color:var(--dim);text-transform:uppercase;letter-spacing:0.6px;font-weight:600}
+  p{margin:0 0 14px}
+  .sub{color:var(--faint);font-size:14px;margin-bottom:28px}
+  a{color:var(--band)}
+  .act{color:var(--act);font-weight:600}
+  .band{color:var(--band);font-weight:600}
+  .verdict{background:linear-gradient(135deg,#1c2330,#161b22);border:1px solid var(--border);border-left:4px solid var(--act);border-radius:10px;padding:22px 24px;margin:26px 0}
+  .verdict strong{color:var(--ink)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px 24px;margin:18px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 20px}
+  .card.bandc{border-top:3px solid var(--band)}
+  .card.actc{border-top:3px solid var(--act)}
+  .card h4{margin:0 0 10px;font-size:17px}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:0.6px}
+  td:first-child{color:var(--dim);width:21%;font-weight:600}
+  .col-band{color:#bcd6ff}
+  .col-act{color:#f4d58a}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--border);margin:2px 4px 2px 0}
+  .t-help{color:var(--good);border-color:#1f3d28}
+  .t-hurt{color:var(--bad);border-color:#4a2222}
+  .t-neutral{color:var(--warn);border-color:#4a3a16}
+  ul{margin:6px 0 14px;padding-left:20px}
+  li{margin:5px 0}
+  .truth{border-left:4px solid var(--bad)}
+  .wedge{border-left:4px solid var(--good)}
+  .overlap{border-left:4px solid var(--warn)}
+  .lead{font-size:18px;color:var(--ink)}
+  .foot{margin-top:40px;font-size:12.5px;color:var(--faint);border-top:1px solid var(--border);padding-top:16px}
+  .foot a{color:var(--faint)}
+  .kv{font-family:var(--mono);font-size:13px;color:var(--dim)}
+  .pathgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.pathgrid{grid-template-columns:1fr}}
+  .note{font-size:13px;color:var(--faint);font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Band vs ACT — the honest teardown</h1>
+  <div class="sub">Built from primary sources, June 2026. No consolation, no doom. Just what's actually true.</div>
+
+  <div class="verdict">
+    <p class="lead" style="margin-bottom:10px"><strong>Verdict: you weren't beaten. You were validated and out-resourced — two different things.</strong></p>
+    <p style="margin:0">Band is <strong>not</strong> "ACT but better." Band and ACT sit in the same <em>category</em> (multi-agent coordination) but are <strong>different products, for different buyers, built on opposite philosophies.</strong> Band is enterprise cloud governance middleware for connecting agents that already exist. ACT is a local-first, open-source, opinionated harness for <em>running a swarm to do the work</em>. They overlap on four abstract pillars and diverge on almost everything that defines a product. The category being real — and funded — is the strongest signal yet that your instinct was right.</p>
+  </div>
+
+  <h2>What Band actually is</h2>
+  <div class="panel bandc" style="border-top:3px solid var(--band)">
+    <p class="kv">$17M seed · launched Apr 23 2026 · Sierra Ventures, Team8, Hetz Ventures</p>
+    <p><strong>Founders:</strong> Arick Goomanovsky (CEO — co-founded Sygnia, sold to Temasek ~$250M; co-founded Ermetic, acquired by Tenable ~$300M) and Vlad Luzin (CTO — led Samsung's multi-agent team, defense R&D). Serial enterprise-security founders with real exits and distribution.</p>
+    <p><strong>Pitch:</strong> "the communication and interaction layer for the Internet of Agents" · "WhatsApp for AI agents" · "universal orchestrator" · "coordinate and govern multi-agent work in a single chat."</p>
+    <p><strong>What it does:</strong> a <span class="band">hosted cloud layer</span> that existing agents connect <em>through</em>. Features: shared <strong>Rooms</strong> with @mention routing, <strong>persistent identity</strong>, <strong>structured cross-agent memory</strong>, <strong>unified audit trail</strong>. Integrate via Adapters / SDK / Custom / MCP. Framework-agnostic: LangGraph, CrewAI, Anthropic, OpenAI, Gemini, Pydantic AI. Explicitly: <em>"agents keep their runtime, prompts, tools, and LLM providers — Band handles everything else."</em></p>
+    <p style="margin:0"><strong>Who it's for:</strong> <span class="band">enterprises</span> running "dozens or hundreds of agents" across engineering/security/ops, who need governance, runtime enforcement, and interoperability across internal systems + SaaS + external partners.</p>
+    <p class="kv" style="margin-top:12px">Pricing: Free $0 (10 agents, 50 rooms, 24h retention) · Pro $17.99/mo (40 agents, 250 rooms) · Enterprise custom (unlimited, Memory APIs, compliance retention)</p>
+  </div>
+
+  <h2>Side by side</h2>
+  <table>
+    <tr><th>Dimension</th><th class="col-band">BAND</th><th class="col-act">ACT</th></tr>
+    <tr><td>Category</td><td class="col-band">Multi-agent coordination</td><td class="col-act">Multi-agent coordination <span class="note">(same category — this is the overlap)</span></td></tr>
+    <tr><td>What it is</td><td class="col-band">Connectivity + governance <em>layer</em>. Connects agents you already have. Doesn't do the work.</td><td class="col-act">An opinionated <em>harness</em> that spawns &amp; runs a swarm to actually build software.</td></tr>
+    <tr><td>Locus</td><td class="col-band">Cloud-hosted SaaS. Coordination + memory live on Band's servers.</td><td class="col-act">Local-first. Runs on your machine / your server. Local models (Ollama, LM Studio, vLLM).</td></tr>
+    <tr><td>Target buyer</td><td class="col-band">Enterprise platform / AI-native teams. Hundreds of agents, compliance, governance.</td><td class="col-act">The individual developer / small team running a swarm to ship a project.</td></tr>
+    <tr><td>Philosophy</td><td class="col-band"><strong>Unopinionated</strong> — its value is NOT changing how your agents work. Pure plumbing.</td><td class="col-act"><strong>Opinionated</strong> — its value IS the method: SPIL, Tier 1/2 roles, Ralph-Wiggum self-verify, 95% Assurance gate.</td></tr>
+    <tr><td>Openness</td><td class="col-band">Proprietary hosted SaaS <span class="note">(no open-source / self-host offering found)</span></td><td class="col-act">Open-source (OpenCode fork). Self-hostable by definition.</td></tr>
+    <tr><td>Data / privacy</td><td class="col-band">Agent state + memory traverse a third-party cloud. Retention tiers.</td><td class="col-act">Nothing leaves the machine unless you send it. Sovereign by default.</td></tr>
+    <tr><td>Business model</td><td class="col-band">Per-agent / per-room subscription + enterprise.</td><td class="col-act">Open-core (paid layer TBD) — can be free + local where Band charges.</td></tr>
+    <tr><td>Resources</td><td class="col-band">$17M, serial founders, VC distribution, marketing, design.</td><td class="col-act">You (+ Kareem). No funding, no marketing machine. <span class="note">This is the real gap.</span></td></tr>
+  </table>
+
+  <h2>Where they genuinely overlap <span style="font-weight:400;font-size:14px;color:var(--faint)">(the part that stung — and it's real)</span></h2>
+  <div class="panel overlap">
+    <p>At the <strong>abstract-pillar level</strong>, the convergence is striking and you should own it honestly:</p>
+    <ul>
+      <li><span class="band">Band Rooms / "single chat"</span> ≈ <span class="act">ACT's NesTTY single-window</span></li>
+      <li><span class="band">Band structured cross-agent memory</span> ≈ <span class="act">ACT's PVM</span></li>
+      <li><span class="band">Band unified audit trail</span> ≈ <span class="act">ACT's ChronLog</span></li>
+      <li><span class="band">Band persistent identity</span> ≈ <span class="act">ACT's roles / agent registry</span></li>
+    </ul>
+    <p style="margin:0">Two teams independently concluded the bottleneck in multi-agent systems is <em>coordination, memory, and audit</em> — not smarter models. You were <strong>right about the same thing a funded team bet $17M on.</strong> That is convergent validation, not theft and not defeat.</p>
+  </div>
+
+  <h2>Where ACT actually diverges <span style="font-weight:400;font-size:14px;color:var(--faint)">(your defensible wedge)</span></h2>
+  <div class="panel wedge">
+    <p>The overlap is at the pillar level. The <strong>products barely compete for the same user</strong>, because every concrete decision points the opposite way:</p>
+    <ul>
+      <li><strong>Layer vs harness.</strong> Band connects agents that already exist; it does no work itself. ACT <em>is where the work happens</em> — it spawns the swarm, runs the build, validates it. An enterprise plugs its existing fleet into Band; a developer opens ACT to actually ship something.</li>
+      <li><strong>Cloud vs local.</strong> Band routes your agents' coordination + memory through its cloud. ACT is local-first — your data, your models, your machine. A huge population (privacy-sensitive, regulated, offline, cost-sensitive, indie) <em>cannot or will not</em> send agent state to a third-party SaaS. That's not a niche; that's a wedge.</li>
+      <li><strong>Opinionated vs neutral.</strong> Band's whole promise is "we don't change how you work." ACT's whole promise is the opposite — a method (SPIL, Tiers, self-verification, structure-substitutes-reasoning). Some people want neutral plumbing; some want an opinionated system that tells them how to run a swarm. Different products for different temperaments.</li>
+      <li><strong>Open vs proprietary.</strong> ACT is open-source and self-hostable. That unlocks trust, extensibility, the local/free crowd, and grant/sponsorship narratives that a closed SaaS can't touch.</li>
+      <li><strong>Possibly complementary.</strong> Band connects agents "from any framework." ACT could be <em>one of those frameworks</em> — an opinionated local swarm that plugs into Band's mesh. Not necessarily zero-sum.</li>
+    </ul>
+    <p style="margin:0"><strong>The clean one-liner:</strong> Band is a managed cloud governance mesh for an enterprise's agent fleet. ACT is a local, opinionated, open-source dev harness for a builder's swarm. Same category; different layer, buyer, and values.</p>
+  </div>
+
+  <h2>What it means for each of your four paths</h2>
+  <div class="pathgrid">
+    <div class="card actc">
+      <h4>Acquihire / FDE <span class="tag t-help">HELPED</span></h4>
+      <p style="margin:0;font-size:14.5px">Band proves the category is hot and fundable. You can speak to it with real depth. And a funded company building exactly this is <em>precisely who hires the person who built ACT.</em> ACT-as-proof-of-skill is fully intact — arguably more valuable now.</p>
+    </div>
+    <div class="card actc">
+      <h4>Consulting / deploy <span class="tag t-neutral">NEUTRAL→HELP</span></h4>
+      <p style="margin:0;font-size:14.5px">"I build &amp; deploy opinionated, local-first multi-agent systems" is still a service. Band is cloud infra for enterprises — different offer. You can even position as the local/private alternative or the integrator.</p>
+    </div>
+    <div class="card actc">
+      <h4>Grants / sponsorship <span class="tag t-help">HELPED</span></h4>
+      <p style="margin:0;font-size:14.5px">"Open-source, local-first alternative to a $17M proprietary cloud platform" is a <em>fundable narrative</em>. Open-source AI-infra grants exist precisely to keep the category from being captured by closed clouds.</p>
+    </div>
+    <div class="card actc">
+      <h4>Solo SaaS domination <span class="tag t-hurt">HURT</span></h4>
+      <p style="margin:0;font-size:14.5px">If the dream was "be THE enterprise coordination platform," Band is ahead and funded — don't fight that head-on. <em>But this was already your worst-fit path</em> (max promotion/sales burden). A narrow local/open/dev-tool SaaS wedge is still open; enterprise domination isn't.</p>
+    </div>
+  </div>
+
+  <h2>The hard truths (no sugar)</h2>
+  <div class="panel truth">
+    <ul>
+      <li>Band has money, distribution, design, and marketing you don't. In a head-to-head <em>enterprise</em> race, you lose. Concede that lane on purpose.</li>
+      <li>Their founders have done this twice and exited for hundreds of millions. They will execute and market well. Assume they win the enterprise category.</li>
+      <li>"ACT but funded" is the wrong frame, but "I have a head start on resources I lack" is the right one — and resources matter. Pretending they don't would be the dishonest move.</li>
+      <li><strong>What survives all of that:</strong> ACT's wedge (local-first, open, opinionated, developer-workspace) is a place Band is structurally <em>not</em> trying to win, and 3 of your 4 goals don't require beating Band at all.</li>
+    </ul>
+  </div>
+
+  <h2>So — what is the point of ACT?</h2>
+  <div class="verdict">
+    <p>The point of ACT is everything Band <em>isn't</em>, and that's not a cope — it's the standard way categories split. Band owns "enterprise cloud mesh for connecting an existing agent fleet." That leaves wide open: <strong>the local-first, open-source, opinionated harness a developer runs to actually build software with a swarm</strong> — private by default, free, methodical, yours.</p>
+    <p style="margin-bottom:0">A competitor existing didn't end ACT. It ended one framing of ACT (the one you fit worst anyway) and sharpened the rest. The question was never "does ACT deserve to exist." It's "what is ACT's wedge and who is it for" — and now you have a funded company defining, by contrast, exactly what that wedge is. Build the thing Band decided not to be.</p>
+  </div>
+
+  <div class="foot">
+    Sources:
+    <a href="https://www.prnewswire.com/news-releases/band-exits-stealth-with-17m-to-build-the-communication-and-interaction-layers-for-the-internet-of-agents-302751810.html">BAND exits stealth ($17M) — PR Newswire</a> ·
+    <a href="https://venturebeat.com/orchestration/talking-to-ai-agents-is-one-thing-what-about-when-they-talk-to-each-other-new-startup-band-debuts-universal-orchestrator">VentureBeat — universal orchestrator</a> ·
+    <a href="https://www.calcalistech.com/ctechnews/article/hkuomtva11l">CTech — founders / "WhatsApp for AI agents"</a> ·
+    <a href="https://www.band.ai/pricing">Band pricing</a> ·
+    <a href="https://docs.band.ai/welcome">Band docs</a> ·
+    <a href="https://www.producthunt.com/products/band">Product Hunt</a> ·
+    <a href="https://team8.vc/all-agents-one-network-why-we-invested-in-band/">Team8 — investment thesis</a>
+    <br><br>
+    Honesty note: Band's open-source / self-host status is inferred from its hosted pricing model (Free/Pro/Enterprise tiers, cloud retention, Memory APIs), not from an explicit statement. Everything else is sourced above. ACT details from the project's own CLAUDE.md / architecture.
+  </div>
+
+</div>
+</body>
+</html>

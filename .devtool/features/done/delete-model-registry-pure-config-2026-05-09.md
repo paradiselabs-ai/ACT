@@ -1,12 +1,13 @@
 ---
 id: "delete-model-registry-pure-config-2026-05-09"
-status: "todo"
+status: "done"
 priority: "high"
 assignee: "d34d"
+epic: null
 dueDate: null
 created: "2026-05-09T10:00:00.000Z"
-modified: "2026-05-09T10:00:00.000Z"
-completedAt: null
+modified: "2026-06-06T05:07:01.213Z"
+completedAt: "2026-06-06T05:07:01.213Z"
 labels: ["refactor", "architecture", "alpha-priority", "config", "ux"]
 order: "a0"
 ---
@@ -32,7 +33,7 @@ The right design: provider + model are pure config. ACT routes to the provider's
 - `models.SupportedModels` map
 - `models.ProviderPopularity` map
 - `config.resolveModelAlias()` — reverse lookup
-- `config.validateAgent()`'s registry-based model check (lines ~510-565)
+- `config.validateAgent()`'s registry-based model check (lines \~510-565)
 - `models.Model` struct's `APIModel`, `CostPer1MIn`, `CostPer1MInCached`, `CostPer1MOut`, `CostPer1MOutCached`, `CanReason`, `ToolsUnsupported`, `Name` fields
 
 ## What stays
@@ -141,7 +142,7 @@ Or simpler: just print clear errors and let user manually update. The pre-alpha 
 ## Success criteria
 
 1. All 8 model-list files (`anthropic.go`, `openai.go`, etc.) deleted.
-2. `validateAgent` is <50 LOC.
+2. `validateAgent` is &lt;50 LOC.
 3. `~/.act.json` requires `provider` field on every agent block; ACT errors clearly if missing.
 4. New model "supported" by writing the string in config — no code change required.
 5. LM Studio works zero-config: just set `providers.local.baseURL` and add the model string. No `LOCAL_ENDPOINT` env var needed.
@@ -152,7 +153,7 @@ Or simpler: just print clear errors and let user manually update. The pre-alpha 
 
 ## Estimate
 
-1-2 days focused work. ~600 LOC deleted, ~150 LOC added (mostly the new validateAgent + tool-call probe error handler).
+1-2 days focused work. \~600 LOC deleted, \~150 LOC added (mostly the new validateAgent + tool-call probe error handler).
 
 ## Priority justification
 

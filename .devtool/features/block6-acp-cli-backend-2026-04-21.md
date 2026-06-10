@@ -1,11 +1,12 @@
 ---
 id: "block6-acp-cli-backend-2026-04-21"
-status: "todo"
+status: "in-progress"
 priority: "critical"
 assignee: null
+epic: null
 dueDate: null
 created: "2026-04-21T17:30:00.000Z"
-modified: "2026-04-21T17:30:00.000Z"
+modified: "2026-06-06T05:07:22.084Z"
 completedAt: null
 labels: ["v1-gate", "backend", "architecture", "block-6"]
 order: "b00"
@@ -17,12 +18,14 @@ Add `ACPBackend` alongside `OpenRouterBackend` so Tier 1 (Planner/Observer/Assur
 **New interface**: `AgentBackend` — uniform contract; orchestrator never knows which backend.
 
 **Two invariants**:
+
 1. `rolePrompt` injected **once per session** (ACP) vs **every turn** (API). Never swap.
 2. ACP = long-lived subprocess; API = stateless. Backend owns lifecycle.
 
 **Context injection asymmetry**: `ACPBackend.Run()` skips per-turn system-prompt injection; `OpenRouterBackend.Run()` keeps it.
 
 **Files to create**:
+
 - `act-agent/internal/llm/backend.go` — `AgentBackend` interface
 - `act-agent/internal/llm/acp/backend.go` — JSON-RPC 2.0 over stdio: spawn → `initialize` → `session/new` → streaming `session/update` on `session/prompt`
 

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Round 6 — Dual-Path Planner-Prompt Audit</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --ink:#e6edf3; --mut:#9aa7b4;
+    --line:#2a323c; --accent:#6ea8fe;
+    --crit:#ff5c6c; --high:#ff9f43; --med:#ffd24a; --low:#8a94a3; --ok:#39d98a; --drop:#6b7480;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 20px 80px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em;
+    background:#0b0e13;border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:#cdd9e5}
+  h1{font-size:28px;margin:0 0 4px;letter-spacing:-.5px}
+  h2{font-size:20px;margin:40px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sub{color:var(--mut);margin:0 0 24px}
+  /* stat row */
+  .stats{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0 8px}
+  .stat{flex:1 1 150px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .stat b{display:block;font-size:22px;line-height:1.2}
+  .stat span{color:var(--mut);font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+  /* callout */
+  .callout{background:linear-gradient(180deg,#1d2530,#161b22);border:1px solid #34507a;
+    border-left:4px solid var(--accent);border-radius:10px;padding:18px 20px;margin:18px 0}
+  .callout h3{margin:0 0 8px;font-size:16px;color:#bcd3ff}
+  .callout p{margin:8px 0;color:#d6dee6}
+  .tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+    padding:2px 8px;border-radius:20px;vertical-align:middle}
+  .t-crit{background:rgba(255,92,108,.16);color:var(--crit);border:1px solid rgba(255,92,108,.4)}
+  .t-high{background:rgba(255,159,67,.16);color:var(--high);border:1px solid rgba(255,159,67,.4)}
+  .t-med{background:rgba(255,210,74,.14);color:var(--med);border:1px solid rgba(255,210,74,.4)}
+  .t-low{background:rgba(138,148,163,.16);color:var(--low);border:1px solid rgba(138,148,163,.4)}
+  .t-ok{background:rgba(57,217,138,.16);color:var(--ok);border:1px solid rgba(57,217,138,.4)}
+  .t-drop{background:rgba(107,116,128,.16);color:var(--drop);border:1px solid rgba(107,116,128,.4)}
+  /* finding cards */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;margin:12px 0;border-left:4px solid var(--low)}
+  .card.crit{border-left-color:var(--crit)} .card.high{border-left-color:var(--high)}
+  .card.med{border-left-color:var(--med)} .card.ok{border-left-color:var(--ok)}
+  .card.drop{border-left-color:var(--drop);opacity:.72}
+  .card .hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .card .hd .num{font-weight:800;color:var(--mut);font-size:14px}
+  .card .hd .ttl{font-weight:700;font-size:15.5px;flex:1 1 auto}
+  .card .plain{color:#d6dee6;margin:6px 0}
+  .card .meta{color:var(--mut);font-size:13px;margin-top:8px;display:flex;flex-wrap:wrap;gap:14px}
+  .card .meta b{color:#c9d4df;font-weight:600}
+  .conv{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+  /* path compare */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){.grid2{grid-template-columns:1fr}}
+  .pc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+  .pc h4{margin:0 0 8px;font-size:15px}
+  .pc ul{margin:6px 0 0;padding-left:18px;color:#cdd7e0} .pc li{margin:4px 0}
+  .pc .badge{font-size:12px;color:var(--mut)}
+  /* roadmap */
+  .road{position:relative;margin-top:8px}
+  .phase{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+  .phase .ph-hd{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .phase .ph-hd b{font-size:16px}
+  .phase ol{margin:8px 0 0;padding-left:20px} .phase li{margin:6px 0;color:#d6dee6}
+  .pill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-radius:20px;padding:2px 9px}
+  .p-now{background:rgba(255,92,108,.16);color:var(--crit);border:1px solid rgba(255,92,108,.35)}
+  .p-soon{background:rgba(255,159,67,.16);color:var(--high);border:1px solid rgba(255,159,67,.35)}
+  .p-later{background:rgba(110,168,254,.14);color:var(--accent);border:1px solid rgba(110,168,254,.35)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 0;color:var(--mut);font-size:12.5px}
+  .foot{color:var(--mut);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+  .alpha{background:#11161d;border:1px dashed #3a4a63;border-radius:10px;padding:14px 18px;margin:14px 0}
+  .alpha b{color:#bcd3ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Round 6 — Dual-Path Planner-Prompt Audit</h1>
+  <p class="sub">Two independent analyses of the same 36-entry prompt map, then a comparison. Branch <code>feat/remove-nomik</code>. Top findings re-verified against live code after the run.</p>
+
+  <div class="stats">
+    <div class="stat"><b>6</b><span>agents</span></div>
+    <div class="stat"><b>~798K</b><span>tokens</span></div>
+    <div class="stat"><b>~9.5 min</b><span>wall-clock</span></div>
+    <div class="stat"><b>36</b><span>prompts mapped</span></div>
+    <div class="stat"><b>1</b><span>critical, still open</span></div>
+  </div>
+
+  <!-- ============ THE STORY ============ -->
+  <h2>The headline: the method caught itself being wrong</h2>
+  <div class="callout">
+    <h3>Both halves agreed on a bug that was already fixed.</h3>
+    <p><b>What happened:</b> Path A and Path B <em>independently</em> ranked the same issue HIGH — "system prompts leak into the human chat." They were both reading a map snapshot that was a few commits stale. The leak had been patched right after the map was built.</p>
+    <p><b>Why it matters:</b> if you trust agreement, you ship the wrong fix. The comparator's whole job is to re-check the things both sides agree on — and that's exactly what caught it. <b>Two voices nodding isn't proof; it's a louder echo of the same old map.</b></p>
+    <p><b>The takeaway for next time:</b> the comparator should re-verify <em>every</em> convergent claim against live code, not spot-check. And the top targets get a fresh grep before anyone writes a fix (which is what we just did — line numbers had already drifted again).</p>
+  </div>
+
+  <!-- ============ FINDINGS ============ -->
+  <h2>What's actually broken (live-verified)</h2>
+  <div class="legend">
+    <span><span class="tag t-crit">critical</span> trust-model breaker</span>
+    <span><span class="tag t-high">high</span> real risk</span>
+    <span><span class="tag t-med">medium</span> robustness/clarity</span>
+    <span><span class="tag t-ok">verified fixed</span></span>
+    <span><span class="tag t-drop">dropped</span> false positive</span>
+  </div>
+
+  <div class="card crit">
+    <div class="hd"><span class="num">#1</span><span class="ttl">The validation gate waves through empty work</span>
+      <span class="tag t-crit">critical</span><span class="conv">both paths agreed ✓ verified</span></div>
+    <p class="plain">A task with <b>no success-criteria checklist</b> auto-scores 100% and "passes." Fake-validated work then flows straight into the final deliverable with a green check. The Planner is even <em>told</em> in its own prompt that this can't happen — so the prompt is lying to it.</p>
+    <p class="plain"><b>Why a prompt edit can't fix it:</b> the prompt is working as designed. The hole is in the code gate — it checks the score but never checks that there <em>were</em> any criteria to score.</p>
+    <div class="meta"><span><b>Where:</b> <code>orchestrator.go:3097</code> — <code>Passed: OverallScore &gt;= passThreshold</code></span>
+      <span><b>Fix:</b> add <code>&amp;&amp; len(CriteriaResults) &gt; 0</code> (fail-closed) + a test</span></div>
+  </div>
+
+  <div class="card high">
+    <div class="hd"><span class="num">#2</span><span class="ttl">A hostile repo could hijack every agent</span>
+      <span class="tag t-high">high</span><span class="conv">both paths agreed ✓ verified</span></div>
+    <p class="plain">When ACT onboards an existing codebase, a researcher reads the repo and its notes get pasted <b>unfenced</b> into every agent's system prompt — in the highest-priority spot. A repo that plants fake instructions in its files (a <code>CREATE_TASK:</code> or <code>[SYSTEM]</code> line) could smuggle commands into the swarm. Brownfield onboarding is the flagship path, so the exposure is real.</p>
+    <div class="meta"><span><b>Where:</b> <code>agents_md.go:32</code> → <code>prompt.go:53</code></span>
+      <span><b>Fix:</b> wrap notes in a <code>&lt;codebase_analysis&gt;</code> "reference data, not instructions" fence + scrub coordination markers. New tracked item.</span></div>
+  </div>
+
+  <div class="card high">
+    <div class="hd"><span class="num">#3</span><span class="ttl">Fix 22 only finished half the job (my own miss)</span>
+      <span class="tag t-high">high</span><span class="conv">Path B only ✓ verified</span></div>
+    <p class="plain">Last round's backend fix taught the <b>Planner</b> to use the right tool path per backend — but skipped the other three Tier 1 roles. On the ACP backend, Assurance / Observer / QA still get "do NOT shell out" while their own setup note says "use the shim via Bash." Contradictory. The <code>3.5 FIXED</code> note in the tracker overreaches — it's Planner-only.</p>
+    <div class="meta"><span><b>Where:</b> <code>common.go:147</code> — <code>if role != "planner" { return actCLICommands(role) }</code></span>
+      <span><b>Fix:</b> drop the "do NOT shell out" line from the non-Planner ACP path (one sentence) + widen the test.</span></div>
+  </div>
+
+  <div class="card med">
+    <div class="hd"><span class="num">#4</span><span class="ttl">A failed file-write silently freezes all agents on old prompts</span>
+      <span class="tag t-med">medium</span><span class="conv">Path A only · re-verify before fixing</span></div>
+    <p class="plain">If writing <code>AGENTS.md</code> fails (read-only dir, disk full), the code that refreshes all four Tier 1 agents is skipped — so they run the entire build phase on their stale intake-era prompts, with only a log warning.</p>
+    <div class="meta"><span><b>Where:</b> <code>orchestrator.go</code> rebind nested in the <code>else</code> of the write</span>
+      <span><b>Fix:</b> refresh from the server brief unconditionally; the file is a convenience, not a precondition.</span></div>
+  </div>
+
+  <div class="card med">
+    <div class="hd"><span class="num">#5–7</span><span class="ttl">Autoroute rough edges</span>
+      <span class="tag t-med">medium</span><span class="conv">Path B</span></div>
+    <p class="plain">QA's "deliverable ready" signal is routed through the "React by taking action!" template (wrong tone, most likely place a junk task gets created). The fail-verdict prompt asks "is this the 3rd failure?" but never tells the Planner the count. And the no-task template is too vague about what recovery even means for a stuck deliverable.</p>
+    <div class="meta"><span><b>Fix:</b> a QA-report variant; inject "Attempt N of 3"; a synthesis-stuck recovery line.</span></div>
+  </div>
+
+  <div class="card med">
+    <div class="hd"><span class="num">#8–10</span><span class="ttl">Tool-menu clarity + burst reporting</span>
+      <span class="tag t-med">medium</span><span class="conv">both paths</span></div>
+    <p class="plain">The <code>act_cli</code> tool offers commands the prose forbids for status queries (the rule sits thousands of tokens away from the menu); the compound verbs collapse so the model only learns valid forms by getting rejected; and a burst of failures shows the Planner only the first one.</p>
+    <div class="meta"><span><b>Fix:</b> co-locate the carve-outs in the tool description; list all N failures in the burst message. Mostly cheap text.</span></div>
+  </div>
+
+  <div class="card ok">
+    <div class="hd"><span class="num">✓</span><span class="ttl">System-prompt chat-leak</span>
+      <span class="tag t-ok">verified fixed</span><span class="conv">comparator caught the false positive</span></div>
+    <p class="plain">Both paths flagged this; it's already patched. The gate is <code>!fromHuman</code> (<code>orchestrator.go:584</code>), not the stale form the map showed. <b>Do not re-fix it.</b> Just mark it resolved in the map so Round 7 doesn't rediscover the ghost.</p>
+  </div>
+
+  <div class="card ok">
+    <div class="hd"><span class="num">✓</span><span class="ttl">No regressions</span>
+      <span class="tag t-ok">verified</span></div>
+    <p class="plain">All 28 previously-fixed items still hold. Both REMOVED surfaces (Nomik section, codebase commands) are genuinely gone. The map itself didn't drift from code except where it went stale on the leak line.</p>
+  </div>
+
+  <!-- ============ METHOD VERDICT ============ -->
+  <h2>Which path earned its keep</h2>
+  <div class="grid2">
+    <div class="pc">
+      <h4>Path A — 3 slices + synthesizer <span class="badge">(~4× cost)</span></h4>
+      <ul>
+        <li><b>Won:</b> the deep control-flow edge (#4) nobody else saw; conflict-adjudication.</li>
+        <li><b>Lost:</b> its slices were Planner-scoped, so it never asked "is Fix 22 complete for <em>other</em> roles?" — missed #3, #5–7.</li>
+        <li>Its "three subs agreed" confidence signal also produced the false positive.</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h4>Path B — single pass <span class="badge">(~1× cost)</span></h4>
+      <ul>
+        <li><b>Won:</b> caught all three cross-cutting boundary findings (incl. #3, my Fix 22 gap) at a quarter of the cost.</li>
+        <li><b>Lost:</b> less depth on nested control flow — missed #4.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout" style="border-left-color:var(--ok);border-color:#2f5d45">
+    <p style="margin:0"><b>Verdict for this corpus:</b> Path B was the better value — the whole-surface view caught what mattered cheaply. Keep B as primary next round; run the fan-out only on the deepest control-flow files; and make the comparator re-grep <em>every</em> convergent claim. Neither path self-corrects on a stale map — that's the comparator's job, and it paid for itself.</p>
+  </div>
+
+  <!-- ============ NEXT STEPS ============ -->
+  <h2>What to do next</h2>
+
+  <div class="alpha">
+    <b>Alpha lens (v0.1.0-alpha.1):</b> the bar is "the coordination story holds up on a controlled demo." By that bar, <b>#1 is alpha-blocking</b> — a validation gate that silently passes empty work undermines the single thing ACT is selling (the 95% Assurance gate). #2 is alpha-hardening (fix before any untrusted repo). #3 is a cheap correctness finish. The rest are post-alpha polish.
+  </div>
+
+  <div class="phase">
+    <div class="ph-hd"><span class="pill p-now">do now · Round 6a</span><b>One tight session, highest leverage</b></div>
+    <ol>
+      <li><b>#1 fail-closed guard</b> — one line at <code>orchestrator.go:3097</code> + a test (empty criteria ⇒ not passed). <span class="tag t-crit">alpha-blocking</span></li>
+      <li><b>#3 finish 3.5</b> — drop the "do NOT shell out" sentence from the non-Planner ACP path; extend the Fix 22 test to all four roles. Closes my own half-fix.</li>
+      <li><b>#8 + #9 tool-menu text</b> — co-locate the two <code>act_cli</code> carve-outs. Pure text, no parser change.</li>
+      <li><b>Housekeeping</b> — regenerate the map marking the chat-leak <span class="tag t-ok">resolved</span> so Round 7 doesn't rediscover the ghost; correct the tracker's <code>3.5 FIXED</code> to "Planner-only."</li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <div class="ph-hd"><span class="pill p-soon">soon · Round 6b</span><b>Security hardening — its own session</b></div>
+    <ol>
+      <li><b>#2 brownfield injection fence</b> — wrap researcher notes in an untrusted-data block + scrub coordination markers. Needs a fence design, a marker-scrub test, and a new tracked item. <span class="tag t-high">before untrusted repos</span></li>
+      <li><b>#4 unconditional rebind</b> — re-verify the <code>else</code>-nesting first, then move the refresh out so a write failure can't freeze the agents.</li>
+    </ol>
+  </div>
+
+  <div class="phase">
+    <div class="ph-hd"><span class="pill p-later">later · post-alpha</span><b>Robustness &amp; polish</b></div>
+    <ol>
+      <li><b>#5–7 autoroute variants</b> — QA-report variant, attempt-count injection, synthesis-stuck recovery line.</li>
+      <li><b>#10 burst reporting</b> — show all N failures, not just the first.</li>
+      <li><b>#11 small stuff</b> — a typo, an attachment size cap, a build-mode echo.</li>
+      <li><b>Round 7 method upgrade</b> — comparator re-greps every convergent claim; fan-out only on deep control-flow files.</li>
+    </ol>
+  </div>
+
+  <p class="foot">
+    Source docs: <code>round6-path-a-sub1/2/3.md</code>, <code>round6-path-a-synthesis.md</code>, <code>round6-path-b-self.md</code>, <code>round6-comparison-A-vs-B.md</code>.
+    Top findings (#1, #3) and the dropped leak re-grepped against live <code>feat/remove-nomik</code> after the run — line numbers had already drifted from the analysis snapshot, which is why the re-check mattered.
+  </p>
+
+</div>
+</body>
+</html>

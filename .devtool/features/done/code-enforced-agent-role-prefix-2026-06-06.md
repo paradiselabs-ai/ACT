@@ -1,12 +1,12 @@
 ---
 id: "code-enforced-agent-role-prefix-2026-06-06"
-status: "todo"
+status: "done"
 priority: "high"
 assignee: "d34d"
 dueDate: null
 created: "2026-06-06T16:38:58.000Z"
-modified: "2026-06-06T16:38:58.000Z"
-completedAt: null
+modified: "2026-06-06T22:17:31.000Z"
+completedAt: "2026-06-06T22:17:31.000Z"
 labels: ["orchestrator", "tui", "invariants", "reliability"]
 order: "a0"
 ---
