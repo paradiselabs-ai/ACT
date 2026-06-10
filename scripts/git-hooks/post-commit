@@ -8,7 +8,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 0
 REGISTRY="$REPO_ROOT/docs/constitution/freshness.json"
 [ -f "$REGISTRY" ] || exit 0
 
-git diff-tree --no-commit-id --name-only -r HEAD | python3 - "$REGISTRY" "$(git rev-parse --short HEAD)" <<'PY'
+git diff-tree --no-commit-id --name-only -r HEAD | python3 -c '
 import json, sys
 
 registry_path, commit = sys.argv[1], sys.argv[2]
@@ -30,11 +30,11 @@ for name, art in reg.get("artifacts", {}).items():
         art["status"] = "stale"
         art["staled_by"] = commit
         dirty = True
-        print(f"freshness: '{name}' is now STALE (commit {commit} touched watched paths)")
+        print(f"freshness: {name!r} is now STALE (commit {commit} touched watched paths)")
 
 if dirty:
     with open(registry_path, "w") as f:
         json.dump(reg, f, indent=2)
         f.write("\n")
-PY
+' "$REGISTRY" "$(git rev-parse --short HEAD)"
 exit 0
