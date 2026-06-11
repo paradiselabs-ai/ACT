@@ -154,6 +154,9 @@
       "failure_modes_observed": "drift patterns from coord log / kanban / combined-analysis [ACTIVE] entries; for [FIXED] entries, the fix SHA + whether current code matches the resolution-note claim"
     },
     "generated_at": "2026-06-06",
+    "last_refreshed": "2026-06-11",
+    "last_refreshed_commit": "9bbf2c1",
+    "refresh_note": "2026-06-11 scoped freshness refresh on feat/cleanup-constitution (HEAD 9bbf2c1). Re-grepped every entry's source_file/source_line against the live tree per UPDATE_LOOPS.md §3. Many source_lines drifted (orchestrator.go +90 to +209, prompt construction sites +1 to +16) with no behavioral change — code moved, semantics identical. All raw_text fragments re-verified verbatim against the live source; one paraphrased pseudo-schema (expand_prompt_section_tool_inprocess description) noted as drifted. No fix_status changes: every STILL-ACTIVE entry confirmed still active, every VERIFIED-FIXED entry confirmed still live, both REMOVED entries confirmed still absent.",
     "branch": "feat/remove-nomik",
     "round": 6,
     "prior_snapshot": "Round 5 — generated_at 2026-05-27, branch feat/pvm-full-implementation, 29 entries",
@@ -166,7 +169,14 @@
       "Round 5b: 8e3d3a8 (18), ffb51e4 (19), 8249a19 (20/20b), 2326d0b (21), ac241e0 (22)",
       "Nomik removal: a90b010, dcf4444; brownfield onboarding: 045ad26, c1e9bd5, 701fede, e49d197, 033bec1; confirmation hard-stop: b03ef50"
     ],
-    "active_drift_carried_from_round5": ["3.4 no mode echo", "4.2 Observer free-tier echo", "4.3 QA re-synthesis on restart", "7.1 [SYSTEM] visible in chat", "7.3 context file overrides base rules", "8.4 burst shows only first failure"]
+    "active_drift_carried_from_round5": [
+      "3.4 no mode echo",
+      "4.2 Observer free-tier echo",
+      "4.3 QA re-synthesis on restart",
+      "7.1 [SYSTEM] visible in chat",
+      "7.3 context file overrides base rules",
+      "8.4 burst shows only first failure"
+    ]
   },
   "prompts": [
     {
@@ -280,7 +290,8 @@
       "trigger": "Appended to every Tier 1 system prompt at construction and at RebindSystemPrompt — prompt.go::GetAgentPrompt",
       "trigger_category": "fragment",
       "source_file": "act-agent/internal/llm/prompt/prompt.go",
-      "source_line": 53,
+      "source_line": 60,
+      "drift_note": "2026-06-11: source_line 53→60 (the `# Project-Specific Context` fmt.Sprintf moved within GetAgentPrompt as preceding role cases / fallback-warn block grew). raw_text verbatim-confirmed at prompt.go:60. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "\n\n# Project-Specific Context\nFollow the instructions in the context below:\n%s",
@@ -303,10 +314,15 @@
       "trigger": "Composition fragment — wrapPriming(role, base) in app.go wraps the full ACP system prompt for delivery",
       "trigger_category": "fragment",
       "source_file": "act-agent/internal/app/app.go",
-      "source_line": 261,
-      "compose_order": ["static_system_prompt_acp", "doNotRespondHeader", "renderShimNote"],
+      "source_line": 277,
+      "drift_note": "2026-06-11: source_line 261→277 (wrapPriming now at app.go:277-279; doNotRespondHeader const at app.go:269; renderShimNote at app.go:286-295; makePrimingInjector at app.go:249). All raw_text fragments verbatim-confirmed at the live lines. No behavioral change.",
+      "compose_order": [
+        "static_system_prompt_acp",
+        "doNotRespondHeader",
+        "renderShimNote"
+      ],
       "backend": "acp",
-      "raw_text": "wrapPriming(role, base) = InternalPromptMarker + doNotRespondHeader + base + renderShimNote(role)\n\nWhere:\n  InternalPromptMarker = \"\\x00ACT_INTERNAL\\x00\"\n\n  doNotRespondHeader = \"[ACT priming — do not respond. This is one-time configuration injected by the orchestrator. Acknowledge silently by emitting no text.]\\n\\n\"\n\n  base = prompt.GetAgentPrompt(config.AgentName('planner'), acp.ProviderACP)   // == static_system_prompt_acp\n\n  renderShimNote('planner') (app.go:270, live from tools.AllowedFor('planner')) =\n    \"\\n\\n[ACT] The CLI `act-tier1-planner` is on your PATH. Use it via Bash for all ACT-coordination subcommands. It enforces this role's allowed subcommand set:\\n\"\n    + \"  - status\\n\"\n    + \"  - context\\n\"\n    + \"  - log\\n\"\n    + \"  - graph\\n\"\n    + \"  - pvm\\n\"\n    + \"  - message\\n\"\n    + \"  - task retry\\n\"\n    + \"  - task abandon\\n\"\n    + \"  - prompt-section\\n\"\n    + \"Anything outside this list will be rejected at the shim boundary.\"",
+      "raw_text": "wrapPriming(role, base) = InternalPromptMarker + doNotRespondHeader + base + renderShimNote(role)\n\nWhere:\n  InternalPromptMarker = \"\\x00ACT_INTERNAL\\x00\"\n\n  doNotRespondHeader = \"[ACT priming — do not respond. This is one-time configuration injected by the orchestrator. Acknowledge silently by emitting no text.]\\n\\n\"\n\n  base = prompt.GetAgentPrompt(config.AgentName('planner'), acp.ProviderACP)   // == static_system_prompt_acp\n\n  renderShimNote('planner') (app.go:286, live from tools.AllowedFor('planner')) =\n    \"\\n\\n[ACT] The CLI `act-tier1-planner` is on your PATH. Use it via Bash for all ACT-coordination subcommands. It enforces this role's allowed subcommand set:\\n\"\n    + \"  - status\\n\"\n    + \"  - context\\n\"\n    + \"  - log\\n\"\n    + \"  - graph\\n\"\n    + \"  - pvm\\n\"\n    + \"  - message\\n\"\n    + \"  - task retry\\n\"\n    + \"  - task abandon\\n\"\n    + \"  - prompt-section\\n\"\n    + \"Anything outside this list will be rejected at the shim boundary.\"",
       "runtime_substitutions": [
         "renderShimNote generates the allowed-subcommand list live from tools.AllowedFor('planner') — nine entries (NO codebase). Adding to RoleSubcommands['planner'] updates this automatically.",
         "base = static_system_prompt_acp — the ACP-branched composition (actCLICommandsACP fragment)"
@@ -317,8 +333,8 @@
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
         "REMOVED since Round 5 — renderShimNote's list dropped from 10 to 9 entries: 'codebase' is gone (a90b010 removed it from RoleSubcommands['planner']). The live-from-AllowedFor generation propagated the removal automatically — exactly the drift-prevention Fix 5.4 was built for.",
-        "Fix 5.4 (de479f4): renderShimNote reads AllowedFor('planner') live. Verified app.go:270-279.",
-        "Fix 5.2+5.3 (afaf0c3): InternalPromptMarker + doNotRespondHeader prepended; stopReason logging routes non-end_turn priming to WARN. Verified app.go:253,261; acp/agent.go:350-365.",
+        "Fix 5.4 (de479f4): renderShimNote reads AllowedFor('planner') live. Verified app.go:286-295 (re-grepped 2026-06-11, was app.go:270-279).",
+        "Fix 5.2+5.3 (afaf0c3): InternalPromptMarker + doNotRespondHeader prepended; stopReason logging routes non-end_turn priming to WARN. Verified app.go:258,278; acp/agent.go:358-371 (re-grepped 2026-06-11, was app.go:253,261 / acp/agent.go:350-365).",
         "RESOLVED 3.5: renderShimNote says 'Use it via Bash'; the base now ships actCLICommandsACP ('Reach act_cli by invoking the act-tier1-planner shim via Bash') instead of the in-process 'do NOT shell out' fragment. No longer contradictory (Fix 22)."
       ]
     },
@@ -385,21 +401,25 @@
       "trigger": "First Planner turn after a new ACP session is opened — lazy, once per ACT sessionID when the Planner backend is ACP",
       "trigger_category": "lifecycle_priming",
       "source_file": "act-agent/internal/acp/agent.go",
-      "source_line": 350,
-      "compose_order": ["static_system_prompt_acp", "acp_priming_wrapper"],
+      "source_line": 358,
+      "drift_note": "2026-06-11: source_line 350→358 (ensureACPSession at acp/agent.go:329; the `if prime := a.primingFor()` priming send at :358; stopReason switch cases at :366-371). Logic verbatim-confirmed. No behavioral change.",
+      "compose_order": [
+        "static_system_prompt_acp",
+        "acp_priming_wrapper"
+      ],
       "backend": "acp",
-      "raw_text": "// ensureACPSession (acp/agent.go:350) sends the priming as the first USER MESSAGE in the fresh ACP session:\n  if prime := a.primingFor(); prime != \"\" {\n      stopReason, err := a.client.Prompt(ctx, id, prime)\n      switch {\n      case err != nil:                       logging.Warn(\"acp_priming_failed\", ...)\n      case stopReason == \"\":                  logging.Warn(\"acp_priming_no_stop_reason\", ...)\n      case stopReason != StopReasonEndTurn:   logging.Warn(\"acp_priming_unexpected_stop_reason\", ...)\n      default:                                logging.Info(\"acp_priming_completed\", ...)\n      }\n  }\n\n// prime == wrapPriming('planner', GetAgentPrompt('planner', acp.ProviderACP))\n//        == \\x00ACT_INTERNAL\\x00 + doNotRespondHeader + static_system_prompt_acp + renderShimNote('planner')\n// ACP spec has no system-message channel (ContentBlock.Type: text|image|resource). Sent as user-role.",
+      "raw_text": "// ensureACPSession (acp/agent.go:358) sends the priming as the first USER MESSAGE in the fresh ACP session:\n  if prime := a.primingFor(); prime != \"\" {\n      stopReason, err := a.client.Prompt(ctx, id, prime)\n      switch {\n      case err != nil:                       logging.Warn(\"acp_priming_failed\", ...)\n      case stopReason == \"\":                  logging.Warn(\"acp_priming_no_stop_reason\", ...)\n      case stopReason != StopReasonEndTurn:   logging.Warn(\"acp_priming_unexpected_stop_reason\", ...)\n      default:                                logging.Info(\"acp_priming_completed\", ...)\n      }\n  }\n\n// prime == wrapPriming('planner', GetAgentPrompt('planner', acp.ProviderACP))\n//        == \\x00ACT_INTERNAL\\x00 + doNotRespondHeader + static_system_prompt_acp + renderShimNote('planner')\n// ACP spec has no system-message channel (ContentBlock.Type: text|image|resource). Sent as user-role.",
       "runtime_substitutions": [
         "prime — wrapPriming output (see acp_priming_wrapper)",
         "StopReasonEndTurn — the happy-path stop reason constant"
       ],
       "expected_response_shape": "Discarded. stopReason logged: end_turn → INFO acp_priming_completed; '' → WARN acp_priming_no_stop_reason; other → WARN acp_priming_unexpected_stop_reason; err → WARN acp_priming_failed.",
-      "parser_or_handler": "acp/agent.go::ensureACPSession stopReason switch at :352-364",
+      "parser_or_handler": "acp/agent.go::ensureACPSession stopReason switch at :360-371",
       "prior_audit_id": "acp_priming_prompt",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
         "Fix 5.1 (770a290): RebindSystemPrompt discards acpSessions → next ensureACPSession re-primes with a fresh GetAgentPrompt call (post-AGENTS.md materialization).",
-        "Fix 5.2+5.3 (afaf0c3): InternalPromptMarker + doNotRespondHeader + stopReason switch. Verified acp/agent.go:350-365.",
+        "Fix 5.2+5.3 (afaf0c3): InternalPromptMarker + doNotRespondHeader + stopReason switch. Verified acp/agent.go:358-371 (re-grepped 2026-06-11, was :350-365).",
         "ACP host UI may still render the priming as the first chat bubble — unfixable without protocol changes; now clearly labeled."
       ]
     },
@@ -408,10 +428,11 @@
       "trigger": "handleProjectBrief: PROJECT_BRIEF parsed, POSTed to server, AGENTS.md written — all Tier 1 agents refreshed",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1507,
+      "source_line": 1569,
+      "drift_note": "2026-06-11: source_line 1507→1569 (brief.CodebaseNotes assignment at orchestrator.go:1569; writeAgentsMd at :1589; InvalidateContextCache at :1597). Code verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// No new prompt text sent to the Planner — this event refreshes the system prompt:\nbrief.CodebaseNotes = o.codebaseAnalysis          // brownfield: attach stashed analysis (orchestrator.go:1479)\nwriteAgentsMd(projectDir, projectName, brief)     // renders AGENTS.md + CLAUDE.md incl. '## Codebase analysis' if notes present\nprompt.InvalidateContextCache()                   // clears contextLoaded; contextContent+contextHash preserved for hash-compare\nfor _, role := range []string{\"planner\", \"observer\", \"assurance\", \"qa_synthesizer\"} {\n    a := o.getAgent(role)\n    if err := a.RebindSystemPrompt(); err != nil { /* WARN */ }\n    // in-process: swaps provider system message via createAgentProvider\n    // ACP: discards acpSessions map → next Run opens a fresh session and re-primes\n}",
+      "raw_text": "// No new prompt text sent to the Planner — this event refreshes the system prompt:\nbrief.CodebaseNotes = o.codebaseAnalysis          // brownfield: attach stashed analysis (orchestrator.go:1569)\nwriteAgentsMd(projectDir, projectName, brief)     // renders AGENTS.md + CLAUDE.md incl. '## Codebase analysis' if notes present\nprompt.InvalidateContextCache()                   // clears contextLoaded; contextContent+contextHash preserved for hash-compare\nfor _, role := range []string{\"planner\", \"observer\", \"assurance\", \"qa_synthesizer\"} {\n    a := o.getAgent(role)\n    if err := a.RebindSystemPrompt(); err != nil { /* WARN */ }\n    // in-process: swaps provider system message via createAgentProvider\n    // ACP: discards acpSessions map → next Run opens a fresh session and re-primes\n}",
       "runtime_substitutions": [
         "brief.CodebaseNotes — o.codebaseAnalysis, non-empty only on the brownfield path",
         "AGENTS.md/CLAUDE.md content — renderAgentsMd(projectName, brief) (agents_md.go:19)"
@@ -421,7 +442,7 @@
       "prior_audit_id": "system_prompt_rebind",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "NEW since Round 5 — brownfield CodebaseNotes wiring (orchestrator.go:1479-1481): the stashed analysis is attached to the brief before writeAgentsMd, so it persists into the '## Codebase analysis' AGENTS.md section and flows into every agent's project_context_fragment on rebind.",
+        "NEW since Round 5 — brownfield CodebaseNotes wiring (orchestrator.go:1569-1589, re-grepped 2026-06-11, was :1479-1481): the stashed analysis is attached to the brief before writeAgentsMd, so it persists into the '## Codebase analysis' AGENTS.md section and flows into every agent's project_context_fragment on rebind.",
         "Fix 5.1 (770a290): ACP rebind works via session discard.",
         "IsBusy guard: RebindSystemPrompt no-ops if the agent reports IsBusy() at rebind time. The call originates inside the pubsub assistant-message handler — Planner may still be busy during handoff. Logged at WARN; not retried."
       ]
@@ -434,7 +455,7 @@
       "source_line": 224,
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// Literal user input, possibly prefixed with resume context on the first turn:\no.recentAutoRoutes = nil           // human input clears the sliding-window cap\no.lastObserverPromptHash = \"\"      // re-arm Observer no-op gate\nif o.firstPlannerTurn && o.resumeContext != \"\" {\n    text = o.resumeContext + \"\\n\\nUser message: \" + text\n    o.firstPlannerTurn = false\n}\no.runAgentTurn(ctx, sessionID, \"planner\", text, attachments...)\n\n// The Planner role bypasses InternalPromptMarker (runAgentTurn only prepends it for non-Planner roles).",
+      "raw_text": "// Literal user input, possibly prefixed with resume context on the first turn:\no.recentAutoRoutes = nil           // human input clears the sliding-window cap\no.lastObserverPromptHash = \"\"      // re-arm Observer no-op gate\nif o.firstPlannerTurn && o.resumeContext != \"\" {\n    text = o.resumeContext + \"\\n\\nUser message: \" + text\n    o.firstPlannerTurn = false\n}\no.runAgentTurn(ctx, sessionID, \"planner\", text, attachments...)\n\n// CORRECTED 2026-06-11 (was: 'Planner role bypasses InternalPromptMarker' — FALSE mechanism description).\n// The live gate is fromHuman, not role: runAgentTurn prepends InternalPromptMarker iff !fromHuman\n// (orchestrator.go, `if !fromHuman { content = InternalPromptMarker + content }`). Only HandleHumanInput\n// passes fromHuman=true — so autoroute/build/intake-triggered PLANNER turns ARE marked and hidden too.\n// The resume-context '[SYSTEM]' block is the exception that still renders: it rides the human's own\n// first message (fromHuman=true) — that is drift item 7.1, still ACTIVE.",
       "runtime_substitutions": [
         "text — verbatim human input",
         "resumeContext — renderBriefContext('resume', ...); non-empty only on the first turn of a resumed (greenfield-existing) session"
@@ -445,7 +466,9 @@
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
         "Fix 4.1 (4cb1d26): clears recentAutoRoutes slice (sliding-window cap reset on human input). By design. Verified orchestrator.go:228.",
-        "Attachments forwarded raw to runAgentTurn with no size limit or truncation. Unchanged since Round 5."
+        "Attachments forwarded raw to runAgentTurn with no size limit or truncation. Unchanged since Round 5.",
+        "CORRECTED 2026-06-11: prior revisions described the marker gate as role-based ('Planner bypasses the marker'). Live gate verified `if !fromHuman` in runAgentTurn; role plays no part. This stale mechanism description caused the Round-6 false-positive ('autoroute prompts leak to chat' citing role != \"planner\"). Keep 7.1 (resume [SYSTEM] surface) ACTIVE.",
+        "RE-VERIFIED 2026-06-11 (refresh): HandleHumanInput at orchestrator.go:224 (unchanged); recentAutoRoutes reset at :228 (unchanged); HandleHumanInput passes fromHuman=true at :242; the gate `if !fromHuman { content = InternalPromptMarker + content }` is live at runAgentTurn :584-585 (runAgentTurn now takes an explicit fromHuman bool param, :565). Correction stands."
       ]
     },
     {
@@ -453,7 +476,8 @@
       "trigger": "First Planner turn after launching against an EXISTING server-side project (detectProjectState found a 200 with a brief)",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1381,
+      "source_line": 1471,
+      "drift_note": "2026-06-11: source_line 1381→1471 (renderBriefContext at orchestrator.go:1466; the resume-branch '[SYSTEM] Resuming project %q' Fprintf at :1471). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "renderBriefContext(\"resume\", brief, tasks):\n\n\"[SYSTEM] Resuming project %q. A project brief already exists on the server — do NOT run intake. Switch immediately to BUILD mode.\\n\\n\"\n+ \"@brief\\n\"\n+ \"  description: %s\\n\"   // each field emitted only if non-empty\n+ \"  techStack: %s\\n\"\n+ \"  constraints: %s\\n\"\n+ \"  successCriteria: %s\\n\"\n+ \"  agentsInvolved: %s\\n\"  // strings.Join(.., \", \")\n\n// if len(tasks)==0:\n+ \"\\n@tasks\\n  no tasks dispatched yet — start decomposing now.\\n\"\n\n// if tasks present (partitioned: completed/validated → @completedTasks, else → @inFlightTasks):\n+ \"\\n@inFlightTasks\\n  - id=%s status=%s agent=%s title=%q\\n\"...\n+ \"\\n@completedTasks\\n  - id=%s status=%s title=%q\\n\"...\n+ \"\\nDo NOT re-emit task-creation directives for the task IDs above — they already exist on the server. Decompose only NEW work, or use act_cli task retry/abandon for failed tasks above.\\n\"\n\n// Then prepended in HandleHumanInput: text = resumeContext + \"\\n\\nUser message: \" + originalInput",
@@ -467,10 +491,10 @@
       "prior_audit_id": "resume_context_prepended",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 3.3 (3f0e8dd): all 5 brief fields + partitioned task lists + re-emit guard inlined. Verified renderBriefContext orchestrator.go:1376-1438.",
+        "Fix 3.3 (3f0e8dd): all 5 brief fields + partitioned task lists + re-emit guard inlined. Verified renderBriefContext orchestrator.go:1466-1530 (re-grepped 2026-06-11, was :1376-1438).",
         "Fix 7.2 (805fd4e): literal CREATE_TASK: scrubbed → 'task-creation directives'.",
-        "STILL-ACTIVE 7.1: the '[SYSTEM]' literal prefix is visible to the user in chat — resumeContext is prepended to the human's first input (a user-role message), not routed through InternalPromptMarker.",
-        "project_resume_blank_fields WARN fires when description+techStack both empty (orchestrator.go:305) — envelope-unwrap regression tripwire, preserved."
+        "STILL-ACTIVE 7.1: the '[SYSTEM]' literal prefix is visible to the user in chat — resumeContext is prepended to the human's first input (a user-role message), not routed through InternalPromptMarker. RE-CONFIRMED 2026-06-11: still a literal `[SYSTEM] Resuming project` Fprintf (orchestrator.go:1471) and HandleHumanInput prepends it to the human's fromHuman=true input (:237) — still ACTIVE.",
+        "project_resume_blank_fields WARN fires when description+techStack both empty (orchestrator.go:306, re-grepped 2026-06-11, was :305) — envelope-unwrap regression tripwire, preserved."
       ]
     },
     {
@@ -478,7 +502,8 @@
       "trigger": "handleProjectBrief completes: PROJECT_BRIEF accepted, POSTed, AGENTS.md written, RebindSystemPrompt done — fired via fireWhenPlannerIdle",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1383,
+      "source_line": 1473,
+      "drift_note": "2026-06-11: source_line 1383→1473 (the build-branch '[SYSTEM] Project %q has been created' Fprintf in renderBriefContext at orchestrator.go:1473). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "renderBriefContext(\"build\", brief, nil):\n\n\"[SYSTEM] Project %q has been created. Switch to BUILD mode now: decompose the brief below into tasks and emit task-creation directives for each one (you know the shape). Do not ask for confirmation — start creating tasks immediately.\\n\\n\"\n+ \"@brief\\n\"\n+ \"  description: %s\\n\"   // each field only if non-empty\n+ \"  techStack: %s\\n\"\n+ \"  constraints: %s\\n\"\n+ \"  successCriteria: %s\\n\"\n+ \"  agentsInvolved: %s\\n\"\n+ \"\\n@tasks\\n  no tasks dispatched yet — start decomposing now.\\n\"   // tasks always nil here",
@@ -491,7 +516,7 @@
       "prior_audit_id": "build_mode_trigger",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 3.2 (3f0e8dd): full brief inlined via renderBriefContext. Verified orchestrator.go:1383.",
+        "Fix 3.2 (3f0e8dd): full brief inlined via renderBriefContext. Verified orchestrator.go:1473 (re-grepped 2026-06-11, was :1383).",
         "Fix 7.2 (805fd4e): literal 'CREATE_TASK:' scrubbed → 'task-creation directives' + 'you know the shape'.",
         "STILL-ACTIVE 7.1: '[SYSTEM]' literal visible in chat — fireWhenPlannerIdle routes this as a user-role message to the Planner.",
         "STILL-ACTIVE 3.4: does not ask the Planner to echo BUILD mode."
@@ -502,7 +527,8 @@
       "trigger": "Brownfield onboarding: detectProjectState found NO server-side project record but hasExistingCode(dir) is true → runBrownfieldOnboard fires this as the Planner intake turn via fireWhenPlannerIdle(..., 'brownfield_intake')",
       "trigger_category": "brownfield_onboard",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 530,
+      "source_line": 531,
+      "drift_note": "2026-06-11: source_line 530→531 (renderBrownfieldIntake func at orchestrator.go:530; the '[SYSTEM] You are starting INTAKE' Fprintf at :531). Text verbatim-confirmed. brownfield_analysis_empty degrade WARN at :372. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "[SYSTEM] You are starting INTAKE for an EXISTING codebase (project %q). A codebase analysis is provided below. Do NOT run the greenfield 5-question intake.\n\nOpen by briefly presenting this understanding to the human and inviting corrections, then ask ONLY two things (one at a time):\n1. What do you want to build or change next? (becomes description + successCriteria)\n2. What should agents NOT touch? (becomes constraints / out-of-scope)\n\nAfter both answers, summarize and ask \"Ready to start?\" — then STOP and end your turn. Do NOT emit PROJECT_BRIEF in that same message. Wait for the human to actually reply with confirmation, and only then, in your NEXT turn, emit PROJECT_BRIEF: by itself — techStack from the analysis, description/successCriteria from answer 1, constraints from answer 2, agentsInvolved chosen to fit the work.\n\nCODEBASE ANALYSIS\n%s",
@@ -517,7 +543,7 @@
       "failure_modes_observed": [
         "NEW since Round 5 — entire surface added by the brownfield onboarding flow (045ad26, c1e9bd5, e49d197). The Round 5 audit never saw an existing-repo intake path.",
         "NEW drift — inherits 7.1: emits a literal '[SYSTEM]' prefix delivered as a user-role turn (fireWhenPlannerIdle), so the human sees raw '[SYSTEM] You are starting INTAKE...' in chat. Same UX leak class as resume/build, now on a third surface.",
-        "NEW drift — inherits 3.4: no mode echo. If the codebase analysis is empty after both scaffold and enrichment fail, runBrownfieldOnboard returns early and degrades to the greenfield 5-question form (orchestrator.go:371-375); the Planner never sees this turn at all.",
+        "NEW drift — inherits 3.4: no mode echo. If the codebase analysis is empty after both scaffold and enrichment fail, runBrownfieldOnboard returns early and degrades to the greenfield 5-question form (orchestrator.go:372, brownfield_analysis_empty WARN; re-grepped 2026-06-11, was :371-375); the Planner never sees this turn at all.",
         "Confirmation hard-stop (b03ef50) is duplicated here AND in basePlannerPrompt's brownfield branch — consistent, not contradictory."
       ]
     },
@@ -549,7 +575,8 @@
       "trigger": "Observer report; QA messages that passed maybeRouteQAClarification; unparseable Assurance content; default fallthrough",
       "trigger_category": "agent_autoroute",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1311,
+      "source_line": 1403,
+      "drift_note": "2026-06-11: source_line 1311→1403 (renderAutoRoutePrompt at orchestrator.go:1356; the variantAnomaly 'just sent the following report' template at :1403). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "The %s agent just sent the following report. React by taking action.\n\nDecide ONE of these, do not combine:\n  (a) Emit one or more CREATE_TASK: directives IF AND ONLY IF actual new work needs dispatching or a failed task needs reassignment. Every directive must include a non-empty title, a description carrying @task and @success_criteria SPIL sections, and explicit requiredCapabilities. NEVER emit a placeholder, empty, or acknowledgement CREATE_TASK — passing the verdict along is not a task.\n  (b) Write a short chat reply IF AND ONLY IF the human needs to be informed of something.\n  (c) Stay silent (empty response) if neither applies.\n\nNever write the literal string 'CREATE_TASK:' in conversational prose — it is reserved for actual directives and will be flagged as malformed output.\nDo not echo the report back.\n\n[%s]: %s",
@@ -563,17 +590,18 @@
       "prior_audit_id": "autoroute_variant_anomaly",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 2.1+3.1 (ac87a1f): differentiated from the old one-template envelope. 'React by taking action' retained only here (Observer/QA/unknown span the full action spectrum). Verified orchestrator.go:1311-1322.",
+        "Fix 2.1+3.1 (ac87a1f): differentiated from the old one-template envelope. 'React by taking action' retained only here (Observer/QA/unknown span the full action spectrum). Verified orchestrator.go:1403-1416 (re-grepped 2026-06-11, was :1311-1322).",
         "Smaller models (glm-4.5-air:free observed) still occasionally fire (a) with a placeholder CREATE_TASK on messages that route here as unparseable fallthrough.",
         "QA's SYNTHESIS_COMPLETE messages route here via variantAnomaly (QA is not Assurance → no verdict parse). The (a) option invites a CREATE_TASK response to SYNTHESIS_COMPLETE, which should almost always be (b) or (c)."
       ]
     },
     {
       "id": "autoroute_variant_pass_verdict",
-      "trigger": "Assurance message with a parseable PASS verdict — parseValidationVerdict returns non-nil with Passed=true (selected at orchestrator.go:1153-1155)",
+      "trigger": "Assurance message with a parseable PASS verdict — parseValidationVerdict returns non-nil with Passed=true (selected at orchestrator.go:1243-1245)",
       "trigger_category": "agent_autoroute",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1268,
+      "source_line": 1360,
+      "drift_note": "2026-06-11: source_line 1268→1360 (variantPassVerdict template in renderAutoRoutePrompt at orchestrator.go:1360; the pass/fail variant selection moved to :1243-1245, was :1153-1155). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "The Assurance agent posted a PASS verdict. No action is required by default.\n\nOptions (pick AT MOST one):\n  (a) Stay silent (empty response). This is the correct default.\n  (b) Write a short chat reply ONLY IF the human needs to be informed (rare).\n\nA passing verdict does not by itself signal new work — the next task comes from the human, the brief, or the next Observer report, not from the pass. Do NOT emit a CREATE_TASK in reaction to a PASS.\nDo NOT acknowledge the pass in chat. Do NOT echo the verdict back.\nNever write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
@@ -586,16 +614,17 @@
       "prior_audit_id": "autoroute_variant_pass_verdict",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "DRIFT vs Round 5 — text CHANGED. Fix 19 (ffb51e4) DROPPED the option-(a) 'emit CREATE_TASK for the obvious next step' escape hatch the Round 5 JSON recorded. Current (a) is 'Stay silent', (b) is the rare chat reply; an explicit 'Do NOT emit a CREATE_TASK in reaction to a PASS' line was added. Verified orchestrator.go:1268-1278. TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction extended.",
+        "DRIFT vs Round 5 — text CHANGED. Fix 19 (ffb51e4) DROPPED the option-(a) 'emit CREATE_TASK for the obvious next step' escape hatch the Round 5 JSON recorded. Current (a) is 'Stay silent', (b) is the rare chat reply; an explicit 'Do NOT emit a CREATE_TASK in reaction to a PASS' line was added. Verified orchestrator.go:1360-1370 (re-grepped 2026-06-11, was :1268-1278). TestRenderAutoRoutePrompt_PassVerdictHasNoReactByTakingAction extended.",
         "STILL OPEN (kanban: assurance-fail-closed-empty-criteria-2026-05-26, high/backlog) — Assurance fail-open on empty @success_criteria: a task submitted with zero criteria scores 100/Passed=true. parseValidationVerdict returns Passed=true, this template fires, and the Planner correctly defaults to silence on a FRAUDULENT pass. The orchestrator does not detect empty criteriaResults before routing. Highest-leverage NEW drift this round."
       ]
     },
     {
       "id": "autoroute_variant_fail_verdict",
-      "trigger": "Assurance message with a parseable FAIL verdict — parseValidationVerdict returns non-nil with Passed=false (selected at orchestrator.go:1153,1157)",
+      "trigger": "Assurance message with a parseable FAIL verdict — parseValidationVerdict returns non-nil with Passed=false (selected at orchestrator.go:1243,1247)",
       "trigger_category": "agent_autoroute",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1280,
+      "source_line": 1372,
+      "drift_note": "2026-06-11: source_line 1280→1372 (variantFailVerdict template at orchestrator.go:1372; selection at :1243,1247, was :1153,1157). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "The Assurance agent posted a FAIL verdict. Gap analysis is already auto-routed to the swarm agent — they re-attempt without you.\n\nFirst or second failure: stay silent, the retry runs. Third+ failure on the same task: the agent is stuck — use act_cli task abandon <id> --reason \"<short why>\" and emit a CREATE_TASK to reassign to a different role. Inform the human only for a project-level blocker.\nNever write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
@@ -608,7 +637,7 @@
       "prior_audit_id": "autoroute_variant_fail_verdict",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "DRIFT vs Round 5 — text CHANGED. Fix 21 (2326d0b) trimmed the lettered (a)/(b)/(c) menu to tight prose, keeping the once/twice/three-times cadence that mirrors planner_section_validation.go. The split (separate fail variant) was kept per user decision over sub3's fold-into-anomaly suggestion. Verified orchestrator.go:1280-1286. TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis extended.",
+        "DRIFT vs Round 5 — text CHANGED. Fix 21 (2326d0b) trimmed the lettered (a)/(b)/(c) menu to tight prose, keeping the once/twice/three-times cadence that mirrors planner_section_validation.go. The split (separate fail variant) was kept per user decision over sub3's fold-into-anomaly suggestion. Verified orchestrator.go:1372-1378 (re-grepped 2026-06-11, was :1280-1286). TestRenderAutoRoutePrompt_FailVerdictMentionsAutoGapAnalysis extended.",
         "Planner has no direct visibility into attempt count from this prompt text — 'third+ failure' must be inferred from conversation history (compaction-vulnerable). orchestrator caps Assurance polling at maxValidationAttempts=3 independently, but that cap escalates to variantSystemEscalation (validation_stuck), not this template; this autoroute can fire on each failure and tell the Planner to 'stay silent' at what may actually be attempt 3."
       ]
     },
@@ -617,7 +646,8 @@
       "trigger": "System events with a KNOWN-FAILED task requiring mandatory Planner action — task_failed (single + burst) and validation_stuck",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1288,
+      "source_line": 1380,
+      "drift_note": "2026-06-11: source_line 1288→1380 (variantSystemEscalation template at orchestrator.go:1380). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "The orchestrator surfaced a system event that requires Planner action. Silence is WRONG here.\n\nPick ONE concrete action:\n  (a) act_cli task retry <id> — re-dispatch a failed task to the same role (uses next retry attempt).\n  (b) act_cli task abandon <id> --reason \"<short why>\" — mark the task permanently failed when unrecoverable.\n  (c) Emit a CREATE_TASK: directive to reassign the work to a different role.\n  (d) Write a short chat reply to inform the human if the situation is unrecoverable and needs a decision.\n\nact_cli is the JSON tool you already use for status/log/graph — call it the same way: {\"subcommand\":\"task\",\"args\":[\"retry\",\"<id>\"]}.\nNever write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
@@ -640,7 +670,8 @@
       "trigger": "System events with NO failed task to retry/abandon — synthesis_stuck (task already PASSED) and dispatch-hash dedup (no task ever created)",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1301,
+      "source_line": 1393,
+      "drift_note": "2026-06-11: source_line 1301→1393 (variantSystemNoTask template at orchestrator.go:1393). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "The orchestrator surfaced a system event. There is no failed task to retry or abandon here — do NOT call act_cli task retry/abandon. Read the event below and respond appropriately: take a non-task action if one is warranted, inform the human if a decision is needed, or stay silent.\nNever write the literal string 'CREATE_TASK:' in conversational prose.\n\n[%s]: %s",
@@ -662,10 +693,11 @@
       "trigger": "coordinationEventLoop receives a task_failed event in non-batch mode (newEventCount <= coordEventFloodThreshold)",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 802,
+      "source_line": 804,
+      "drift_note": "2026-06-11: source_line 802→804 (the 'Task %s just failed' summary Sprintf at orchestrator.go:804; result truncation at :795-796). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", summary, variantSystemEscalation):\nfmt.Sprintf(\"Task %s just failed (agent %s). Error: %s\", taskID, ev.Agent, result)\n// result truncated to 400 chars (orchestrator.go:794). taskID is the FULL UUID (Fix 6.3 — no truncate).",
+      "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", summary, variantSystemEscalation):\nfmt.Sprintf(\"Task %s just failed (agent %s). Error: %s\", taskID, ev.Agent, result)\n// result truncated to 400 chars (orchestrator.go:795). taskID is the FULL UUID (Fix 6.3 — no truncate).",
       "runtime_substitutions": [
         "taskID — full task UUID from ev.Data['taskId']",
         "ev.Agent — agent ID that reported the failure",
@@ -676,7 +708,7 @@
       "prior_audit_id": "autoroute_system_task_failed_single",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 6.3 (805fd4e): truncate(taskID, 36) removed — full UUID shown so act_cli task retry/abandon <id> calls don't 404. Verified orchestrator.go:797-805.",
+        "Fix 6.3 (805fd4e): truncate(taskID, 36) removed — full UUID shown so act_cli task retry/abandon <id> calls don't 404. Verified orchestrator.go:798-806 (re-grepped 2026-06-11, was :797-805).",
         "Fix 1.1/3 (01c1317, ac87a1f): act_cli task retry/abandon affordances + variantSystemEscalation framing. Unchanged since Round 5."
       ]
     },
@@ -685,10 +717,11 @@
       "trigger": "coordinationEventLoop processes multiple task_failed events in batch mode (newEventCount > coordEventFloodThreshold=8 per tick)",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 819,
+      "source_line": 821,
+      "drift_note": "2026-06-11: source_line 819→821 (the burst-mode Sprintf at orchestrator.go:821; firstFailedSummary built at :810). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", ..., variantSystemEscalation):\nfmt.Sprintf(\"%d task(s) failed in the last burst (e.g. %s). Use act_cli context --project <name> to see current task state, then retry/abandon/reassign as appropriate.\", failedTaskCount, firstFailedSummary)\n// firstFailedSummary = fmt.Sprintf(\"task %s (agent %s)\", taskID, ev.Agent) for ONLY the first failed task (orchestrator.go:808-809).",
+      "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", ..., variantSystemEscalation):\nfmt.Sprintf(\"%d task(s) failed in the last burst (e.g. %s). Use act_cli context --project <name> to see current task state, then retry/abandon/reassign as appropriate.\", failedTaskCount, firstFailedSummary)\n// firstFailedSummary = fmt.Sprintf(\"task %s (agent %s)\", taskID, ev.Agent) for ONLY the first failed task (orchestrator.go:810).",
       "runtime_substitutions": [
         "failedTaskCount — count of task_failed events in the burst window",
         "firstFailedSummary — 'task <uuid> (agent <agent-id>)' for the first failure only"
@@ -698,7 +731,7 @@
       "prior_audit_id": "autoroute_system_task_failed_burst",
       "fix_status": "STILL-ACTIVE",
       "failure_modes_observed": [
-        "STILL-ACTIVE 8.4: the Planner sees only ONE example failure; the remaining N-1 tasks are invisible without a context fetch. Reassignment decision (same role vs different role) made from a single data point. Unchanged since Round 5 — combined-analysis 8.4 still open. Verified orchestrator.go:818-823."
+        "STILL-ACTIVE 8.4: the Planner sees only ONE example failure; the remaining N-1 tasks are invisible without a context fetch. Reassignment decision (same role vs different role) made from a single data point. Unchanged since Round 5 — combined-analysis 8.4 still open. Verified orchestrator.go:819-824 (re-grepped 2026-06-11, was :818-823)."
       ]
     },
     {
@@ -706,7 +739,8 @@
       "trigger": "checkPendingValidation poller: a task exceeds maxValidationAttempts (3) without a parseable verdict",
       "trigger_category": "polling_loop",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 2394,
+      "source_line": 2603,
+      "drift_note": "2026-06-11: source_line 2394→2603 (validation-stuck autoRoutePlannerV(variantSystemEscalation) at orchestrator.go:2603; the >maxValidationAttempts gate at :2596). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", ..., variantSystemEscalation):\nfmt.Sprintf(\"validation stuck on task %q (id=%s) after %d attempts; the swarm agent has retried the gap analysis without success\", taskLabel(t), t.ID, maxValidationAttempts)",
@@ -720,7 +754,7 @@
       "prior_audit_id": "autoroute_system_validation_stuck",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 1.1+3 (01c1317, ac87a1f): old POST /retry verb replaced with act_cli task retry/abandon. Verified orchestrator.go:2394.",
+        "Fix 1.1+3 (01c1317, ac87a1f): old POST /retry verb replaced with act_cli task retry/abandon. Verified orchestrator.go:2603 (re-grepped 2026-06-11, was :2394).",
         "fromContent omits WHY validation kept failing (no gap text) — Planner must call act_cli context for detail before a sound reassignment.",
         "Linked to the assurance-fail-closed-empty-criteria kanban: a task with zero @success_criteria never yields a parseable verdict, so this stuck-escalation fires after 3 wasted attempts; the root cause (missing criteria) is invisible in the prompt body."
       ]
@@ -730,7 +764,8 @@
       "trigger": "routeToQA poller: a task exceeds maxSynthesisAttempts (3) without a SYNTHESIS_COMPLETE or NEED_CLARIFICATION marker",
       "trigger_category": "polling_loop",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 2519,
+      "source_line": 2728,
+      "drift_note": "2026-06-11: source_line 2519→2728 (synthesis-stuck autoRoutePlannerV(variantSystemNoTask) at orchestrator.go:2728; the >maxSynthesisAttempts gate at :2718). Text verbatim-confirmed; still routed to variantSystemNoTask (Fix 18). No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", ..., variantSystemNoTask):\nfmt.Sprintf(\"synthesis stuck on task %q (id=%s) after %d attempts; QA cannot assemble the deliverable\", taskLabel(t), t.ID, maxSynthesisAttempts)",
@@ -744,7 +779,7 @@
       "prior_audit_id": "autoroute_system_synthesis_stuck",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "DRIFT-CLOSED vs Round 5 — the Round 5 JSON flagged this call site as routing to variantSystemEscalation, whose retry/abandon menu was semantically wrong for an already-validated task. Fix 18 (8e3d3a8) re-routed it to variantSystemNoTask (no task menu, permits silence). Verified orchestrator.go:2519. The mismatch is resolved.",
+        "DRIFT-CLOSED vs Round 5 — the Round 5 JSON flagged this call site as routing to variantSystemEscalation, whose retry/abandon menu was semantically wrong for an already-validated task. Fix 18 (8e3d3a8) re-routed it to variantSystemNoTask (no task menu, permits silence). Verified orchestrator.go:2728 (re-grepped 2026-06-11, was :2519). The mismatch is resolved.",
         "Residual: variantSystemNoTask is generic and doesn't spell out the synthesis-specific recovery (restructure deliverable / ask human), leaving the actionable path implicit."
       ]
     },
@@ -753,10 +788,11 @@
       "trigger": "handlePlannerTaskDirectives: checkAndRecordDispatchHash drops a CREATE_TASK batch as a duplicate (same hash within window) → notifyDispatchDedup",
       "trigger_category": "system_event",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 1819,
+      "source_line": 1911,
+      "drift_note": "2026-06-11: source_line 1819→1911 (dedupAutorouteText body at orchestrator.go:1911; the variantSystemNoTask wrap at :1901-1902; the human-facing banner emitSystemMessage at :1894-1897). Text verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", dedupAutorouteText(...), variantSystemNoTask):\nfmt.Sprintf(\"Your last CREATE_TASK batch (%d tasks) was a duplicate of one dispatched %s ago — the orchestrator skipped re-creating those tasks. If you meant to dispatch NEW work, change at least one task title or description so the batch hash differs. If the previous batch already covered what you intended, stop re-emitting and wait for the swarm to make progress.\", taskCount, age.Round(time.Second))\n\n// Plus a human-facing chat banner (notifyDispatchDedup, orchestrator.go:1804):\n//   \"⏭  Skipped duplicate task batch (%d tasks, hash=%s, last dispatched %s ago)\"",
+      "raw_text": "// fromContent argument to autoRoutePlannerV(ctx, \"system\", dedupAutorouteText(...), variantSystemNoTask):\nfmt.Sprintf(\"Your last CREATE_TASK batch (%d tasks) was a duplicate of one dispatched %s ago — the orchestrator skipped re-creating those tasks. If you meant to dispatch NEW work, change at least one task title or description so the batch hash differs. If the previous batch already covered what you intended, stop re-emitting and wait for the swarm to make progress.\", taskCount, age.Round(time.Second))\n\n// Plus a human-facing chat banner (notifyDispatchDedup, orchestrator.go:1894):\n//   \"⏭  Skipped duplicate task batch (%d tasks, hash=%s, last dispatched %s ago)\"",
       "runtime_substitutions": [
         "taskCount — number of tasks in the dropped batch",
         "age — time.Duration since original dispatch, rounded to 1 second",
@@ -767,19 +803,20 @@
       "prior_audit_id": "autoroute_system_dedup",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "DRIFT-CLOSED vs Round 5 — the Round 5 JSON recorded this wrapped by variantSystemEscalation, whose 'Silence is WRONG' contradicted the dedup body's 'stop re-emitting / wait'. Fix 18 (8e3d3a8) re-wrapped it in variantSystemNoTask. Verified orchestrator.go:1811-1812. Comment at orchestrator.go:1790-1794 documents the rationale.",
-        "Fix 8.3 (0b5129b): notifyDispatchDedup surfaces the previously-silent drop via both a chat banner and the autoroute. Verified orchestrator.go:1795-1813."
+        "DRIFT-CLOSED vs Round 5 — the Round 5 JSON recorded this wrapped by variantSystemEscalation, whose 'Silence is WRONG' contradicted the dedup body's 'stop re-emitting / wait'. Fix 18 (8e3d3a8) re-wrapped it in variantSystemNoTask. Verified orchestrator.go:1901-1902 (re-grepped 2026-06-11, was :1811-1812). The variantSystemNoTask wrap rationale is documented in the surrounding comment.",
+        "Fix 8.3 (0b5129b): notifyDispatchDedup surfaces the previously-silent drop via both a chat banner and the autoroute. Verified orchestrator.go:1894-1902 (re-grepped 2026-06-11, was :1795-1813)."
       ]
     },
     {
       "id": "need_clarification_addressee_routing",
-      "trigger": "QA emits NEED_CLARIFICATION: @<agent> <question>. maybeRouteQAClarification runs BEFORE the QA autoroute (messageOwnershipLoop:1136). If the addressee normalizes to non-Planner, the verbatim QA text is forwarded to that agent's inbox and the Planner autoroute is SKIPPED.",
+      "trigger": "QA emits NEED_CLARIFICATION: @<agent> <question>. maybeRouteQAClarification runs BEFORE the QA autoroute (messageOwnershipLoop:1227). If the addressee normalizes to non-Planner, the verbatim QA text is forwarded to that agent's inbox and the Planner autoroute is SKIPPED.",
       "trigger_category": "agent_autoroute",
       "source_file": "act-agent/internal/app/orchestrator.go",
-      "source_line": 2631,
+      "source_line": 2840,
+      "drift_note": "2026-06-11: source_line 2631→2840 (maybeRouteQAClarification func at orchestrator.go:2840; clarificationRegex at :2824; the '📨 QA clarification routed' emitSystemMessage at :2862; buildSynthesisPrompt at :3173, its SYNTHESIS_COMPLETE/NEED_CLARIFICATION marker text at :3183). All logic verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// clarificationRegex (orchestrator.go:2615): regexp.MustCompile(`(?s)NEED_CLARIFICATION:\\s*@(\\S+)\\s+(.*)`)\n// maybeRouteQAClarification(ctx, content):\n//   addressee = m[1]\n//   if addressee == \"\" || normalizeRole(addressee) == \"planner\" → return false (falls through to normal autoroute)\n//   else → client.SendMessage(content)  // verbatim QA text to broadcast inbox, sender=qa_synthesizer\n//          emitSystemMessage: \"📨 QA clarification routed to @%s (no Planner turn fired)\"\n//          return true  // Planner autoroute skipped\n//\n// The marker shape itself is taught to QA by buildSynthesisPrompt (orchestrator.go:2957):\n//   \"...end with `SYNTHESIS_COMPLETE: <one-sentence summary>`. If you need clarification from the\n//    producing agent, end with `NEED_CLARIFICATION: @<agent_id> <question>`. ...\"",
+      "raw_text": "// clarificationRegex (orchestrator.go:2824): regexp.MustCompile(`(?s)NEED_CLARIFICATION:\\s*@(\\S+)\\s+(.*)`)\n// maybeRouteQAClarification(ctx, content) (orchestrator.go:2840):\n//   addressee = m[1]\n//   if addressee == \"\" || normalizeRole(addressee) == \"planner\" → return false (falls through to normal autoroute)\n//   else → client.SendMessage(content)  // verbatim QA text to broadcast inbox, sender=qa_synthesizer\n//          emitSystemMessage: \"📨 QA clarification routed to @%s (no Planner turn fired)\" (orchestrator.go:2862)\n//          return true  // Planner autoroute skipped\n//\n// The marker shape itself is taught to QA by buildSynthesisPrompt (orchestrator.go:3183):\n//   \"...end with `SYNTHESIS_COMPLETE: <one-sentence summary>`. If you need clarification from the\n//    producing agent, end with `NEED_CLARIFICATION: @<agent_id> <question>`. ...\"",
       "runtime_substitutions": [
         "addressee — m[1], the @-mention captured from the QA message",
         "content — the verbatim QA message forwarded to the inbox"
@@ -789,7 +826,7 @@
       "prior_audit_id": "need_clarification_addressee_routing",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 6.2 (b3cc2b7): addressee parsed BEFORE the Planner autoroute; non-Planner addressees forwarded to the named agent's inbox with a chat banner. Planner/empty addressee or SendMessage failure falls through so questions are never dropped. Verified orchestrator.go:2615-2657 + 1126-1140.",
+        "Fix 6.2 (b3cc2b7): addressee parsed BEFORE the Planner autoroute; non-Planner addressees forwarded to the named agent's inbox with a chat banner. Planner/empty addressee or SendMessage failure falls through so questions are never dropped. Verified orchestrator.go:2840-2865 (maybeRouteQAClarification) + :1227 (messageOwnershipLoop call site, BEFORE the autoroute) (re-grepped 2026-06-11, was :2615-2657 + :1126-1140).",
         "Fix 6.1 (805fd4e): normalizeRole folds 'qa' → 'qa_synthesizer' at the boundary so the QA branch and addressee check agree. Unchanged since Round 5."
       ]
     },
@@ -798,10 +835,11 @@
       "trigger": "In-process Planner calls the expand_prompt_section tool during a turn",
       "trigger_category": "on_demand",
       "source_file": "act-agent/internal/llm/tools/expand_prompt_section.go",
-      "source_line": 33,
+      "source_line": 34,
+      "drift_note": "2026-06-11: source_line 33→34 (Info() builds `names := prompt.SectionNames()` at expand_prompt_section.go:34; ToolInfo returned at :36; Parameters/Required at :52-59). NOTE: this raw_text is a structural pseudo-schema, not a verbatim capture. The live `description` field (expand_prompt_section.go:38-51) is longer than the one-liner shown here — it opens 'Returns deeper reference guidance for the Planner on a specific topic. Use this only when you actually need it — most turns don't.' then carries a 'WHEN TO USE' / 'WHEN NOT TO USE' block per section. The schema SHAPE (name, section enum=SectionNames(), required=['section'], response=GetSection) is verbatim-confirmed; only the abbreviated description string here is a paraphrase, flagged for a future verbatim capture.",
       "compose_order": null,
       "backend": "in-process",
-      "raw_text": "// Tool schema (ToolInfo) in the Planner's tool catalog:\n{\n  name: \"expand_prompt_section\",\n  description: \"Returns deeper reference guidance for the Planner on a specific topic. Use only when you actually need it — most turns don't.\",\n  parameters: { section: { type: 'string', enum: prompt.SectionNames() } },\n  required: ['section']\n}\n// enum = prompt.SectionNames() = sorted [\"evidence_routing\", \"examples\", \"success_criteria\", \"validation\"]  (nomik REMOVED)\n// Tool response: prompt.GetSection(params.section) — verbatim content of the named section (section_* entries)",
+      "raw_text": "// Tool schema (ToolInfo) in the Planner's tool catalog:\n{\n  name: \"expand_prompt_section\",\n  description: \"Returns deeper reference guidance for the Planner on a specific topic. Use this only when you actually need it — most turns don't. [+ a per-section WHEN TO USE / WHEN NOT TO USE block — see drift_note; live at expand_prompt_section.go:38-51]\",\n  parameters: { section: { type: 'string', description: 'Name of the section to expand. One of: <names>', enum: prompt.SectionNames() } },\n  required: ['section']\n}\n// enum = prompt.SectionNames() = sorted [\"evidence_routing\", \"examples\", \"success_criteria\", \"validation\"]  (nomik REMOVED)\n// Tool response: prompt.GetSection(params.section) — verbatim content of the named section (section_* entries)",
       "runtime_substitutions": [
         "enum values — prompt.SectionNames(): sorted from sectionRegistry = ['evidence_routing', 'examples', 'success_criteria', 'validation']",
         "tool response — prompt.GetSection(name): the registered func() string for that key"
@@ -842,7 +880,8 @@
       "trigger": "Planner pulls expand_prompt_section('evidence_routing') (in-process) or prompt-section evidence_routing (ACP)",
       "trigger_category": "on_demand",
       "source_file": "act-agent/internal/llm/prompt/planner_section_evidence.go",
-      "source_line": 8,
+      "source_line": 9,
+      "drift_note": "2026-06-11: source_line 8→9 (PlannerSectionEvidenceRouting func at planner_section_evidence.go:8; the returned `# Evidence-Based Routing` body starts at :9). Body verbatim-confirmed including the 'recieve' typo now at :22. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "# Evidence-Based Routing (PVM)\n\nPVM (PAIRed Vector Minutes) is the coordination memory. Every task event\n(creation, progress, validation, failure) is embedded and indexed. Use it\nto make routing decisions backed by what has actually worked before, not\nintuition.\n\n## When to invoke\n\n- Before assigning a task whose role isn't obvious — search for who has\n  succeeded on similar work.\n- When two roles could plausibly do the same task — pick the one with\n  the stronger track record on that domain.\n- If you recieve information that a task fails — search for prior failures of the same shape so\n  you can identify the root cause class.\n\n## How to invoke\n\nCall the act_cli tool: `{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`.\nIt returns top matches by semantic similarity, each with the agent ID, task\ntitle, outcome, and timestamp.\n(ACP backend: `act-tier1-planner pvm search \"<query>\"` via Bash — same result.)\n\n## How to read the results\n\n- Look for outcome=completed AND high success_criteria scores together.\n  Either alone is weak signal.\n- Recency matters less than role+domain match. A 2-week-old success on\n  the same domain beats a 1-day-old success on a different one.\n- If every match is for a single agent ID, that's a specialization\n  signal — prefer that agent.\n- If results are mixed (some passes, some fails) on the same role, the\n  task class itself is hard. Add a tighter @success_criteria and\n  consider sequencing it earlier.\n\n## What NOT to do\n\n- Don't search for every task. Routine work doesn't need evidence.\n- Don't pick a role just because it has the most history — pick the one\n  whose history matches the current task domain.\n- Don't override a clear capability tag match with PVM results unless\n  the PVM evidence is overwhelming.",
@@ -852,8 +891,8 @@
       "prior_audit_id": "section_evidence_routing",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 20 (8249a19): the bare `act pvm search \"<query>\"` shorthand the Round 5 audit flagged was rewritten to the act_cli JSON shape PLUS an explicit ACP-backend note. Both invocation paths now match reality. Verified planner_section_evidence.go:27-30. TestNoSectionUsesBareActShorthand guards.",
-        "STILL-ACTIVE (carried, minor, NEW in Round 5) — TYPO 'If you recieve information' at planner_section_evidence.go:22 (should be 'receive'). Still present. Not a behavior bug; cosmetic in on-demand guidance."
+        "Fix 20 (8249a19): the bare `act pvm search \"<query>\"` shorthand the Round 5 audit flagged was rewritten to the act_cli JSON shape PLUS an explicit ACP-backend note. Both invocation paths now match reality. Verified planner_section_evidence.go:28-31 (re-grepped 2026-06-11, was :27-30). TestNoSectionUsesBareActShorthand guards.",
+        "STILL-ACTIVE (carried, minor, NEW in Round 5) — TYPO 'If you recieve information' at planner_section_evidence.go:22 (should be 'receive'). RE-CONFIRMED 2026-06-11: still present at :22. Not a behavior bug; cosmetic in on-demand guidance."
       ]
     },
     {
@@ -861,7 +900,8 @@
       "trigger": "Planner pulls expand_prompt_section('success_criteria') or prompt-section success_criteria",
       "trigger_category": "on_demand",
       "source_file": "act-agent/internal/llm/prompt/planner_section_success_criteria.go",
-      "source_line": 7,
+      "source_line": 8,
+      "drift_note": "2026-06-11: source_line 7→8 (PlannerSectionSuccessCriteria func at :7; the returned `# Writing @success_criteria` body starts at :8). Body verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "# Writing @success_criteria\n\n@success_criteria is the contract Assurance scores against. It is the\nsingle most important field in a CREATE_TASK because Assurance's 95%\ngate is computed against it line by line. Weak criteria → weak validation\n→ broken downstream work.\n\n## Rules\n\n1. **Each line is independently testable.** \"The button works\" is not\n   a criterion. \"Clicking the submit button POSTs to /api/orders and\n   shows a confirmation toast\" is.\n2. **Prefer observable outcomes over implementation details.** \"Uses\n   useState\" is brittle. \"State persists across re-renders\" is not.\n3. **Include at least one failure case.** \"Returns 401 on invalid\n   token\", \"Throws ValidationError on empty input\". Otherwise the\n   agent will only test the happy path.\n4. **3-7 lines is the right size.** Fewer than 3 → too vague to\n   validate. More than 7 → you're describing implementation, not\n   acceptance.\n5. **No \"etc.\" or \"as appropriate\" or open-ended language.** Assurance\n   can't score those.\n\n## Good example\n\n```\n@success_criteria\n- 15-min access token expiry enforced server-side\n- Refresh rotation invalidates the previous refresh token\n- 401 returned on invalid or expired token\n- Token payload includes user ID and role claim\n- Tests cover happy path, expiry, and rotation\n```\n\n## Bad example (don't do this)\n\n```\n@success_criteria\n- Auth works correctly\n- Tests pass\n- Code is clean\n```\n\n## Repairing weak criteria\n\nIf Assurance keeps failing tasks because criteria are unclear, the\nproblem is probably you, not the agent. Rewrite the criteria with\nsharper observable outcomes and re-issue the task.",
@@ -880,7 +920,8 @@
       "trigger": "Planner pulls expand_prompt_section('validation') or prompt-section validation",
       "trigger_category": "on_demand",
       "source_file": "act-agent/internal/llm/prompt/planner_section_validation.go",
-      "source_line": 8,
+      "source_line": 9,
+      "drift_note": "2026-06-11: source_line 8→9 (PlannerSectionValidation func at :8; the returned `# Validation Pipeline` body starts at :9). Body verbatim-confirmed. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "# Validation Pipeline (Assurance → QA)\n\nThe pipeline runs automatically. You don't trigger it. But when it\nreports back, you decide what happens next.\n\n## How it works\n\n1. A swarm agent finishes a task and calls `act task complete`.\n2. The Runner immediately calls `act task submit-for-validation`.\n3. Assurance picks it up and scores it against @success_criteria.\n   Each criterion is independently scored. The aggregate must be ≥95%.\n4. PASS → QA picks it up and integrates it into the deliverable.\n   FAIL → gap analysis is auto-sent back to the original agent for\n   correction. The agent re-submits when fixed.\n5. QA emits SYNTHESIS_COMPLETE when the deliverable is ready, or\n   NEED_CLARIFICATION when an integration question can't be answered\n   from the validated outputs alone.\n\n## What you do when…\n\n**Assurance reports a FAIL once.** Do nothing. The agent gets the gap\nanalysis automatically and will retry. Watch — don't intervene.\n\n**Assurance reports a FAIL twice for the same task.** The criteria\nmight be wrong, not the agent. Pull up the @success_criteria and check\nwhether they're testable. If they're vague, rewrite them and re-issue.\n\n**Assurance reports a FAIL three times.** Reassign to a different\nagent (different role if applicable). The current agent can't get there.\n\n**QA reports SYNTHESIS_COMPLETE.** Review the summary. If the project\nis done, tell the user. If there's a missing slice, create the\nremaining task(s).\n\n**QA reports NEED_CLARIFICATION: @<agent> <question>.** The clarification\ntarget is the agent — QA already addressed them. Don't repeat the\nquestion. Watch for the response and unblock if it stalls.\n\n**A task is stuck \"submitted_for_validation\" for >5 min.** Assurance is\nprobably overloaded or hung. The orchestrator auto-escalates a stuck\nvalidation to you — watch for that signal rather than polling the queue\nyourself (the validation queue is Assurance's surface, not yours). If\nseveral tasks pile up here at once, you decomposed too aggressively;\npause new task creation until they drain.\n\n## What NOT to do\n\n- Don't validate tasks yourself. That's Assurance's job and bypassing\n  it means QA will integrate broken work.\n- Don't mark tasks complete on the agent's behalf. Only the agent can\n  call `act task complete`.\n- Don't override a 95% gate. If it failed, it failed.",
@@ -890,7 +931,7 @@
       "prior_audit_id": "section_validation",
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
-        "Fix 20b (8249a19): the Planner-not-allowlisted `act validation queue` shorthand the Round 5 audit flagged was reworded — the section now says 'watch for that signal rather than polling the queue yourself (the validation queue is Assurance's surface, not yours)'. Verified planner_section_validation.go:47-52. The remaining `act task complete` mentions describe the SWARM's action (correctly so).",
+        "Fix 20b (8249a19): the Planner-not-allowlisted `act validation queue` shorthand the Round 5 audit flagged was reworded — the section now says 'watch for that signal rather than polling the queue yourself (the validation queue is Assurance's surface, not yours)'. Verified planner_section_validation.go:49-54 (re-grepped 2026-06-11, was :47-52). The remaining `act task complete` mentions describe the SWARM's action (correctly so).",
         "Does not address the Assurance fail-open empty-criteria case (kanban assurance-fail-closed-empty-criteria): a Planner pulling this after a suspicious 100% pass on a no-spec task finds no diagnosis path."
       ]
     },
@@ -899,7 +940,8 @@
       "trigger": "Planner pulls expand_prompt_section('examples') or prompt-section examples",
       "trigger_category": "on_demand",
       "source_file": "act-agent/internal/llm/prompt/planner_section_examples.go",
-      "source_line": 8,
+      "source_line": 9,
+      "drift_note": "2026-06-11: source_line 8→9 (PlannerSectionExamples func at :8; the returned `# Worked Examples` body starts at :9). Body verbatim-confirmed; the top-level `\"dependencies\":[...]` example (Fix 15) still at :33. No behavioral change.",
       "compose_order": null,
       "backend": "both",
       "raw_text": "# Worked Examples\n\nExamples use EXAMPLE_PROJECT_BRIEF and EXAMPLE_TASK as markers so they\ncannot be confused with real directives. When you emit real directives,\nuse PROJECT_BRIEF: and CREATE_TASK: (no EXAMPLE_ prefix).\n\n## Intake completion\n\nAfter the 5-question intake conversation, on user confirmation, write\nthe brief as plain text in your reply. NOT a tool call, NOT in a code fence.\n\nEXAMPLE_PROJECT_BRIEF: {\"description\":\"Snake game with neural-network arena where two trained snakes compete on a shared board\",\"techStack\":\"Python 3.11, PyTorch, Pygame\",\"constraints\":\"Must run on CPU only, 30fps minimum\",\"successCriteria\":\"Two snakes complete a 2-minute match without errors; trained model checkpoints save and load\",\"agentsInvolved\":[\"developer\",\"qa_engineer\"]}\n\n## Build mode — task directives\n\nEach task is one directive on its own line. Multiple tasks = multiple lines.\nPlain text in your reply — not a tool call, not in a code fence.\n\n### Simple task\n\nEXAMPLE_TASK: {\"title\":\"Implement Snake game core loop\",\"description\":\"@task\\n> Build the Snake class with movement, collision, and food spawning. No graphics yet — pure logic.\\n@success_criteria\\n- Snake class with up/down/left/right movement\\n- Collision detection for walls and self\\n- Food spawning avoids snake body\\n- Eating food grows snake by 1 segment\\n- Unit tests cover movement, collision, growth\",\"requiredCapabilities\":[\"python\"],\"priority\":\"high\"}\n\n### Task with dependencies\n\nEXAMPLE_TASK: {\"title\":\"Add Pygame rendering layer\",\"description\":\"@task\\n> Render the existing Snake game state with Pygame. Read state from the Snake class — do not modify it.\\n@success_criteria\\n- 30fps rendering on CPU\\n- Snake, food, and walls all visible\\n- Score displayed in corner\\n- Window closes cleanly on quit\",\"dependencies\":[\"Snake game core loop\"],\"requiredCapabilities\":[\"python\",\"pygame\"],\"priority\":\"medium\"}\n\n### Research/spike\n\nEXAMPLE_TASK: {\"title\":\"Research PPO vs DQN for snake arena\",\"description\":\"@task\\n> Compare PPO and DQN as RL approaches for two-agent snake competition. Recommend one with justification.\\n@success_criteria\\n- Side-by-side comparison of sample efficiency, stability, and CPU cost\\n- Concrete recommendation with at least 2 references\\n- Implementation effort estimate for both\",\"requiredCapabilities\":[\"ml\",\"research\"],\"priority\":\"high\"}\n\n## Common mistakes to avoid\n\n- Wrapping the directive in a code fence. Don't — the parser won't see it.\n- Putting multiple JSON objects on one CREATE_TASK line. One task per line.\n- Calling bash with the directive as the command. Plain text in your reply only.\n- Forgetting @success_criteria. Assurance will reject the task at validation.",
