@@ -88,9 +88,9 @@
       ],
       "watch": [],
       "refresh": "not refreshed \u2014 rewritten at session end; older-than-branch-tip means advisory only (Constitution Art. 7)",
-      "verified_against": null,
-      "status": "stale",
-      "staled_by": "no tracked handoff exists yet; legacy F-handoff.md (root, gitignored) and .claude/HANDOFF.md are deprecated"
+      "verified_against": "3a2f7a1",
+      "status": "fresh",
+      "staled_by": null
     }
   }
 }
