@@ -15,6 +15,8 @@ This is the canonical "what shipped" record. Entries below the seed line were ba
 
 ---
 
+- 2026-06-11 · nvidia-nim-provider · `e56daaa` · provider `nvidia` (OpenAI-compatible, base integrate.api.nvidia.com/v1) in models.go/provider.go/config.go; live-verified incl. `moonshotai/kimi-k2.6` completion; keys in ~/.act.json only
+- 2026-06-11 · cleanup-constitution merge · `90f7230` (ff) · feat/cleanup-constitution merged into feat/remove-nomik — constitution, freshness loops, reconciled scaffolding, audits, review fixes
 - 2026-06-11 · scaffolding-reconciliation · `d7ef63b` · all verified-stale/false doc statements fixed (CLAUDE.md Tier-1 backends/pitfalls, AGENTS/GEMINI→pointers, combined-analysis 3.5, planner-prompts gate claim, kanban re-scopes); claude-md/readme/combined-analysis marked fresh
 - 2026-06-10 · cleanup-constitution (this effort) · (branch `feat/cleanup-constitution`) · docs constitution + freshness system: `docs/constitution/`, `scripts/git-hooks/post-commit`, `scripts/freshness-*.sh`, `docs/dev/` seeds
 - 2026-06-07 · per-agent-notebooks Phase 4 · `bc0673e` · ThreadID-scoped logical notebooks: `internal/message/`, `internal/llm/agent/agent.go` (HistoryMode Full/None/Thread), migration `20260607000000_add_message_thread_id.sql`, wiring in `app.go`

@@ -45,11 +45,9 @@ Run `./scripts/freshness-check.sh` — don't trust this paragraph.
 
 ## OPEN / NEXT
 
-1. **NVIDIA NIM provider** — `~/.act.json` has an inert `nvidia` block ("NOT YET IMPLEMENTED");
-   no `nvidia` case exists in `internal/llm/provider/provider.go` NewProvider switch. Plan: add
-   `ProviderNVIDIA` to `models/models.go` + an OpenAI-compatible case with default base
-   `https://integrate.api.nvidia.com/v1` (mirror the groq/openrouter cases). Keys live in
-   `~/.act.json` ONLY — never in the repo.
+1. ~~NVIDIA NIM provider~~ **DONE (`e56daaa`)** — provider `nvidia` live and verified
+   (120 models, `moonshotai/kimi-k2.6` completion round-trips). Keys + backup key in
+   `~/.act.json` only. Assign swarm roles to nvidia/openrouter free models during TUI e2e.
 2. **TUI e2e matrix** (gates the alpha PR) — methodology + preflight now in CLAUDE.md
    "TUI Verification & Bug Reporting". Includes the owed **Phase-4 live verification**
    (debug.log Prepared-messages thread scoping; Observer token drop). REBUILD THE BINARY FIRST.

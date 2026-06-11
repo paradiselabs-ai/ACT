@@ -88,7 +88,7 @@
       ],
       "watch": [],
       "refresh": "not refreshed \u2014 rewritten at session end; older-than-branch-tip means advisory only (Constitution Art. 7)",
-      "verified_against": "3a2f7a1",
+      "verified_against": "e56daaa",
       "status": "fresh",
       "staled_by": null
     }
