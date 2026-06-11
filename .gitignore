@@ -200,3 +200,6 @@ github.comparadiselabs-ai-act-tree-nestty.md
 .story/
 .agents/test/spil-lmstudio/sandbox/
 !test/spil-lmstudio/**/*.md
+
+# ── Tier-1 shim build artifacts (built from act-agent/cmd/act-tier1-shim) ─
+act-agent/act-tier1-*
