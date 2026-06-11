@@ -6,7 +6,6 @@ owner: project-owner
 last_verified: 2026-06-10
 ---
 
-- 2026-06-11 · scaffolding-reconciliation · `d7ef63b` · all verified-stale/false doc statements fixed (CLAUDE.md Tier-1 backends/pitfalls, AGENTS/GEMINI→pointers, combined-analysis 3.5, planner-prompts gate claim, kanban re-scopes); claude-md/readme/combined-analysis marked fresh
 # Dev Log
 
 One line per landing, newest first. Format ([TASK_TRACKING.md](../constitution/TASK_TRACKING.md) §5):
@@ -16,6 +15,7 @@ This is the canonical "what shipped" record. Entries below the seed line were ba
 
 ---
 
+- 2026-06-11 · scaffolding-reconciliation · `d7ef63b` · all verified-stale/false doc statements fixed (CLAUDE.md Tier-1 backends/pitfalls, AGENTS/GEMINI→pointers, combined-analysis 3.5, planner-prompts gate claim, kanban re-scopes); claude-md/readme/combined-analysis marked fresh
 - 2026-06-10 · cleanup-constitution (this effort) · (branch `feat/cleanup-constitution`) · docs constitution + freshness system: `docs/constitution/`, `scripts/git-hooks/post-commit`, `scripts/freshness-*.sh`, `docs/dev/` seeds
 - 2026-06-07 · per-agent-notebooks Phase 4 · `bc0673e` · ThreadID-scoped logical notebooks: `internal/message/`, `internal/llm/agent/agent.go` (HistoryMode Full/None/Thread), migration `20260607000000_add_message_thread_id.sql`, wiring in `app.go`
 - 2026-06-07 · assurance-fail-closed-empty-criteria (PARTIAL — ticket stays in-progress) · `578d280`, `f2c8d78` · `parseValidationVerdict` fails closed on empty `@success_criteria` (`orchestrator.go`, both ingestion routes); server gate / prompt clause / re-queue loop NOT shipped
