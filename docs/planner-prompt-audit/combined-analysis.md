@@ -116,7 +116,13 @@ When all entries strike through (or earlier on request), regenerate `planner-pro
 - **What:** Orchestrator infers mode by parsing markers (PROJECT_BRIEF: vs CREATE_TASK:). A Planner that emits prose with no marker produces zero observable mode signal. `intakeMode` flag and LLM belief drift independently.
 - **Fix:** Add an "OK acknowledging BUILD mode" or similar mode-echo expectation to the trigger prompts.
 
-### 3.5 ~~[FIXED in ac241e0] "Use it via Bash" vs "do NOT shell out" — cross-fragment ACP contradiction~~
+### 3.5 [FIXED in ac241e0 — **Planner-only**; non-Planner ACP roles still OPEN] "Use it via Bash" vs "do NOT shell out" — cross-fragment ACP contradiction
+
+> **Correction 2026-06-11 (anti-trust verification + dual-path recon CV4):** the strikethrough
+> below overreached. `actCLICommandsACP` is called from `planner.go` ONLY; ACP-backed
+> Observer/Assurance/QA still receive the in-process "do NOT shell out" fragment (`common.go`
+> role fragments) while their shim note says to use Bash. The cross-role half is tracked in the
+> re-scoped `block6-acp-cli-backend` kanban ticket (Round-6 finding #3). Do not treat 3.5 as closed.
 - ~~**Sources:** sub1 + Path B~~
 - ~~**Where:** `acp_priming_prompt` (app.go:231) appends *"Use it via Bash for all ACT-coordination subcommands"*; `act_cli_commands_fragment` (common.go:71) says *"do NOT shell out to send messages."*~~
 - ~~**What:** In-process Planner: fragment is restrictive. ACP Planner: priming overrides with Bash instruction. Same role, two backends, opposite instructions.~~

@@ -44,7 +44,14 @@
       "Round 5b: 8e3d3a8 (18), ffb51e4 (19), 8249a19 (20/20b), 2326d0b (21), ac241e0 (22)",
       "Nomik removal: a90b010, dcf4444; brownfield onboarding: 045ad26, c1e9bd5, 701fede, e49d197, 033bec1; confirmation hard-stop: b03ef50"
     ],
-    "active_drift_carried_from_round5": ["3.4 no mode echo", "4.2 Observer free-tier echo", "4.3 QA re-synthesis on restart", "7.1 [SYSTEM] visible in chat", "7.3 context file overrides base rules", "8.4 burst shows only first failure"]
+    "active_drift_carried_from_round5": [
+      "3.4 no mode echo",
+      "4.2 Observer free-tier echo",
+      "4.3 QA re-synthesis on restart",
+      "7.1 [SYSTEM] visible in chat",
+      "7.3 context file overrides base rules",
+      "8.4 burst shows only first failure"
+    ]
   },
   "prompts": [
     {
@@ -182,7 +189,11 @@
       "trigger_category": "fragment",
       "source_file": "act-agent/internal/app/app.go",
       "source_line": 261,
-      "compose_order": ["static_system_prompt_acp", "doNotRespondHeader", "renderShimNote"],
+      "compose_order": [
+        "static_system_prompt_acp",
+        "doNotRespondHeader",
+        "renderShimNote"
+      ],
       "backend": "acp",
       "raw_text": "wrapPriming(role, base) = InternalPromptMarker + doNotRespondHeader + base + renderShimNote(role)\n\nWhere:\n  InternalPromptMarker = \"\\x00ACT_INTERNAL\\x00\"\n\n  doNotRespondHeader = \"[ACT priming — do not respond. This is one-time configuration injected by the orchestrator. Acknowledge silently by emitting no text.]\\n\\n\"\n\n  base = prompt.GetAgentPrompt(config.AgentName('planner'), acp.ProviderACP)   // == static_system_prompt_acp\n\n  renderShimNote('planner') (app.go:270, live from tools.AllowedFor('planner')) =\n    \"\\n\\n[ACT] The CLI `act-tier1-planner` is on your PATH. Use it via Bash for all ACT-coordination subcommands. It enforces this role's allowed subcommand set:\\n\"\n    + \"  - status\\n\"\n    + \"  - context\\n\"\n    + \"  - log\\n\"\n    + \"  - graph\\n\"\n    + \"  - pvm\\n\"\n    + \"  - message\\n\"\n    + \"  - task retry\\n\"\n    + \"  - task abandon\\n\"\n    + \"  - prompt-section\\n\"\n    + \"Anything outside this list will be rejected at the shim boundary.\"",
       "runtime_substitutions": [
@@ -264,7 +275,10 @@
       "trigger_category": "lifecycle_priming",
       "source_file": "act-agent/internal/acp/agent.go",
       "source_line": 350,
-      "compose_order": ["static_system_prompt_acp", "acp_priming_wrapper"],
+      "compose_order": [
+        "static_system_prompt_acp",
+        "acp_priming_wrapper"
+      ],
       "backend": "acp",
       "raw_text": "// ensureACPSession (acp/agent.go:350) sends the priming as the first USER MESSAGE in the fresh ACP session:\n  if prime := a.primingFor(); prime != \"\" {\n      stopReason, err := a.client.Prompt(ctx, id, prime)\n      switch {\n      case err != nil:                       logging.Warn(\"acp_priming_failed\", ...)\n      case stopReason == \"\":                  logging.Warn(\"acp_priming_no_stop_reason\", ...)\n      case stopReason != StopReasonEndTurn:   logging.Warn(\"acp_priming_unexpected_stop_reason\", ...)\n      default:                                logging.Info(\"acp_priming_completed\", ...)\n      }\n  }\n\n// prime == wrapPriming('planner', GetAgentPrompt('planner', acp.ProviderACP))\n//        == \\x00ACT_INTERNAL\\x00 + doNotRespondHeader + static_system_prompt_acp + renderShimNote('planner')\n// ACP spec has no system-message channel (ContentBlock.Type: text|image|resource). Sent as user-role.",
       "runtime_substitutions": [
@@ -312,7 +326,7 @@
       "source_line": 224,
       "compose_order": null,
       "backend": "both",
-      "raw_text": "// Literal user input, possibly prefixed with resume context on the first turn:\no.recentAutoRoutes = nil           // human input clears the sliding-window cap\no.lastObserverPromptHash = \"\"      // re-arm Observer no-op gate\nif o.firstPlannerTurn && o.resumeContext != \"\" {\n    text = o.resumeContext + \"\\n\\nUser message: \" + text\n    o.firstPlannerTurn = false\n}\no.runAgentTurn(ctx, sessionID, \"planner\", text, attachments...)\n\n// The Planner role bypasses InternalPromptMarker (runAgentTurn only prepends it for non-Planner roles).",
+      "raw_text": "// Literal user input, possibly prefixed with resume context on the first turn:\no.recentAutoRoutes = nil           // human input clears the sliding-window cap\no.lastObserverPromptHash = \"\"      // re-arm Observer no-op gate\nif o.firstPlannerTurn && o.resumeContext != \"\" {\n    text = o.resumeContext + \"\\n\\nUser message: \" + text\n    o.firstPlannerTurn = false\n}\no.runAgentTurn(ctx, sessionID, \"planner\", text, attachments...)\n\n// CORRECTED 2026-06-11 (was: 'Planner role bypasses InternalPromptMarker' — FALSE mechanism description).\n// The live gate is fromHuman, not role: runAgentTurn prepends InternalPromptMarker iff !fromHuman\n// (orchestrator.go, `if !fromHuman { content = InternalPromptMarker + content }`). Only HandleHumanInput\n// passes fromHuman=true — so autoroute/build/intake-triggered PLANNER turns ARE marked and hidden too.\n// The resume-context '[SYSTEM]' block is the exception that still renders: it rides the human's own\n// first message (fromHuman=true) — that is drift item 7.1, still ACTIVE.",
       "runtime_substitutions": [
         "text — verbatim human input",
         "resumeContext — renderBriefContext('resume', ...); non-empty only on the first turn of a resumed (greenfield-existing) session"
@@ -323,7 +337,8 @@
       "fix_status": "VERIFIED-FIXED",
       "failure_modes_observed": [
         "Fix 4.1 (4cb1d26): clears recentAutoRoutes slice (sliding-window cap reset on human input). By design. Verified orchestrator.go:228.",
-        "Attachments forwarded raw to runAgentTurn with no size limit or truncation. Unchanged since Round 5."
+        "Attachments forwarded raw to runAgentTurn with no size limit or truncation. Unchanged since Round 5.",
+        "CORRECTED 2026-06-11: prior revisions described the marker gate as role-based ('Planner bypasses the marker'). Live gate verified `if !fromHuman` in runAgentTurn; role plays no part. This stale mechanism description caused the Round-6 false-positive ('autoroute prompts leak to chat' citing role != \"planner\"). Keep 7.1 (resume [SYSTEM] surface) ACTIVE."
       ]
     },
     {

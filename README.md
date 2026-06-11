@@ -134,7 +134,7 @@ Three layers, strictly separated:
 2. **Deterministic state** — ACT server. Append-only ChronologicalLog (JSONL) + LocalEmbeddingVectorStore (real `all-MiniLM-L6-v2` embeddings, no mocks). Event sourcing replays state on restart.
 3. **Thin spawner** — Runner. Reacts to state changes, spawns workers, never talks to the Planner directly.
 
-Tier 1 roles (Planner, Observer, Assurance, QA) run as goroutines inside the same `act` process, sharing one chat session. Tier 2 swarm workers run as separate Node subprocesses, polling the server for tasks that match their role and capabilities.
+Tier 1 roles (Planner, Observer, Assurance, QA) run as goroutines inside the same `act-agent` process, sharing one chat session. Tier 2 swarm workers run as separate Node subprocesses, polling the server for tasks that match their role and capabilities.
 
 ---
 
@@ -142,7 +142,7 @@ Tier 1 roles (Planner, Observer, Assurance, QA) run as goroutines inside the sam
 
 ```
 ACT/
-├── act-agent/                # Go binary (the `act` command, OpenCode fork)
+├── act-agent/                # Go binary (the `act-agent` command, OpenCode fork)
 │   ├── cmd/                  # cobra commands + TUI launcher
 │   ├── internal/
 │   │   ├── app/              # orchestrator goroutines (Tier 1 roles)
@@ -150,7 +150,7 @@ ACT/
 │   │   ├── llm/tools/        # bash, view, grep, edit, etc.
 │   │   ├── runner/           # swarm runner spawner
 │   │   └── tui/              # bubble-tea TUI
-│   ├── cli/                  # `act <subcommand>` (21 commands, TS)
+│   ├── cli/                  # `act-agent <subcommand>` agent CLI (TS)
 │   └── runner/act-runner.mjs # Headless swarm worker spawner
 ├── server/                   # ACT coordination server (TypeScript, port 8080)
 │   └── src/services/         # AgentRegistry, TaskCoordinator, EventHub,

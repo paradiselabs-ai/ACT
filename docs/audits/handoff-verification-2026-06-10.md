@@ -20,6 +20,17 @@ UNVERIFIABLE-HEADLESS = needs a running TUI.
 
 Line numbers cited below were live at `bc0673e` and WILL drift — re-grep symbols before reuse.
 
+> **⚠ DRIFT NOTE (added 2026-06-11 after the dual-path recon pass, `dual-path-recon-2026-06-10.md`):**
+> This report's pin is **committed code at `bc0673e`**. The working tree has since diverged with
+> UNCOMMITTED code adding two new Tier-1 ACP backends — **`antigravity` and `agy`** — and dropping
+> `gemini` from the dispatch (`app.go` switch; untracked `internal/acp/antigravity_cli.go`,
+> `agy-acp.mjs`). Consequences:
+> - The `actjson-backends` CONFIRMED verdict is drift-stale: `~/.act.json` now has `planner.backend=antigravity`.
+> - P9's quoted backend list (`claude-code, codex, gemini, opencode`) was exact at the pin but is NOT the live set — never quote a member list; re-grep the switch.
+> - The `act-symlink` CONFIRMED verdict is stale on this machine: `which act` → not found; the command is `act-agent` (`~/.local/bin/act-agent`). README documents the rename; CLAUDE.md/MEMORY were behind.
+> - Tracked in kanban: `document-antigravity-agy-backends-2026-06-11`.
+> Future audit headers must state committed-vs-working-tree scope explicitly.
+
 ## 1. Problems (STALE / FALSE) — the reconciliation work list
 
 ### P1. [STALE] `push-date-wrong`  (slice: git-commits)

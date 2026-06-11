@@ -43,7 +43,7 @@ Verification pipeline for this effort (in order): `F-handoff.md` → verify hand
 
 ## NesTTY (Nested TTY)
 
-> **THE TUI IS NesTTY.** When you run `act`, you launch the OpenCode-fork TUI, and that TUI _is_ the multi-agent window. There is no separate orchestrator process. There is no separate "NesTTY mode" to launch. The 4 Tier 1 agents run as goroutines inside the same Go binary, sharing one chat session, with their messages interleaved and color-coded by role. If you find yourself thinking "I need to launch the NesTTY orchestrator," stop — you're already inside it.
+> **THE TUI IS NesTTY.** When you run `act-agent`, you launch the OpenCode-fork TUI, and that TUI _is_ the multi-agent window. There is no separate orchestrator process. There is no separate "NesTTY mode" to launch. The 4 Tier 1 agents run as goroutines inside the same Go binary, sharing one chat session, with their messages interleaved and color-coded by role. If you find yourself thinking "I need to launch the NesTTY orchestrator," stop — you're already inside it.
 
 NesTTY = multiple agent REPLs sharing one terminal window. The TUI IS NesTTY.
 
@@ -55,7 +55,8 @@ NesTTY = multiple agent REPLs sharing one terminal window. The TUI IS NesTTY.
   - **Assurance** — event-driven. Activates when a swarm agent submits work for validation. Scores `@success_criteria` items (95% gate).
   - **QA/Synthesizer** — event-driven. Activates when Assurance passes validated work. Assembles into final deliverable.
 - **Coordination flow**: Human → Planner (INTAKE: 5-question conversation → `PROJECT_BRIEF:` → BUILD: `CREATE_TASK:` directives) → ACT server → Runner spawns swarm agents → swarm executes → Runner calls `act-agent task complete` then `act-agent task submit-for-validation` → Assurance validates → QA assembles → Planner reports to human.
-- **INTAKE mode**: When the Planner detects a new project (server returns 404 for the project name), it runs a 5-question intake conversation (description, techStack, constraints, successCriteria, agentsInvolved), summarizes, asks "Ready to start?", then emits `PROJECT_BRIEF: {json}` on confirmation. The orchestrator parses it and POSTs to `/api/projects`. Only after that does it switch to BUILD mode and start creating tasks.
+- **INTAKE mode**: When the Planner detects a new project (server returns 404 for the project name), it runs a 5-question intake conversation (description, techStack, constraints, successCriteria, agentsInvolved), summarizes, asks "Ready to start?", then emits `PROJECT_BRIEF: {json}` on confirmation — in a SEPARATE turn after the human confirms (hard stop; never same-message). The orchestrator parses it and POSTs to `/api/projects`. Only after that does it switch to BUILD mode and start creating tasks.
+- **Brownfield INTAKE variant**: when the turn carries a "CODEBASE ANALYSIS" block (existing code, no server-side project), the Planner skips the 5-question form and asks ONLY two things — what to build/change next, and what agents must NOT touch (`prompt/planner.go`). techStack comes from the analysis; the same "Ready to start?" hard stop applies.
 
 ***
 
@@ -74,11 +75,13 @@ The swarm agents execute tasks headlessly with role specializations: `frontend_d
 
 **Parallel from startup.** When the orchestrator starts (first message in the TUI), it spawns ONE Runner subprocess per swarm role — five Node.js processes by default, each polling the ACT server for tasks matching its role/capabilities. Tasks dispatched by the Planner execute concurrently, not sequentially. This is the difference between "swarm" and "queue".
 
-**Per-role backend selection.** Each swarm role can use one of two backends:
+**Per-role backend selection (Tier 2).** Each swarm role can use one of two backends:
 - `act-agent` (default) — the local Go binary, configured via per-role model in `~/.act.json`
 - `claude-code` — the official Claude Code CLI (`claude --print --dangerously-skip-permissions`)
 
-Users change backends with `/swarm <role> <backend>` (in the TUI) or `act-agent swarm set <role> <backend>` (CLI). The bulk form is `/swarm all claude-code` or `act-agent swarm set all claude-code`. **Backend selection only applies to Tier 2** — Tier 1 agents are in-process goroutines and have no executable to swap.
+Users change backends with `/swarm <role> <backend>` (in the TUI) or `act-agent swarm set <role> <backend>` (CLI). The bulk form is `/swarm all claude-code` or `act-agent swarm set all claude-code`.
+
+**Tier 1 ALSO has backend selection — do NOT re-implement it.** Each Tier-1 role dispatches on `agents.<role>.backend` in `~/.act.json` via the backend switch in `internal/app/app.go`: external CLI hosts (e.g. `claude-code`; the live member set changes — **re-grep the switch, never trust a list here**) are driven over **ACP** (`internal/acp/`, constructor `acp.NewACPAgent`, per-role CLI allowlist enforced by `cmd/act-tier1-shim`); an empty/`act-agent` backend keeps the in-process goroutine path. The TUI command is `/backend <role|all> <backend>` (`slash.go`) — separate from Tier 2's `/swarm`. An `antigravity`/`agy` backend pair is in flight (see kanban `document-antigravity-agy-backends-2026-06-11`).
 
 **Other swarm details:**
 - Planner picks role mix per project → writes tasks to role IDs → Runner spawns swarm agents
@@ -184,8 +187,8 @@ ACT/
 │   │   └── PVMIndexer.ts        # Indexes events into vector store
 │   └── src/types/
 │       └── roles.ts              # Role taxonomy (AgentRole enum, tiers, constraints)
-├── act-agent/                     # OpenCode fork (Go) — the `act` command
-│   ├── internal/llm/prompt/      # Role-specific system prompts (13 files)
+├── act-agent/                     # OpenCode fork (Go) — the `act-agent` command
+│   ├── internal/llm/prompt/      # Role-specific system prompts (16 non-test .go files — count drifts; ls it)
 │   │   ├── planner.go            # Tier 1: ONLY decision-maker
 │   │   ├── observer.go           # Tier 1: Monitor + report
 │   │   ├── assurance.go          # Tier 1: Validate @success_criteria (95% gate)
@@ -195,10 +198,13 @@ ACT/
 │   │   ├── backend_dev.go        # Tier 2: API/DB specialist
 │   │   ├── qa_engineer.go        # Tier 2: Testing only
 │   │   ├── researcher.go         # Tier 2: Analysis, not code
+│   │   ├── planner_section_*.go  # Planner on-demand prompt sections (evidence/examples/criteria/validation) + sections.go registry
 │   │   ├── common.go             # Shared prompt building blocks + env/LSP helpers
 │   │   └── prompt.go             # Dispatcher (routes role → prompt)
+│   ├── internal/acp/             # Tier-1 external-backend layer (ACP wire protocol; acp.NewACPAgent)
+│   ├── cmd/act-tier1-shim/       # Per-role CLI allowlist shim for ACP-backed Tier 1
 │   ├── internal/act/client.go    # Native HTTP client for ACT server
-│   ├── cli/                      # Agent CLI (21 commands, TS)
+│   ├── cli/                      # Agent CLI (TS; count the `command ===` branches, don't trust a number here)
 │   └── runner/act-runner.mjs     # Headless swarm agent spawner
 ```
 
@@ -232,19 +238,19 @@ ACT/
 - Subprocess stdout/stderr → `~/.act/runners/<role>.log` (no chat pollution)
 
 ### TUI / Orchestrator (Phase 3 deltas)
-- **Token diet**: `prompt/common.go::getEnvironmentInfo` no longer runs `ls .`; `bash.go` description trimmed 2300→200 tokens; per-role tool subsets (`Tier1ToolsForRole`) — Planner/Observer get just `bash`, Assurance/QA get `bash + view + grep`. Tier 1 LLM requests dropped ~22K → ~5-7K tokens.
-- **Context paths**: defaultContextPaths reduced to `["ACT.md", "ACT.local.md"]`. CLAUDE.md is no longer auto-injected (was injecting ~20K tokens when running `act` inside the ACT repo).
+- **Token diet**: `prompt/common.go::getEnvironmentInfo` no longer runs `ls .`; `bash.go` description trimmed 2300→200 tokens; per-role tool subsets (`Tier1ToolsForRole`, `internal/llm/agent/tools.go`) — **no Tier-1 role gets raw bash (KI-02)**: Planner gets `act_cli + expand_prompt_section`, Observer gets `act_cli` only, Assurance/QA get `act_cli + view + grep`. Tier 1 LLM requests dropped ~22K → ~5-7K tokens.
+- **Context paths**: defaultContextPaths = `["AGENTS.md", "ACT.md", "ACT.local.md"]` (`internal/config/config.go`) — AGENTS.md is the Planner-authored project brief, regenerated on PROJECT_BRIEF parse. CLAUDE.md is no longer auto-injected (was injecting ~20K tokens when running the TUI inside the ACT repo).
 - **Lazy swarm spawn**: Runners spawn on the first `CREATE_TASK`, not on every `act` launch.
 - **Coordination event surface**: `coordinationEventLoop` polls `/api/log` every 3s and surfaces task lifecycle events as system messages in the chat (`📝 task created`, `✓ dev-1 completed`, `📤 submitted for validation`, `✅ validation passed`, etc.).
 - **Per-turn 5-min timeout**: `runAgentTurn` wraps `agentSvc.Run` with `context.WithTimeout`. On expiry: cancels the agent and emits a system message.
 - **Internal prompt marker**: `app.InternalPromptMarker` (`\x00ACT_INTERNAL\x00`) prepended to non-Planner inputs so the TUI hides Observer/Assurance/QA prompts but still shows their outputs with role banners.
-- **Auto-route Tier 1 → Planner**: Observer/Assurance/QA messages trigger a Planner turn via `autoRoutePlanner`. Recursion guard `consecutiveAutoTurns < 5`. Reset on every human input. Asymmetric — Planner replies don't auto-route.
+- **Auto-route Tier 1 → Planner**: Observer/Assurance/QA messages trigger a Planner turn via `autoRoutePlanner`. Loop guard is a **sliding window** — `recentAutoRoutes` capped at `autoTurnCap = 5` per `autoRouteWindow = 10min` (replaced the old `consecutiveAutoTurns` counter, which three documented loop classes bypassed — Audit Fix 6, commit `4cb1d26`). Cleared on every human input. Asymmetric — Planner replies don't auto-route.
 - **Tier 1 visibility**: startup pings (`👁 Observer online` etc.), Observer health pings every ~8 min when no anomalies, role banners cached only after role tagging.
 - **Server auto-start**: `EnsureServerRunning` wired into `cmd/root.go::RunE`. `findServerScript` and `findCLIScript` use `~/.act/config.json::actRoot` first, then walk from binary path, then cwd fallback.
 
 ### CLI
 - REPL: `create project`, `list agents/projects`, `show project`, `default agent`, `status`, `help`
-- `act` CLI: `register`, `context`, `task complete/progress/retry/submit-for-validation`, `brief update`, `pvm search`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`
+- Agent CLI (`act-agent <subcommand>` → routes to `cli/act-cli.ts`): `register`, `context`, `task complete/progress/retry/abandon/submit-for-validation`, `brief update`, `pvm search/reindex`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`, `codebase onboard`, `swarm set` — the dispatch branches in `act-cli.ts` are the source of truth for the full set
 
 ### TUI (the NesTTY window)
 - `act-agent/internal/app/orchestrator.go` — coordination logic: CREATE_TASK parsing, Observer monitoring loop, validation routing to Assurance, QA synthesis routing, message ownership tracking
@@ -266,8 +272,8 @@ Dual-purpose semantic memory: team coordination patterns + individual agent skil
 ### A2A Protocol
 Task delegation: Planner pushes tasks to ACT targeting specific role IDs. Agent Cards expose capabilities. NOT for conversation.
 
-### `act` CLI (Agent Interface)
-~50-100 tokens vs 47K for MCP schemas. Commands: `register`, `context`, `task complete/progress/retry/submit-for-validation`, `brief update`, `pvm search`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`.
+### Agent CLI (`act-agent <subcommand>`)
+~50-100 tokens vs 47K for MCP schemas. Same command surface as the CLI bullet in "What Works" above — `cli/act-cli.ts` dispatch branches are the source of truth.
 
 ### Knowledge Graphs
 1. **Code KG** — no persistent graph. ACT matches Claude Code's bet: codebase intelligence is agentic search (Grep/Glob/Read) + context discipline, not an index. (The Nomik/Neo4j integration was removed — the Docker dependency was an ops burden and never on the alpha critical path.)
@@ -306,19 +312,21 @@ act-agent -p "single query"                         # OpenCode single-turn mode 
 
 ### Provider Configuration
 
-Each role can use a different LLM model. Configure in `.opencode.json` (see `.opencode.example.json`):
+Each role can use a different LLM model. **The config file is `~/.act.json`** (primary; `internal/config/` reads it first — `.opencode.json` survives only as a legacy fallback path and there is NO `.opencode.example.json` in the repo; see `.act.example.json` instead):
 
 ```json
 {
   "agents": {
-    "planner":      { "model": "claude-opus-4-20250514", "maxTokens": 8000 },
-    "observer":     { "model": "claude-sonnet-4-20250514", "maxTokens": 2000 },
-    "assurance":    { "model": "claude-sonnet-4-20250514", "maxTokens": 5000 },
-    "qa_synthesizer": { "model": "claude-sonnet-4-20250514", "maxTokens": 5000 },
-    "developer":    { "model": "claude-sonnet-4-20250514", "maxTokens": 5000 }
+    "planner":      { "model": "...", "maxTokens": 8000 },
+    "observer":     { "provider": "openrouter", "model": "...", "maxTokens": 2000 },
+    "assurance":    { "backend": "claude-code" },
+    "qa_synthesizer": { "backend": "claude-code" },
+    "developer":    { "backend": "claude-code" }
   }
 }
 ```
+
+(`backend` selects the execution host — Tier 1 via the ACP layer, Tier 2 via the Runner; `provider`+`model` configure the in-process path. Empty `backend` = in-process.)
 
 **Supported providers:** Anthropic, OpenAI, Gemini, Groq (free tier), OpenRouter (free models), Bedrock, Azure, VertexAI, xAI, Local (Ollama / LM Studio / vLLM).
 
@@ -331,12 +339,12 @@ Any role not configured in `~/.act.json` falls back to `agents.developer`. There
 ## Common Pitfalls
 
 1. **act-coordination.json is append-only.** Never edit existing entries.
-2. **Tasks are created by the Planner agent inside the TUI.** It parses `CREATE_TASK:` directives from the Planner's responses and POSTs them to the server. Swarm agents consume tasks via the `act` CLI, never create them.
+2. **Tasks are created by the Planner agent inside the TUI.** It parses `CREATE_TASK:` directives from the Planner's responses and POSTs them to the server. Swarm agents consume tasks via the Agent CLI, never create them.
 3. **There is no separate NesTTY orchestrator process.** The TUI _is_ NesTTY. The old `nestty/` directory was deleted — all coordination logic lives in `act-agent/internal/app/orchestrator.go`.
-4. **QdrantVectorStore.ts has a pre-existing TypeScript error.** Don't fix unless wiring Qdrant.
-5. **tsx must be installed locally** in `server/` (`npm install -D tsx`).
-6. **MCP bridge removed.** ACT CLI (`act`) replaces all MCP tools with ~50-100 tokens vs 47K schema overhead.
-7. **LocalEmbeddingVectorStore is already active.** PVM embeddings are NOT a build priority. **Caveat:** the embedding pipeline is real; the analytics layer on top of it (`getAgentProfile`, `compareAgents`, `getAgentSynergy`, `SelfImprovementEngine`) currently returns placeholder data (`successRate: 0.85 + Math.random() * 0.15`, four `// placeholder` methods). When a user asks "is PVM real," answer scoped: embeddings real, analytics fake. Do not conflate them.
+4. **QdrantVectorStore.ts is excluded from the build** (`server/tsconfig.json` `exclude`), so `npx tsc --noEmit` runs CLEAN — the latent TS2345 (line ~87) only reappears if the exclude is removed when wiring Qdrant. Don't "fix" the clean type-check, and don't fix the file unless wiring Qdrant.
+5. **tsx must be installed locally** in `server/` (`npm install -D tsx`). `npm run dev` is `tsx watch` — saving any server source **auto-restarts the process mid-test**, wiping in-memory state and re-replaying `coordination-log.jsonl`.
+6. **The TypeScript MCP *bridge* was removed** — the Agent CLI replaces those MCP tools with ~50-100 tokens vs 47K schema overhead. But the Go agent RETAINS native MCP client support (`internal/llm/agent/mcp-tools.go::GetMcpTools`, stdio + SSE clients from `config.MCPServers`) — do not rip that out based on this pitfall.
+7. **LocalEmbeddingVectorStore is already active, and as of 2026-06 its analytics are REAL too.** `getAgentProfile`/`compareAgents`/`getAgentSynergy` compute from actual task-outcome events on the active store; the old `0.85 + Math.random()` placeholders survive ONLY in the inactive Mock/Qdrant stores. When a user asks "is PVM real": embeddings real, analytics real-on-the-active-store; only runtime statistical quality is unverified (needs live data). Do NOT re-implement the analytics layer.
 8. **Verifying "is X real" requires running X, not finding X.** When the user asks whether code is real or uses placeholder data, the verification owed is: run the method, inspect what it returns, AND grep the implementation for `Math.random`, `placeholder`, `// TODO`, `// FIXME`, `hardcoded`, `mock`, `stub`, `return 0\.[0-9]`. A file that exists with real imports underneath can still have fake methods on its surface. Past sessions failed this by reporting "PVM is real" after finding the embedding layer was real, without checking the analytics methods downstream. State explicitly which layers were verified and which weren't.
 
 ***
@@ -350,7 +358,7 @@ See `docs/Vault/Agent Coordination Toolkit/nestty/BUILD_ORDER.md` for full detai
 **Block 2**: ChronLog replay ✅, `act` CLI ✅, A2A protocol ✅, Runner improvements ✅, Task title field ✅
 **Block 3**: act-agent opencode fork (--agent + --nestty modes) ✅
 **Block 4**: NesTTY orchestrator ✅ (ported to Go, lives in `act-agent/internal/app/orchestrator.go`)
-**Block 5**: Assurance validation + QA/Synthesizer assembly ✅ (server-side complete, in-TUI routing in Phase 2)
+**Block 5**: Assurance validation + QA/Synthesizer assembly ✅ (server-side AND in-TUI routing both live in `orchestrator.go`)
 **Block 6**: SPIL parser
 **Future**: FLUX State, architecture patterns from `docs/ARCHITECTURE_PATTERNS.md`
 
@@ -376,7 +384,7 @@ When writing a `/plan` that the user intends to execute across multiple Claude i
 1. **Dependency block** — explicit list of upstream tasks (by ID or name) this task depends on. Include a line: *"Do NOT attempt to fulfill dependency requirements yourself — wait until the dependency is marked complete in `act-coordination.json` before starting."* The goal is strict serialization of dependent work; parallel instances must not race to fill each other's gaps.
 2. **Success criteria** — concrete, testable outcomes. Not "works correctly" — actual conditions: files exist at paths X/Y/Z, `go build` clean, function returns shape Q, endpoint responds with schema R. The criteria must be precise enough that a reviewer can verdict pass/fail without judgment calls.
 3. **Code constraints** — exact shape of the fix: which files to touch, which to leave alone, no side-effect refactors, no speculative abstractions, no "while I'm here" cleanup. Constraints exist to prevent drift from ACT's philosophy: minimal surface area, trust the framework, no defensive scaffolding, no re-exports/compat shims, comments only for non-obvious *why*, no backwards-compat hacks (see CLAUDE.md "Doing tasks" + "Executing actions with care").
-4. **Philosophy alignment** — success criteria and constraints together must make it obvious *how* best practices apply for this specific task. Reference the relevant ACT architectural principle (Three-Layer Separation, `act-coordination.json` append-only, Tier 1 in-process, `~/.act.json` as config truth, etc.) so the delegated instance doesn't re-derive it.
+4. **Philosophy alignment** — success criteria and constraints together must make it obvious *how* best practices apply for this specific task. Reference the relevant ACT architectural principle (Three-Layer Separation, `act-coordination.json` append-only, Tier-1 backend dispatch in `app.go`'s single switch, `~/.act.json` as config truth, etc.) so the delegated instance doesn't re-derive it.
 5. **Coordination protocol** — each delegated instance must:
    - Read the last 50–100 lines of `act-coordination.json` before starting any task.
    - Append a `task_start` entry with its task ID and timestamp before beginning work.
@@ -433,7 +441,7 @@ When a task reaches `done`, move the file from `.devtool/features/` → `.devtoo
 
 ## Handoff Protocol
 
-If the user says **"this is a handoff"** or **"handoff session"**, read `.claude/HANDOFF.md` for session continuity — it contains what was done, what's in progress, and what's next. **Do NOT read HANDOFF.md otherwise** — it may be stale and is only relevant when explicitly invoked.
+Handoffs live at **`docs/dev/HANDOFF.md`** (tracked — Constitution Art. 7). One current handoff, stamped with the commit it describes; **older than the branch tip ⇒ advisory only, re-verify before acting on it**. Legacy locations (`F-handoff.md` at repo root, `.claude/HANDOFF.md`) are deprecated/frozen. If the user says **"this is a handoff"**, read `docs/dev/HANDOFF.md`; don't read handoffs otherwise.
 
 ***
 
@@ -457,7 +465,10 @@ Status taxonomy distinguishes code-enforced from prompt-wished behavior:
 
 ## Documentation
 
-- `docs/Vault/Agent Coordination Toolkit/nestty/` — **Primary architecture docs** (9 files covering all roles, protocols, harness, SPIL, infrastructure, build order)
-- `docs/Harness/` — Harness engineering principles, knowledge graphs, Deep Agents research, MCO concept
-- `docs/ARCHITECTURE_PATTERNS.md` — **5 patterns from Claude Code analysis** to implement independently (context compaction, deferred tool discovery, pre/post hooks, prompt caching split, autoDream memory consolidation). Includes references, priorities, and where each fits in ACT.
-- Full concept alignment: see plan file `serialized-weaving-spring.md`
+**Governing docs (read these to know where anything goes):** `docs/constitution/` — [CONSTITUTION](docs/constitution/CONSTITUTION.md) (truth hierarchy, anti-trust rule, freshness), [DOC_STANDARDS](docs/constitution/DOC_STANDARDS.md) (directory map, page template, where new docs go), [TASK_TRACKING](docs/constitution/TASK_TRACKING.md) (ticket spec: Success Criteria / Constraints / code-level Invariants; publication flow), [UPDATE_LOOPS](docs/constitution/UPDATE_LOOPS.md) (freshness hooks + budgets). Check `scripts/freshness-check.sh` output before trusting any registered artifact.
+
+- `docs/dev/` — internal dev-state: `HANDOFF.md`, `DEV_LOG.md` (what shipped, when), `ROADMAP.md`, `NOTES.md`
+- `docs/audits/` — verification + audit outputs (anti-trust handoff verification, dual-path recon)
+- `docs/planner-prompt-audit/` — Planner prompt-audit line (`combined-analysis.md` is the rolling status)
+- `docs/ARCHITECTURE_PATTERNS.md` — **5 patterns from Claude Code analysis** to implement independently (context compaction, deferred tool discovery, pre/post hooks, prompt caching split, autoDream memory consolidation)
+- `docs/Vault/Agent Coordination Toolkit/nestty/` — architecture long-form (ROLES, BUILD_ORDER, SPIL, FUTURE_VISION…). **⚠ gitignored personal vault — exists on the project owner's machine only; nothing load-bearing may live ONLY there** (DOC_STANDARDS §1). A `docs/Harness/` path mentioned in older docs does not exist at that location (it's inside the Vault).
