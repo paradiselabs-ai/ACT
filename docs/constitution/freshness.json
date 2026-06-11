@@ -29,9 +29,9 @@
         "act-agent/internal/app/orchestrator.go"
       ],
       "refresh": "docs/constitution/UPDATE_LOOPS.md \u00a73 (re-extract fragments, re-grep every source_line)",
-      "verified_against": null,
-      "status": "stale",
-      "staled_by": "Round-6 finding: chat-leak entry cites a gate that was already replaced by !fromHuman; source_line stale"
+      "verified_against": "70344e3",
+      "status": "fresh",
+      "staled_by": null
     },
     "claude-md": {
       "paths": [
