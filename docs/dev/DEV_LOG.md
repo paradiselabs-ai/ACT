@@ -6,6 +6,7 @@ owner: project-owner
 last_verified: 2026-06-10
 ---
 
+- 2026-06-11 · scaffolding-reconciliation · `d7ef63b` · all verified-stale/false doc statements fixed (CLAUDE.md Tier-1 backends/pitfalls, AGENTS/GEMINI→pointers, combined-analysis 3.5, planner-prompts gate claim, kanban re-scopes); claude-md/readme/combined-analysis marked fresh
 # Dev Log
 
 One line per landing, newest first. Format ([TASK_TRACKING.md](../constitution/TASK_TRACKING.md) §5):
