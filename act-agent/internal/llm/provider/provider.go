@@ -132,6 +132,16 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 			options: clientOptions,
 			client:  newOpenAIClient(clientOptions),
 		}, nil
+	case models.ProviderNVIDIA:
+		// NVIDIA NIM (build.nvidia.com) — OpenAI-compatible endpoint serving
+		// free hosted models (Kimi, Llama, etc.) on NVIDIA cloud GPUs.
+		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
+			WithOpenAIBaseURL(pickBase("https://integrate.api.nvidia.com/v1")),
+		)
+		return &baseProvider[OpenAIClient]{
+			options: clientOptions,
+			client:  newOpenAIClient(clientOptions),
+		}, nil
 	case models.ProviderAzure:
 		return &baseProvider[AzureClient]{
 			options: clientOptions,

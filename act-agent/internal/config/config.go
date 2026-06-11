@@ -460,6 +460,9 @@ func setProviderDefaults() {
 	if apiKey := os.Getenv("GROQ_API_KEY"); apiKey != "" {
 		viper.SetDefault("providers.groq.apiKey", apiKey)
 	}
+	if apiKey := os.Getenv("NVIDIA_API_KEY"); apiKey != "" {
+		viper.SetDefault("providers.nvidia.apiKey", apiKey)
+	}
 	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
 		viper.SetDefault("providers.openrouter.apiKey", apiKey)
 	}
@@ -511,7 +514,7 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 		return nil
 	}
 	if agent.Provider == "" {
-		return fmt.Errorf("agent %s missing required field 'provider' — set it to one of: anthropic, openai, gemini, groq, openrouter, xai, azure, vertexai, bedrock, local", name)
+		return fmt.Errorf("agent %s missing required field 'provider' — set it to one of: anthropic, openai, gemini, groq, nvidia, openrouter, xai, azure, vertexai, bedrock, local", name)
 	}
 	if agent.Model == "" {
 		return fmt.Errorf("agent %s missing required field 'model' — write the upstream model string verbatim (e.g. \"claude-sonnet-4-20250514\", \"z-ai/glm-4.5-air:free\")", name)

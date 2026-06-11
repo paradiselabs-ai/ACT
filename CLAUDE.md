@@ -311,7 +311,7 @@ act-agent -p "single query"                         # OpenCode single-turn mode 
 - `ACT_SERVER_URL` — server URL (default: `http://localhost:8080`)
 - `PORT` — server port (default: `8080`)
 - `AGENT_CLI` — agent binary override (default: `./act-agent/act-agent`)
-- `ANTHROPIC_API_KEY` / `GROQ_API_KEY` / `OPENROUTER_API_KEY` — LLM provider keys
+- `ANTHROPIC_API_KEY` / `GROQ_API_KEY` / `NVIDIA_API_KEY` / `OPENROUTER_API_KEY` — LLM provider keys
 - `LOCAL_ENDPOINT` — local model server URL (Ollama, LM Studio, vLLM)
 
 ### Provider Configuration
@@ -332,7 +332,7 @@ Each role can use a different LLM model. **The config file is `~/.act.json`** (p
 
 (`backend` selects the execution host — Tier 1 via the ACP layer, Tier 2 via the Runner; `provider`+`model` configure the in-process path. Empty `backend` = in-process.)
 
-**Supported providers:** Anthropic, OpenAI, Gemini, Groq (free tier), OpenRouter (free models), Bedrock, Azure, VertexAI, xAI, Local (Ollama / LM Studio / vLLM).
+**Supported providers:** Anthropic, OpenAI, Gemini, Groq (free tier), NVIDIA NIM (free hosted models incl. `moonshotai/kimi-k2.6`; base `https://integrate.api.nvidia.com/v1`), OpenRouter (free models), Bedrock, Azure, VertexAI, xAI, Local (Ollama / LM Studio / vLLM).
 
 **Cost strategy:** Don't skimp on Planner (use strongest model). Swarm agents can use cheaper/local models. Groq free tier (Llama 3.3 70B) works for routine coding tasks.
 

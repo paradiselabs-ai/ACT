@@ -93,6 +93,7 @@ Free-tier cloud models cover both Tier 1 and the swarm with no credit card.
 
 - **[Groq](https://console.groq.com/)** — free tier, sub-second latency, Llama 3.3 70B. 30-second signup, no credit card.
 - **[OpenRouter](https://openrouter.ai/)** — aggregator, many free models (GLM-4.5, gpt-oss-120b, MiniMax-M2.5). 2-minute signup.
+- **[NVIDIA NIM](https://build.nvidia.com/)** — free hosted models on NVIDIA cloud GPUs (Kimi K2.6, Llama 3.3, DeepSeek, Nemotron). OpenAI-compatible; provider `nvidia`.
 - **[Anthropic](https://console.anthropic.com/) / [OpenAI](https://platform.openai.com/) / [xAI](https://x.ai/)** — paid API keys for premium models.
 
 #### 💻 Local (zero cloud calls, your hardware)

@@ -34,6 +34,7 @@ const (
 	ProviderOpenAI     ModelProvider = "openai"
 	ProviderGemini     ModelProvider = "gemini"
 	ProviderGROQ       ModelProvider = "groq"
+	ProviderNVIDIA     ModelProvider = "nvidia"
 	ProviderOpenRouter ModelProvider = "openrouter"
 	ProviderXAI        ModelProvider = "xai"
 	ProviderAzure      ModelProvider = "azure"
