@@ -35,8 +35,9 @@ Reading rule (Constitution Art. 4): `status: stale` ⇒ the artifact is advisory
 
 **Post-commit hook** — `scripts/git-hooks/post-commit` (canonical, versioned) installed into `.git/hooks/` by `scripts/install-hooks.sh`:
 
-- After every commit: diff the commit's changed files against each artifact's `watch` prefixes.
+- After every commit: diff the commit's changed files against each artifact's `watch` prefixes. Merge commits diff against the **first parent** (`-m --first-parent`) so a feature branch landing on the shared branch stales what it brought in (plain `diff-tree` emits nothing on merges).
 - Touched watch path AND the commit didn't update the artifact itself → `status: stale`, `staled_by: <commit>`.
+- `verified_against` semantics: the **last commit the artifact was verified at** — it is intentionally kept when an artifact goes stale, because the refresh procedure scopes its re-grep with `git diff <verified_against>..HEAD` (§3 budget rule 2). `status` alone says whether to trust the artifact.
 - Pure shell + python3 (stdlib only). Runs in milliseconds. Zero tokens.
 
 **Session-start check** — `scripts/freshness-check.sh`, wired as a `SessionStart` hook in `.claude/settings.json`:
@@ -79,10 +80,11 @@ An artifact gets an LLM refresh **only** when: (a) it is `stale` AND about to be
 ./scripts/freshness-check.sh      # see what's stale right now
 ```
 
-`SessionStart` wiring for Claude Code lives in `.claude/settings.json` (already configured in-repo). Windsurf/Devin: add `scripts/freshness-check.sh` to the tool's session-start rules (`.windsurf/`/`.devin/` may point at it but must not duplicate it).
+`SessionStart` wiring for Claude Code lives in `.claude/settings.json` — **tracked** (gitignore negation `!.claude/settings.json` + `!.claude/hooks/`) with `$CLAUDE_PROJECT_DIR`-relative commands, so a fresh clone gets the check + commit-hygiene hooks automatically. The git-side post-commit staler still needs `./scripts/install-hooks.sh` once per clone. **Dependency: python3 on PATH** — both scripts warn and no-op without it (they never block a commit). Windsurf/Devin: add `scripts/freshness-check.sh` to the tool's session-start rules (`.devin/` may point at it but must not duplicate it).
 
 ## 5. Failure modes this system accepts (by design)
 
-- A doc edited without committing won't flip freshness — freshness tracks commits, not saves. Acceptable: the shared branches are what matter.
+- A doc edited without committing won't flip freshness — freshness tracks commits, not saves. Acceptable: the shared branches are what matter. **Corollary:** *uncommitted code* is equally invisible — a `fresh` marker asserts "verified against committed code at that hash," never "matches the working tree." During probation, re-grep regardless.
+- A commit that edits an artifact AND a watched code path in one shot is **trusted as a refresh** (the `touched_self` short-circuit) — a one-line doc tweak riding a code rewrite slips through. Accepted: flipping it would false-stale every legitimate combined refresh; the pre-merge gate is the backstop.
 - `watch` prefixes are coarse — false-positive stales are cheap (a refresh that finds nothing wrong is fast and ends with `freshness-refresh.sh`); false-negative misses are bounded by the pre-merge gate.
 - The hook is local; a founder who never installed it produces commits that don't stale artifacts on their machine. The other machine's hook catches it on pull? No — post-commit fires on local commits only. Mitigation: the pre-merge gate re-derives staleness from `git diff --name-only <verified_against>..HEAD`, which is machine-independent. The hook is a convenience cache; the gate is the source of truth.

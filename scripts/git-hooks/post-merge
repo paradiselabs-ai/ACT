@@ -1,0 +1,6 @@
+#!/bin/sh
+# git fires post-merge (NOT post-commit) after a merge — without this wrapper,
+# merge commits would stale nothing (review-plan-2026-06-11 C2, refined).
+# Same staling logic; the -m --first-parent diff in post-commit handles the
+# merge-commit shape correctly.
+exec "$(git rev-parse --show-toplevel)/scripts/git-hooks/post-commit"

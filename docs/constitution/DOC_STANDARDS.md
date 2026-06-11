@@ -66,6 +66,8 @@ supersedes: <path, optional>
 ---
 ```
 
+**Exception — audit working files:** intermediate fan-out outputs (`*-path-a-sub*.md`, `*-path-b-self.md`, `*-synthesis.md`, working comparison copies, `*.raw.json` dumps) are working notes, exempt from frontmatter; only the canonical deliverable of a run (the report named in its workflow) carries it.
+
 Body rules:
 
 - Lead with what the doc is for and who should read it (1–2 sentences).

@@ -49,7 +49,7 @@ Remaining scope for this ticket:
 - No orchestrator dispatch redesign — the single switch in `app.go` stays the only dispatch point.
 
 ## Invariants (code-level)
-- `acp.NewACPAgent` remains the only external-backend constructor; `grep -rn "AgentBackend" act-agent/internal/` stays empty.
+- `acp.NewACPAgent` remains the only external-backend constructor; no `act-agent/internal/llm/backend.go` exists and no `AgentBackend` *type* is introduced (`grep -rnE '\bAgentBackend\b\s*(struct|interface)' act-agent/internal/` stays empty — the plain-substring grep false-hits the live `WriteAgentBackend` config writer).
 - Original invariants still hold: rolePrompt injected once per ACP session (priming injector) vs every turn in-process; ACP = long-lived subprocess whose lifecycle the acp package owns.
 
 **Unblocks**: v1 release as "Claude Code multi-agent harness." See BUILD_ORDER.md Block 6 + FUTURE_VISION.md "ACP CLI Backend for Tier 1 Agents".

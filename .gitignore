@@ -53,10 +53,9 @@ taskade agentics.md
 !AGENTS.md
 !GEMINI.md
 !docs/**/*.md
-!nestty/*.md
 !tests/*.md
-!.windsurf/**/*.md
 !.devtool/**/*.md
+# (dropped dead negations 2026-06-11: nestty/ and .windsurf/ no longer exist)
 
 # ── Python environment ───────────────────────
 __pycache__/
@@ -118,6 +117,12 @@ EXPORT/*
 .vscode/
 .idea/
 .claude/
+# …but the Claude Code project wiring is shared (freshness SessionStart hook,
+# commit-hygiene hooks) — track it so a fresh clone bootstraps (review-plan C1):
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .windsurf/
 .qodo/
 *.code-workspace

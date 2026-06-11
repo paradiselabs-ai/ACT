@@ -5,6 +5,7 @@
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REGISTRY="$REPO_ROOT/docs/constitution/freshness.json"
 [ -f "$REGISTRY" ] || exit 0
+command -v python3 >/dev/null 2>&1 || { echo "freshness: python3 missing — check skipped, artifacts unverified" >&2; exit 0; }
 
 python3 - "$REGISTRY" <<'PY'
 import json, sys

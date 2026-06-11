@@ -17,6 +17,7 @@
 ## First actions in any session
 
 ```bash
+./scripts/install-hooks.sh          # once per clone — installs the freshness post-commit hook
 ./scripts/freshness-check.sh        # which registered artifacts are stale (advisory-only)
 tail -c 8000 act-coordination.json  # what other writers did recently (journal, not status)
 ```

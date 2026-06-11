@@ -30,5 +30,5 @@ Ordered by importance. Task-shaped items live on the kanban (`.devtool/features/
 
 - SPIL evolution to agentic language (kanban `spil-evolve-to-agentic-language`)
 - FLUX State (needs causal PVM edges / Coordination KG)
-- PVM analytics layer de-placeholdering (embeddings are real; `getAgentProfile`/`compareAgents`/`getAgentSynergy`/`SelfImprovementEngine` are placeholder)
+- PVM analytics runtime-quality validation — analytics on the active `LocalEmbeddingVectorStore` are REAL (computed from task-outcome events; the old `Math.random` placeholders survive only in the inactive Mock/Qdrant stores); what's unverified is statistical quality under live data. `SelfImprovementEngine` internals not separately re-verified — check before relying on it.
 - Architecture patterns backlog (`docs/ARCHITECTURE_PATTERNS.md`: compaction, deferred tool discovery, hooks, caching split, autoDream)

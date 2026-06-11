@@ -67,6 +67,15 @@ act-agent --project my-app     # for a specific project
 
 > **Why `act-agent` and not `act`?** [`nektos/act`](https://github.com/nektos/act) is the popular GitHub Actions local runner — it owns the `act` command name in dev environments. To avoid collision, ACT's CLI is `act-agent`. If you previously had an `act` symlink from an older install, the installer removes it.
 
+### Contributing / fresh clone — one-time setup
+
+```bash
+./scripts/install-hooks.sh      # installs the freshness post-commit hook (zero-cost doc-drift tracker)
+./scripts/freshness-check.sh    # shows which generated docs/maps are currently stale (advisory-only)
+```
+
+Project truth rules (what to trust, where docs live, how tasks are specced) are in [`docs/constitution/`](docs/constitution/CONSTITUTION.md). AI editors: start at `AGENTS.md` (or `CLAUDE.md` / `GEMINI.md`).
+
 ### Run on cloud or local — equal first-class paths
 
 ACT supports two onramps for Tier 1 and the swarm. Pick whichever matches your hardware and constraints:

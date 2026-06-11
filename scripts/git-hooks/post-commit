@@ -7,8 +7,12 @@
 REPO_ROOT="$(git rev-parse --show-toplevel)" || exit 0
 REGISTRY="$REPO_ROOT/docs/constitution/freshness.json"
 [ -f "$REGISTRY" ] || exit 0
+command -v python3 >/dev/null 2>&1 || { echo "freshness: python3 missing, staling skipped" >&2; exit 0; }
 
-git diff-tree --no-commit-id --name-only -r HEAD | python3 -c '
+# -m --first-parent: on merge commits, diff against the first parent so the files a
+# feature branch brings in DO stale artifacts (plain diff-tree emits nothing on merges
+# — review-plan-2026-06-11 C2). On ordinary commits this is identical to the plain form.
+git diff-tree --no-commit-id --name-only -r -m --first-parent HEAD | python3 -c '
 import json, sys
 
 registry_path, commit = sys.argv[1], sys.argv[2]
@@ -26,6 +30,8 @@ for name, art in reg.get("artifacts", {}).items():
     touched_watch = any(c.startswith(w) for c in changed for w in watch)
     touched_self = any(c == p for c in changed for p in own)
     # A commit that touches watched code but NOT the artifact itself stales it.
+    # (A combined artifact+watch commit is trusted as a refresh — accepted failure
+    # mode, UPDATE_LOOPS §5; the pre-merge gate is the backstop.)
     if touched_watch and not touched_self and art.get("status") != "stale":
         art["status"] = "stale"
         art["staled_by"] = commit
