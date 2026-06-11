@@ -15,19 +15,23 @@ Why this is non-negotiable:
 
 ***
 
-## 🚧 TEMPORARY FOCUS (active 2026-06-10 — remove when the cleanup system has proven itself)
+## 🛂 ANTI-TRUST PROBATION (active 2026-06-11 — lifts per Constitution Art. 6)
 
-Current priority: **project cleanup + standardizing the methodology and constitution of progress tracking.** Master plan: `/Users/user/.claude/plans/cleanup-constitution.md`. Work happens on `feat/cleanup-constitution` (off `feat/remove-nomik`); merges back when scaffolding is clean and current; TUI e2e runs on the merged branch; PR → `NesTTY` only when alpha-worthy.
+The cleanup-constitution effort (2026-06-10/11) is done with its scaffolding phase: the project's
+truth system lives in **`docs/constitution/`**, freshness loops are installed
+(`scripts/freshness-check.sh` runs at session start), and every doc statement that the anti-trust
+verification + dual-path recon proved stale/false has been fixed
+(`docs/audits/handoff-verification-2026-06-10.md`, `docs/audits/dual-path-recon-2026-06-10.md`,
+reconciliation commit `d7ef63b`).
 
-The system being built (lives in `docs/constitution/` when done):
+**Probation terms:** the system is new and unproven. Until **3 consecutive trustworthy cycles**
+(Constitution Art. 6 — tracked in `docs/dev/DEV_LOG.md`), every actor keeps full anti-trust
+operation: code-verify any claim that affects your next step, even from artifacts marked `fresh`.
+Anyone who finds a FALSE statement in a fresh artifact resets the cycle count and fixes the doc.
 
-1. **One always-current picture of development state.** Standards + workflows for: updating docs, reporting bugs, keeping a growing task log ordered by importance — every task scoped with a spec, Success Criteria, constraints, and **code-level invariants**.
-2. **A real update loop** keeping these in sync with the code: `architecture-flows.json/html`, `planner-prompts.json/html`, kanban (`.devtool/`), `CLAUDE.md`, `README.md`, `HANDOFF.md`/`F-handoff.md`.
-3. **Better doc organization**: upkeep, pruning, developer notes, ideas, future roadmap, dev log; public-facing docs (GitHub / DeepWiki) separated from internal dev-state docs.
-4. **Discoverability for every actor** — agents, users, AI editors (Windsurf / Devin Desktop): where to find, write, update, and read docs; how to structure a doc page; which loops (manual + hooked) keep each artifact fresh.
-5. **Where to publish feature implementations when completed** — a defined publication flow so finished work is recorded in one predictable place.
-
-Verification pipeline for this effort (in order): `F-handoff.md` → verify handoff → subagents with explicit **anti-trust operating mentality** (grep-only, never assume) → dual-path-analysis on the aggregated result → verify dual-analysis results → identify where statements don't match the codebase → identify the truth → fix or omit false info **in the scaffolding only** — never by changing the codebase to match.
+Branch lineage right now: `NesTTY` → `feat/remove-nomik` → `feat/cleanup-constitution`. Remaining
+on this effort: architecture-flows + planner-prompts regeneration (pre-merge gate), merge back to
+`feat/remove-nomik`, NVIDIA provider wiring, TUI e2e matrix (below), PR → `NesTTY` when alpha-worthy.
 
 ***
 
@@ -346,6 +350,46 @@ Any role not configured in `~/.act.json` falls back to `agents.developer`. There
 6. **The TypeScript MCP *bridge* was removed** — the Agent CLI replaces those MCP tools with ~50-100 tokens vs 47K schema overhead. But the Go agent RETAINS native MCP client support (`internal/llm/agent/mcp-tools.go::GetMcpTools`, stdio + SSE clients from `config.MCPServers`) — do not rip that out based on this pitfall.
 7. **LocalEmbeddingVectorStore is already active, and as of 2026-06 its analytics are REAL too.** `getAgentProfile`/`compareAgents`/`getAgentSynergy` compute from actual task-outcome events on the active store; the old `0.85 + Math.random()` placeholders survive ONLY in the inactive Mock/Qdrant stores. When a user asks "is PVM real": embeddings real, analytics real-on-the-active-store; only runtime statistical quality is unverified (needs live data). Do NOT re-implement the analytics layer.
 8. **Verifying "is X real" requires running X, not finding X.** When the user asks whether code is real or uses placeholder data, the verification owed is: run the method, inspect what it returns, AND grep the implementation for `Math.random`, `placeholder`, `// TODO`, `// FIXME`, `hardcoded`, `mock`, `stub`, `return 0\.[0-9]`. A file that exists with real imports underneath can still have fake methods on its surface. Past sessions failed this by reporting "PVM is real" after finding the embedding layer was real, without checking the analytics methods downstream. State explicitly which layers were verified and which weren't.
+
+***
+
+## TUI Verification & Bug Reporting (current state)
+
+How to verify the TUI/orchestrator actually works, and how to file what you find. This is the
+methodology for the e2e matrix gating the alpha PR.
+
+**Before any TUI run (all three bite):**
+1. **Rebuild the binary** — the one on PATH can lag the branch by days (it did: built 06-06,
+   missing Phase 4). `cd act-agent && /opt/homebrew/bin/go build -o act-agent .` and compare
+   binary mtime vs `git log -1 --format=%cd`.
+2. **Validate `~/.act.json`** — `python3 -c "import json;json.load(open('$HOME/.act.json'))"`.
+   A malformed config makes the binary fail at load (it happened; strict JSON, no stray tokens).
+   Know which backend each role has before judging behavior.
+3. **Server state** — `cd server && npm run dev` is `tsx watch`: editing server source mid-test
+   auto-restarts it and re-replays `coordination-log.jsonl`, which can masquerade as a coordination
+   bug. Don't edit server files during a run.
+
+**What to verify per run (evidence over impressions):**
+- **Role labeling/visibility**: every Tier-1 message carries its code-stamped role label; injected
+  prompts never render as `Human:`; Observer/Assurance/QA prompts hidden, outputs visible.
+- **Planner exclusivity + INTAKE**: only the Planner answers the human; "Ready to start?" hard-stops
+  (PROJECT_BRIEF only in the NEXT turn after explicit confirmation); brownfield runs the 2-question variant.
+- **Dispatch + validation pipeline**: `CREATE_TASK` → server → Runner spawn → `task complete` →
+  `submit-for-validation` → Assurance verdict → QA synthesis, each visible as coordination events in chat.
+- **Phase-4 notebooks (live verification still owed)**: with an in-process Planner, the `Prepared
+  messages` dump in `~/.act/**/debug.log` must contain ONLY human turns + autoroute prompts + its
+  own replies — no other agents' traffic, and an autorouted report appears ONCE. Re-confirm the
+  Observer message/token drop (~66 msgs/~13K → ~1-2/~2K).
+- **Loop protection**: autoroute storms capped by the sliding window (≤5 per 10 min), cleared on human input.
+
+**Evidence locations**: `~/.act/**/debug.log` (per-turn prepared messages), `~/.act/runners/<role>.log`
+(swarm subprocess output), `server/data/coordination-log.jsonl` (event truth), the chat transcript itself.
+
+**Filing bugs** — per [TASK_TRACKING.md](docs/constitution/TASK_TRACKING.md) §6: kanban ticket with
+Spec / Success Criteria / Constraints / code-level Invariants + a **Repro/Evidence** section quoting
+the captured evidence paths. Label by subsystem (`TUI`, `orchestrator`, `server`, `prompts`, `runner`);
+`critical` = breaks the controlled-demo story. **Before fixing anything: check the board and
+`git log -S <symbol>` for an existing fix — duplicate fixes are the #1 forbidden failure mode.**
 
 ***
 
