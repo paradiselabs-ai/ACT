@@ -1,6 +1,8 @@
 #!/bin/sh
 # Freshness staler — flips artifacts to "stale" in docs/constitution/freshness.json
-# when a commit touches their watched code paths. Zero tokens, pure local.
+# when a commit touches their watched code paths, and triggers the auto-refresh
+# loop for artifacts that opt in (auto_refresh: true). Staling itself is zero
+# tokens; the spawned refresh session is debounced + locked (freshness-autorefresh.sh).
 # Canonical copy: scripts/git-hooks/post-commit (installed via scripts/install-hooks.sh).
 # Rules: docs/constitution/UPDATE_LOOPS.md
 
@@ -12,7 +14,7 @@ command -v python3 >/dev/null 2>&1 || { echo "freshness: python3 missing, stalin
 # -m --first-parent: on merge commits, diff against the first parent so the files a
 # feature branch brings in DO stale artifacts (plain diff-tree emits nothing on merges
 # — review-plan-2026-06-11 C2). On ordinary commits this is identical to the plain form.
-git diff-tree --no-commit-id --name-only -r -m --first-parent HEAD | python3 -c '
+STALED="$(git diff-tree --no-commit-id --name-only -r -m --first-parent HEAD | python3 -c '
 import json, sys
 
 registry_path, commit = sys.argv[1], sys.argv[2]
@@ -36,11 +38,19 @@ for name, art in reg.get("artifacts", {}).items():
         art["status"] = "stale"
         art["staled_by"] = commit
         dirty = True
-        print(f"freshness: {name!r} is now STALE (commit {commit} touched watched paths)")
+        print(f"freshness: {name!r} is now STALE (commit {commit} touched watched paths)", file=sys.stderr)
+        if art.get("auto_refresh"):
+            print(name)  # stdout = machine channel for the auto-refresh trigger
 
 if dirty:
     with open(registry_path, "w") as f:
         json.dump(reg, f, indent=2)
         f.write("\n")
-' "$REGISTRY" "$(git rev-parse --short HEAD)"
+' "$REGISTRY" "$(git rev-parse --short HEAD)")"
+
+# Fresh->stale transitions on auto_refresh artifacts spawn the refresh session
+# (debounced + locked inside the script; ACT_NO_AUTOREFRESH=1 disables).
+for name in $STALED; do
+  "$REPO_ROOT/scripts/freshness-autorefresh.sh" "$name" || true
+done
 exit 0

@@ -45,6 +45,30 @@ Reading rule (Constitution Art. 4): `status: stale` ⇒ the artifact is advisory
 - Prints the stale artifacts (name, staled-by commit, refresh pointer) into session context. A few lines, zero tokens beyond their context cost.
 - Also runnable manually any time, and by other editors (Windsurf/Devin) as a rules-dir command.
 
+### 2a. Auto-refresh loop (continuous artifacts)
+
+Some artifacts aren't allowed to sit stale — `architecture-flows` is the canonical case: the html
+is the continuously-current architecture view for humans, and **the json doubles as fast agent
+onboarding/reminder context for the ACT codebase** — both worthless unless trustworthy. Artifacts
+opt in via `"auto_refresh": true` (+ `debounce_minutes`) in the registry.
+
+On a **fresh → stale transition** of an opted-in artifact, the post-commit/post-merge staler spawns
+`scripts/freshness-autorefresh.sh <artifact>`, which launches a **headless Opus session** that:
+
+1. reads the registry → `verified_against` (the commit it was last trusted at — kept on staling
+   precisely so this loop can scope itself);
+2. `git diff --name-only <verified_against>..HEAD -- <watch paths>` + `git log` → re-verifies ONLY
+   the claims those changes touch (plus additions/removals they introduce), per the artifact's
+   method contract (grep-upfront, live `file:line` cites);
+3. runs the method's verification command; stamps fresh; commits the artifact files only.
+
+**Cost containment (why this doesn't blow usage limits):** the trigger fires only on the
+fresh→stale *transition* (an already-stale artifact never re-triggers); a per-artifact
+**debounce** (default 60 min) absorbs commit storms — mid-storm commits ride the same
+`verified_against..HEAD` range when the next trigger fires; a **lockfile** prevents concurrent
+runs; the refresh is **delta-scoped**, never a full rebuild (a missing baseline forces one full
+rebuild, once); `ACT_NO_AUTOREFRESH=1` is the kill switch. Logs: `~/.act/freshness/autorefresh-*.log`.
+
 **Refresh marker** — `scripts/freshness-refresh.sh <artifact>`:
 
 - Sets `status: fresh`, `verified_against: <HEAD>`, clears `staled_by`. Run it **only after actually performing the refresh procedure** — the script records the claim; the agent does the verification.

@@ -17,7 +17,10 @@
       "refresh": ".claude/architecture-flows-method.md",
       "verified_against": null,
       "status": "stale",
-      "staled_by": "known-stale at start of cleanup effort 2026-06-10 (predates per-agent notebooks, ACP work, Round 5b/6 fixes)"
+      "staled_by": "known-stale at start of cleanup effort 2026-06-10 (predates per-agent notebooks, ACP work, Round 5b/6 fixes)",
+      "auto_refresh": true,
+      "debounce_minutes": 60,
+      "purpose": "Continuously-current architecture view: html for humans; the json doubles as fast agent onboarding/reminder context for the ACT codebase \u2014 which is exactly why it must stay trustworthy"
     },
     "planner-prompts": {
       "paths": [
@@ -31,7 +34,8 @@
       "refresh": "docs/constitution/UPDATE_LOOPS.md \u00a73 (re-extract fragments, re-grep every source_line)",
       "verified_against": "70344e3",
       "status": "fresh",
-      "staled_by": null
+      "staled_by": null,
+      "auto_refresh": false
     },
     "claude-md": {
       "paths": [
