@@ -1,3 +1,5 @@
+> Superseded by `architecture-flows.html/.json` + `flows-explainer.html` (repo root, freshness-registered) on 2026-06-12. Archived per DOC_STANDARDS §4 — hand-drawn master-flow predates per-agent notebooks, ACP backends, and the act_cli whitelist.
+
 # ACT Architecture Diagrams
 
 ## Master Flow — All Concepts Flattened

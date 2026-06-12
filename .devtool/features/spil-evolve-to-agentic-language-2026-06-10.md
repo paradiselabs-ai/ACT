@@ -36,7 +36,7 @@ until stage 1 is proven in dogfood.
 - `docs/Vault/Agent Coordination Toolkit/nestty/SPIL.md` — SPIL spec (CTD, manifest, syntax)
 - `docs/Vault/Agent Coordination Toolkit/nestty/plans/SPIL Integration Plan.md` — current
   integration inventory (parser scope, producer, consumer, gaps)
-- `spil-evolution.html` (repo root) — the visual pitch / shared mental model
+- `docs/spil-evolution.html` — the visual pitch / shared mental model
 
 ## Honest scope guard
 SPIL-as-language is the **orchestration layer only** — ACT's internal wiring, NOT the

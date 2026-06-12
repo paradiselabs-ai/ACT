@@ -1,3 +1,14 @@
+---
+title: Code Quality Improvements — ACT Codebase (audit 2026-05-27)
+status: current
+verified_against: unknown-2026-05-27
+owner: project-owner
+last_verified: 2026-05-27
+---
+
+> Relocated from `docs/refactor/` on 2026-06-12 (janitorial sweep) — audit outputs live in
+> `docs/audits/` (DOC_STANDARDS §1). Claims are as-of 2026-05-27: re-grep before acting (Art. 2).
+
 # Code Quality Improvements — ACT Codebase
 
 > Audit date: 2026-05-27 | Scope: `act-agent/` (Go) + `server/` (TypeScript)
