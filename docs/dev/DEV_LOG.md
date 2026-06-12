@@ -15,6 +15,7 @@ This is the canonical "what shipped" record. Entries below the seed line were ba
 
 ---
 
+- 2026-06-12 · arch-flows-v7 + auto-refresh loop · `f729330` (+ loop commit prior) · baseline rebuild (183 components/36 flows/0 bluffed-ok, findings ×15, new ticket acp-planner-prompt-section-dead-path); auto_refresh loop live: stale-transition spawns debounced headless Opus delta-refresh (`scripts/freshness-autorefresh.sh`, UPDATE_LOOPS §2a)
 - 2026-06-12 · janitorial-sweep · `6b5c13c` · untracked 205 sandbox run-outputs (gitignore path fix), root HTMLs → docs/, architecture-diagrams.md → _archive (superseded by flows artifacts), code_improvements audit → docs/audits/, tests/ swarm junk → ../act-archive/, pub/ + docs/refactor/ removed
 - 2026-06-11 · nvidia-nim-provider · `e56daaa` · provider `nvidia` (OpenAI-compatible, base integrate.api.nvidia.com/v1) in models.go/provider.go/config.go; live-verified incl. `moonshotai/kimi-k2.6` completion; keys in ~/.act.json only
 - 2026-06-11 · cleanup-constitution merge · `90f7230` (ff) · feat/cleanup-constitution merged into feat/remove-nomik — constitution, freshness loops, reconciled scaffolding, audits, review fixes
