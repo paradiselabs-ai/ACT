@@ -15,6 +15,7 @@ This is the canonical "what shipped" record. Entries below the seed line were ba
 
 ---
 
+- 2026-06-12 · janitorial-sweep · `6b5c13c` · untracked 205 sandbox run-outputs (gitignore path fix), root HTMLs → docs/, architecture-diagrams.md → _archive (superseded by flows artifacts), code_improvements audit → docs/audits/, tests/ swarm junk → ../act-archive/, pub/ + docs/refactor/ removed
 - 2026-06-11 · nvidia-nim-provider · `e56daaa` · provider `nvidia` (OpenAI-compatible, base integrate.api.nvidia.com/v1) in models.go/provider.go/config.go; live-verified incl. `moonshotai/kimi-k2.6` completion; keys in ~/.act.json only
 - 2026-06-11 · cleanup-constitution merge · `90f7230` (ff) · feat/cleanup-constitution merged into feat/remove-nomik — constitution, freshness loops, reconciled scaffolding, audits, review fixes
 - 2026-06-11 · scaffolding-reconciliation · `d7ef63b` · all verified-stale/false doc statements fixed (CLAUDE.md Tier-1 backends/pitfalls, AGENTS/GEMINI→pointers, combined-analysis 3.5, planner-prompts gate claim, kanban re-scopes); claude-md/readme/combined-analysis marked fresh
