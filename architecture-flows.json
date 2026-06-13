@@ -193,40 +193,44 @@
   ],
   "columns": [
     {
-      "id": "tier1",
-      "label": "Tier 1 (interactive)"
+      "id": "entry",
+      "label": "Entry / Human"
+    },
+    {
+      "id": "intake",
+      "label": "Intake / Brief"
+    },
+    {
+      "id": "plan",
+      "label": "Plan / Decide"
+    },
+    {
+      "id": "dispatch",
+      "label": "Dispatch"
+    },
+    {
+      "id": "execute",
+      "label": "Execute / Swarm"
     },
     {
       "id": "coord",
-      "label": "Orchestrator coordination"
+      "label": "Coordinate / Observe"
     },
     {
-      "id": "server",
-      "label": "ACT Server"
+      "id": "validate",
+      "label": "Validate"
     },
     {
-      "id": "data",
-      "label": "Server data / stores"
+      "id": "synth",
+      "label": "Synthesize"
     },
     {
-      "id": "swarm",
-      "label": "Tier 2 (the swarm)"
+      "id": "store",
+      "label": "Stores / Endpoints"
     },
     {
-      "id": "tier2",
-      "label": "Tier 2 tools / runner"
-    },
-    {
-      "id": "cli-layer",
-      "label": "Agent CLI"
-    },
-    {
-      "id": "go-core",
-      "label": "Go core (provider/client)"
-    },
-    {
-      "id": "bootstrap",
-      "label": "Binary bootstrap"
+      "id": "infra",
+      "label": "Infra / Substrate"
     }
   ],
   "components": [
@@ -234,7 +238,7 @@
       "id": "srv_express_app",
       "label": "Express app + HTTP server",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "express() + createServer + socket.io Server; cors(), express.static('public'), express.json() middleware. index.ts:18-30",
       "tags": [
         "entrypoint",
@@ -247,7 +251,7 @@
       "id": "srv_socketio",
       "label": "Socket.io server (io)",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "new Server(io) with CORS allowlist for localhost:3000/3001/5173/5000/8080. index.ts:20-25. Connection handler index.ts:1300",
       "tags": [
         "socketio",
@@ -260,46 +264,46 @@
       "id": "svc_agent_registry",
       "label": "AgentRegistry",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "In-memory Map<agentId,Agent>; register/status/performance/health, getOptimalAgent capability scorer (0.6 cap +0.3 perf +0.1 workload). services/AgentRegistry.ts:27",
       "tags": [
         "service",
         "agents",
         "in-memory"
       ],
-      "slot": 2
+      "slot": 0
     },
     {
       "id": "svc_task_coordinator",
       "label": "TaskCoordinator",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Task lifecycle state machine, FORBIDDEN_TRANSITIONS terminal-state guard, assignOptimalAgent, dependency/cycle detection, retry/abandon. services/TaskCoordinator.ts:69",
       "tags": [
         "service",
         "tasks",
         "state-machine"
       ],
-      "slot": 3
+      "slot": 1
     },
     {
       "id": "svc_event_hub",
       "label": "EventHub",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Message classification (direct_mention/status/question/help/peer), per-agent rate limiting, socket routing, ChronLog append. services/EventHub.ts:23",
       "tags": [
         "service",
         "messaging",
         "rate-limit"
       ],
-      "slot": 4
+      "slot": 0
     },
     {
       "id": "svc_chronlog",
       "label": "ChronologicalLog",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Append-only JSONL event store w/ in-memory buffer, fsync flush, per-project mirror writes, event-sourcing restoreFromLog. services/ChronologicalLog.ts:88",
       "tags": [
         "service",
@@ -307,13 +311,13 @@
         "jsonl",
         "append-only"
       ],
-      "slot": 5
+      "slot": 2
     },
     {
       "id": "svc_local_vector",
       "label": "LocalEmbeddingVectorStore (ACTIVE)",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "coord",
       "detail": "Real all-MiniLM-L6-v2 embeddings (@xenova/transformers, dim 384), cosine search, REAL analytics (getAgentProfile/Synergy/compareAgents from task-outcome joins). Zero Math.random. Instantiated index.ts:42. services/LocalEmbeddingVectorStore.ts:57",
       "tags": [
         "service",
@@ -321,26 +325,26 @@
         "pvm",
         "active"
       ],
-      "slot": 0
+      "slot": 1
     },
     {
       "id": "svc_pvm_indexer",
       "label": "PVMIndexer",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "coord",
       "detail": "Background loop (10s) indexing ChronLog events into vector store; scope classifier (meta/project), extractProjectName tagging, buildEmbeddingText enrichment. services/PVMIndexer.ts:84",
       "tags": [
         "service",
         "pvm",
         "indexer"
       ],
-      "slot": 1
+      "slot": 2
     },
     {
       "id": "svc_spil_parser",
       "label": "SPILParser",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "dispatch",
       "detail": "MVP @-section extractor; extractSuccessCriteria feeds pending-validation enrichment. services/SPILParser.ts:30,123",
       "tags": [
         "service",
@@ -348,26 +352,26 @@
         "parser",
         "mvp"
       ],
-      "slot": 6
+      "slot": 0
     },
     {
       "id": "svc_self_improve",
       "label": "SelfImprovementEngine",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "Instantiated index.ts:46; exposed via POST /api/improve + GET /api/improvement/status only. services/SelfImprovementEngine.ts",
       "tags": [
         "service",
         "improvement",
         "peripheral"
       ],
-      "slot": 7
+      "slot": 2
     },
     {
       "id": "svc_mock_vector",
       "label": "MockVectorStore (inactive)",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "infra",
       "detail": "Not instantiated in index.ts (only LocalEmbeddingVectorStore is). Placeholder analytics survive here: successRate 0.85+Math.random(). services/MockVectorStore.ts:194",
       "tags": [
         "service",
@@ -375,13 +379,13 @@
         "inactive",
         "placeholder"
       ],
-      "slot": 2
+      "slot": 3
     },
     {
       "id": "svc_qdrant_vector",
       "label": "QdrantVectorStore (build-excluded)",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "infra",
       "detail": "Excluded from tsc build (tsconfig.json:20). Placeholder embed + analytics (0.85+Math.random, TODO real calc). services/QdrantVectorStore.ts:265",
       "tags": [
         "service",
@@ -389,26 +393,26 @@
         "build-excluded",
         "placeholder"
       ],
-      "slot": 3
+      "slot": 4
     },
     {
       "id": "store_projects",
       "label": "projects Map (in-memory)",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "store",
       "detail": "Map<name,ProjectRecord> incl. briefs Record<agentId,md>. index.ts:344",
       "tags": [
         "store",
         "projects",
         "in-memory"
       ],
-      "slot": 4
+      "slot": 3
     },
     {
       "id": "store_agent_inboxes",
       "label": "agentInboxes Map (TTL 10m)",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "store",
       "detail": "Per-agent buffered messages for REST agents w/o socket; INBOX_TTL_MS 10min, pruneInbox. index.ts:356-380",
       "tags": [
         "store",
@@ -416,104 +420,117 @@
         "in-memory",
         "ttl"
       ],
-      "slot": 5
+      "slot": 4
     },
     {
       "id": "store_file_locks",
       "label": "fileLocks Map",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "coord",
       "detail": "Map keyed project+filePath; in-memory, auto-released on task complete / agent removal; replayed from ChronLog. index.ts:1068",
       "tags": [
         "store",
         "file-locking",
         "in-memory"
       ],
-      "slot": 6
+      "slot": 3
     },
     {
       "id": "data_global_jsonl",
       "label": "data/coordination-log.jsonl",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "store",
       "detail": "Global append-only event stream, default jsonlPath './data/coordination-log.jsonl'. services/ChronologicalLog.ts:45",
       "tags": [
         "data",
         "jsonl",
         "global-stream"
       ],
-      "slot": 7
+      "slot": 5
     },
     {
       "id": "data_project_jsonl",
       "label": "data/projects/<name>/coordination-log.jsonl",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "store",
       "detail": "Per-project mirror written on every flush; projectLogPath sanitizes name. services/ChronologicalLog.ts:247",
       "tags": [
         "data",
         "jsonl",
         "per-project"
       ],
-      "slot": 8
+      "slot": 6
     },
     {
       "id": "data_pid_file",
       "label": "data/act-server.pid",
       "categoryId": "server",
-      "columnId": "data",
+      "columnId": "infra",
       "detail": "PID file for Go launcher stale-process detection + duplicate-instance guard. index.ts:1536,1603",
       "tags": [
         "data",
         "pid",
         "lifecycle"
       ],
-      "slot": 9
+      "slot": 5
     },
     {
       "id": "ep_health",
       "label": "GET /health",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "agent+task counts. index.ts:101",
       "tags": [
         "endpoint",
         "health"
       ],
-      "slot": 8
+      "slot": 7
     },
     {
       "id": "ep_status",
       "label": "GET /api/status",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Full status; ?project= scope via queryProject; pvm status when unscoped. index.ts:114",
       "tags": [
         "endpoint",
         "status",
         "observer"
       ],
-      "slot": 9
+      "slot": 8
     },
     {
       "id": "ep_dev_reset",
       "label": "POST /api/dev/reset",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Clears all state + appends dev_reset event (replay void marker). index.ts:162",
       "tags": [
         "endpoint",
         "reset",
         "dev"
       ],
-      "slot": 10
+      "slot": 9
     },
     {
       "id": "ep_a2a_server_card",
       "label": "GET /.well-known/agent.json",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "System Agent Card (A2A) describing the ACT server. index.ts:188",
+      "tags": [
+        "endpoint",
+        "a2a",
+        "agent-card"
+      ],
+      "slot": 10
+    },
+    {
+      "id": "ep_a2a_agent_card",
+      "label": "GET /api/agents/:id/agent.json",
+      "categoryId": "server",
+      "columnId": "store",
+      "detail": "Per-agent Agent Card incl. pvmProfile counters. index.ts:202",
       "tags": [
         "endpoint",
         "a2a",
@@ -522,48 +539,35 @@
       "slot": 11
     },
     {
-      "id": "ep_a2a_agent_card",
-      "label": "GET /api/agents/:id/agent.json",
-      "categoryId": "server",
-      "columnId": "server",
-      "detail": "Per-agent Agent Card incl. pvmProfile counters. index.ts:202",
-      "tags": [
-        "endpoint",
-        "a2a",
-        "agent-card"
-      ],
-      "slot": 12
-    },
-    {
       "id": "ep_a2a_task_push",
       "label": "POST /api/agents/:id/tasks",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "dispatch",
       "detail": "A2A task push pre-assigned to target agent; emits task_assigned. index.ts:221",
       "tags": [
         "endpoint",
         "a2a",
         "task-push"
       ],
-      "slot": 13
+      "slot": 1
     },
     {
       "id": "ep_agents_list",
       "label": "GET /api/agents",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "List agents, ?projectName=/?project= scope. index.ts:260",
       "tags": [
         "endpoint",
         "agents"
       ],
-      "slot": 14
+      "slot": 12
     },
     {
       "id": "ep_agents_register",
       "label": "POST /api/agents/register",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "REST registration; 409 on live-online ID collision; retryPendingTasks after. index.ts:265",
       "tags": [
         "endpoint",
@@ -571,76 +575,76 @@
         "register",
         "409"
       ],
-      "slot": 15
+      "slot": 13
     },
     {
       "id": "ep_agents_delete",
       "label": "DELETE /api/agents/:id",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Deregister + auto-release that agent's file locks. index.ts:315",
       "tags": [
         "endpoint",
         "agents",
         "deregister"
       ],
-      "slot": 16
+      "slot": 14
     },
     {
       "id": "ep_projects_create",
       "label": "POST /api/projects",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Create ProjectRecord; appends project_created. index.ts:383",
       "tags": [
         "endpoint",
         "projects",
         "intake"
       ],
-      "slot": 17
+      "slot": 15
     },
     {
       "id": "ep_projects_get",
       "label": "GET /api/projects/:name",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "intake",
       "detail": "Project + live task breakdown + derived status. 404 used by Planner INTAKE detection. index.ts:414",
       "tags": [
         "endpoint",
         "projects",
         "intake-404"
       ],
-      "slot": 18
+      "slot": 0
     },
     {
       "id": "ep_briefs_post",
       "label": "POST /api/projects/:name/briefs",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "intake",
       "detail": "Store AGENT.md brief; appends brief_stored. index.ts:466",
       "tags": [
         "endpoint",
         "briefs"
       ],
-      "slot": 19
+      "slot": 1
     },
     {
       "id": "ep_briefs_get",
       "label": "GET /api/projects/:name/briefs/:agentId",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Fetch brief content. index.ts:482",
       "tags": [
         "endpoint",
         "briefs"
       ],
-      "slot": 20
+      "slot": 16
     },
     {
       "id": "ep_tasks_create",
       "label": "POST /api/tasks",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "dispatch",
       "detail": "Create task; fail-closed empty title/description guard (code empty_title/empty_description); auto-assign. index.ts:502",
       "tags": [
         "endpoint",
@@ -648,13 +652,13 @@
         "create",
         "guard"
       ],
-      "slot": 21
+      "slot": 2
     },
     {
       "id": "ep_tasks_assigned",
       "label": "GET /api/tasks/assigned",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "execute",
       "detail": "Runner poll; doubles as liveness heartbeat + idle-sweep assignOptimalAgent. index.ts:590",
       "tags": [
         "endpoint",
@@ -662,13 +666,13 @@
         "runner-poll",
         "heartbeat"
       ],
-      "slot": 22
+      "slot": 0
     },
     {
       "id": "ep_tasks_pending_val",
       "label": "GET /api/tasks/pending-validation",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "validate",
       "detail": "submitted_for_validation tasks enriched with extractSuccessCriteria. index.ts:632",
       "tags": [
         "endpoint",
@@ -676,78 +680,78 @@
         "assurance",
         "spil"
       ],
-      "slot": 23
+      "slot": 0
     },
     {
       "id": "ep_tasks_validated",
       "label": "GET /api/tasks/validated",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "synth",
       "detail": "validated && !synthesizedAt \u2014 QA poll queue. index.ts:652",
       "tags": [
         "endpoint",
         "tasks",
         "qa"
       ],
-      "slot": 24
+      "slot": 0
     },
     {
       "id": "ep_tasks_progress",
       "label": "POST /api/tasks/:taskId/progress",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "execute",
       "detail": "Update progress/status; 409 on terminal-state guard. index.ts:691",
       "tags": [
         "endpoint",
         "tasks",
         "progress"
       ],
-      "slot": 25
+      "slot": 1
     },
     {
       "id": "ep_tasks_complete",
       "label": "POST /api/tasks/:taskId/complete",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "execute",
       "detail": "complete/fail; auto-release locks; emits task_completed/task_failed. index.ts:708",
       "tags": [
         "endpoint",
         "tasks",
         "complete"
       ],
-      "slot": 26
+      "slot": 2
     },
     {
       "id": "ep_tasks_retry",
       "label": "POST /api/tasks/:taskId/retry",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "execute",
       "detail": "Reset failed to pending, increment retryCount, 409 permanently-failed. index.ts:774",
       "tags": [
         "endpoint",
         "tasks",
         "retry"
       ],
-      "slot": 27
+      "slot": 3
     },
     {
       "id": "ep_tasks_abandon",
       "label": "POST /api/tasks/:taskId/abandon",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "plan",
       "detail": "Planner escalation; marks permanently-failed + metadata.abandoned. index.ts:815",
       "tags": [
         "endpoint",
         "tasks",
         "abandon"
       ],
-      "slot": 28
+      "slot": 0
     },
     {
       "id": "ep_tasks_submit_val",
       "label": "POST /api/tasks/:taskId/submit-for-validation",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "validate",
       "detail": "completed|in_progress to submitted_for_validation; stores selfVerification. index.ts:838",
       "tags": [
         "endpoint",
@@ -755,13 +759,13 @@
         "validation",
         "assurance"
       ],
-      "slot": 29
+      "slot": 1
     },
     {
       "id": "ep_tasks_verdict",
       "label": "POST /api/tasks/:taskId/validation-verdict",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "validate",
       "detail": "Assurance verdict; pass to validated, fail to assigned+attempts. Trusts caller-supplied passed/score. index.ts:875",
       "tags": [
         "endpoint",
@@ -769,13 +773,13 @@
         "validation",
         "verdict"
       ],
-      "slot": 30
+      "slot": 2
     },
     {
       "id": "ep_tasks_synthesis",
       "label": "POST /api/tasks/:taskId/synthesis",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "synth",
       "detail": "QA outcome: kind=complete stamps synthesizedAt + summary string; kind=need_clarification routes question. index.ts:934",
       "tags": [
         "endpoint",
@@ -783,244 +787,244 @@
         "qa",
         "synthesis"
       ],
-      "slot": 31
+      "slot": 1
     },
     {
       "id": "ep_messages_post",
       "label": "POST /api/messages",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Agent message via EventHub + buffer into same-project inboxes. index.ts:980",
       "tags": [
         "endpoint",
         "messages"
       ],
-      "slot": 32
+      "slot": 4
     },
     {
       "id": "ep_messages_get",
       "label": "GET /api/agents/:id/messages",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Drain inbox, ?since/?limit/?project; marks read. index.ts:1025",
       "tags": [
         "endpoint",
         "messages",
         "inbox"
       ],
-      "slot": 33
+      "slot": 17
     },
     {
       "id": "ep_files_claim",
       "label": "POST /api/files/claim",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Claim files; 409 conflict on cross-agent lock; appends file_claim. index.ts:1072",
       "tags": [
         "endpoint",
         "files",
         "lock"
       ],
-      "slot": 34
+      "slot": 5
     },
     {
       "id": "ep_files_release",
       "label": "POST /api/files/release",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Release own locks; appends file_release. index.ts:1115",
       "tags": [
         "endpoint",
         "files",
         "lock"
       ],
-      "slot": 35
+      "slot": 6
     },
     {
       "id": "ep_pvm_search",
       "label": "GET /api/pvm/search",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Semantic search via pvmIndexer.search; cross-project default, ?project= opt-in. index.ts:1178",
       "tags": [
         "endpoint",
         "pvm",
         "search"
       ],
-      "slot": 36
+      "slot": 7
     },
     {
       "id": "ep_pvm_profile",
       "label": "GET /api/pvm/profile",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "vectorStore.getAgentProfile \u2014 real outcome-derived metrics. index.ts:1225",
       "tags": [
         "endpoint",
         "pvm",
         "analytics"
       ],
-      "slot": 37
+      "slot": 8
     },
     {
       "id": "ep_log",
       "label": "GET /api/log",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Raw ChronLog; ?project= reads per-project file, else global getRecent. Polled by orchestrator coordinationEventLoop. index.ts:1277",
       "tags": [
         "endpoint",
         "log",
         "coordination-events"
       ],
-      "slot": 38
+      "slot": 18
     },
     {
       "id": "sock_register_agent",
       "label": "socket register_agent",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "store",
       "detail": "Socket registration to registerAgent + agent_joined + retryPendingTasks. index.ts:1305",
       "tags": [
         "socket",
         "agents"
       ],
-      "slot": 39
+      "slot": 19
     },
     {
       "id": "sock_create_task",
       "label": "socket create_task",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "dispatch",
       "detail": "Create+assign via socket; emits task_assigned/task_pending/conflict_detected. index.ts:1363",
       "tags": [
         "socket",
         "tasks"
       ],
-      "slot": 40
+      "slot": 3
     },
     {
       "id": "sock_dashboard_queries",
       "label": "socket get_project_status / get_agent_registry / get_tasks",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "Dashboard pull handlers \u2014 no shipped consumer. index.ts:1498-1525",
       "tags": [
         "socket",
         "dashboard",
         "vestigial"
       ],
-      "slot": 41
+      "slot": 6
     },
     {
       "id": "lifecycle_startup",
       "label": "Startup: ChronLog restore to PVM to listen",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "initialize to restoreFromLog to restore agents/tasks to startIndexing to PID guard to listen to 60s health sweep. index.ts:1582-1636",
       "tags": [
         "lifecycle",
         "startup",
         "event-sourcing"
       ],
-      "slot": 42
+      "slot": 7
     },
     {
       "id": "e2e_api_harness",
       "label": "scripts/e2e-api.sh",
       "categoryId": "server",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "API smoke harness: project create, task create to complete to submit to verdict(pass score95, criteriaResults:[]), indexer assertions. scripts/e2e-api.sh:122",
       "tags": [
         "test",
         "e2e",
         "fixture"
       ],
-      "slot": 43
+      "slot": 8
     },
     {
       "id": "orch_struct",
       "label": "Orchestrator",
       "categoryId": "orchestrator",
-      "columnId": "coord",
+      "columnId": "infra",
       "detail": "Coordinates 4 Tier-1 agents in one shared TUI session; mu-guarded maps for owners/seen/attempts/dispatched; background loops. orchestrator.go:42-113",
       "tags": [
         "core",
         "goroutines"
       ],
-      "slot": 0
+      "slot": 9
     },
     {
       "id": "orch_app",
       "label": "App (Tier1 wiring)",
       "categoryId": "orchestrator",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Builds 4 Tier-1 agent.Service in New(); per-role backend dispatch + per-role HistoryMode + per-role tool subset. app.go:53-194",
       "tags": [
         "wiring"
       ],
-      "slot": 0
+      "slot": 10
     },
     {
       "id": "orch_start",
       "label": "Start()",
       "categoryId": "orchestrator",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Idempotent; sets projectDir/projectName, runs detectProjectState, spawns loops, fires Tier-1 startup pings, conditionally runs brownfield onboard. orchestrator.go:141-201",
       "tags": [
         "lifecycle"
       ],
-      "slot": 1
+      "slot": 2
     },
     {
       "id": "orch_handleHuman",
       "label": "HandleHumanInput()",
       "categoryId": "orchestrator",
-      "columnId": "tier1",
+      "columnId": "entry",
       "detail": "Main TUI entry; clears recentAutoRoutes + Observer hash, prepends resumeContext on first turn, runs Planner turn fromHuman=true. orchestrator.go:224-243",
       "tags": [
         "entry"
       ],
-      "slot": 1
+      "slot": 0
     },
     {
       "id": "orch_runTurn",
       "label": "runAgentTurn()",
       "categoryId": "orchestrator",
-      "columnId": "coord",
+      "columnId": "plan",
       "detail": "Single role turn; fromHuman gate prepends InternalPromptMarker on injected turns; sets currentSpeaker+lastTurnAt; 5-min ctx timeout. orchestrator.go:582-624",
       "tags": [
         "core"
       ],
-      "slot": 2
+      "slot": 1
     },
     {
       "id": "orch_internalMarker",
       "label": "InternalPromptMarker",
       "categoryId": "infra",
-      "columnId": "coord",
+      "columnId": "infra",
       "detail": "ACT_INTERNAL sentinel prepended to all non-human injected turns; chat list hides them. orchestrator.go:587; consumed at internal/tui/components/chat/list.go:308-313",
       "tags": [
         "visibility"
       ],
-      "slot": 3
+      "slot": 11
     },
     {
       "id": "orch_detectState",
       "label": "detectProjectState()",
       "categoryId": "intake",
-      "columnId": "server",
+      "columnId": "intake",
       "detail": "GET project: 404 to intake, 200 to resume, code-but-no-record to brownfield, server-down to skip. orchestrator.go:248-325",
       "tags": [
         "intake"
       ],
-      "slot": 44
+      "slot": 3
     },
     {
       "id": "orch_hasCode",
       "label": "hasExistingCode()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Manifest probe (go.mod/package.json/...) or git-log; cheap, no LLM. orchestrator.go:329-339",
       "tags": [
         "intake",
@@ -1032,7 +1036,7 @@
       "id": "orch_brownfieldOnboard",
       "label": "runBrownfieldOnboard()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Off-startup: deterministic scaffold to researcher enrichment to stash analysis to seed Planner 2-question intake. orchestrator.go:344-388",
       "tags": [
         "brownfield"
@@ -1043,7 +1047,7 @@
       "id": "orch_scaffold",
       "label": "deterministicScaffold()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Shells self `codebase onboard --dir`; 20s timeout; empty on failure. orchestrator.go:392-408",
       "tags": [
         "brownfield"
@@ -1054,7 +1058,7 @@
       "id": "orch_enrich",
       "label": "runResearcherEnrichment()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Backend-aware: claude-code subprocess vs in-process headless researcher per ~/.act.json. orchestrator.go:415-430",
       "tags": [
         "brownfield",
@@ -1066,170 +1070,170 @@
       "id": "orch_handleBrief",
       "label": "handleProjectBrief()",
       "categoryId": "intake",
-      "columnId": "server",
+      "columnId": "intake",
       "detail": "Parses PROJECT_BRIEF, POSTs CreateProject, writes AGENTS.md, rebinds Tier-1 prompts, clears intakeMode, fires BUILD trigger. orchestrator.go:1542-1637",
       "tags": [
         "intake"
       ],
-      "slot": 45
+      "slot": 8
     },
     {
       "id": "orch_parseBrief",
       "label": "parseProjectBrief()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Brace-balanced JSON extract near PROJECT_BRIEF: marker, fallback to any JSON w/ successCriteria. orchestrator.go:3054-3073",
       "tags": [
         "parser"
       ],
-      "slot": 8
+      "slot": 9
     },
     {
       "id": "orch_renderBriefCtx",
       "label": "renderBriefContext()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Composes [SYSTEM] resume/build blocks w/ full brief + in-flight/completed task partition. orchestrator.go:1466-1528",
       "tags": [
         "intake"
       ],
-      "slot": 9
+      "slot": 10
     },
     {
       "id": "orch_renderBrownfieldIntake",
       "label": "renderBrownfieldIntake()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Builds the CODEBASE ANALYSIS [SYSTEM] turn keying planner.go brownfield branch (2 questions, hard-stop). orchestrator.go:530-541",
       "tags": [
         "brownfield",
         "prompt"
       ],
-      "slot": 10
+      "slot": 11
     },
     {
       "id": "orch_writeAgentsMd",
       "label": "writeAgentsMd()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Writes AGENTS.md + mirrored CLAUDE.md; preserves user-notes after marker. agents_md.go:75-98",
       "tags": [
         "intake",
         "fs"
       ],
-      "slot": 11
+      "slot": 12
     },
     {
       "id": "orch_renderAgentsMd",
       "label": "renderAgentsMd()",
       "categoryId": "intake",
-      "columnId": "coord",
+      "columnId": "intake",
       "detail": "Short markdown body; raw brief fields (incl. brownfield CodebaseNotes) interpolated unfenced via fmt.Sprintf. agents_md.go:34-61",
       "tags": [
         "intake"
       ],
-      "slot": 12
+      "slot": 13
     },
     {
       "id": "orch_msgOwnership",
       "label": "messageOwnershipLoop()",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "Subscribes message PubSub; tags assistant msgs w/ currentSpeaker; on finalize routes by role to brief/task/clarification/autoroute. orchestrator.go:1145-1256",
       "tags": [
         "loop",
         "pubsub"
       ],
-      "slot": 13
+      "slot": 4
     },
     {
       "id": "orch_applyRoleLabel",
       "label": "applyRoleLabel()",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "plan",
       "detail": "Code-asserts speaker label; strips hallucinated Human:/role prefixes, prepends authoritative label; idempotent. orchestrator.go:1053-1068",
       "tags": [
         "visibility"
       ],
-      "slot": 14
+      "slot": 2
     },
     {
       "id": "orch_dispatchedGuard",
       "label": "dispatchedMsgs guard",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "Once-only per msg.ID; blocks duplicate CREATE_TASK/brief handling when PubSub re-fires UpdatedEvent. orchestrator.go:1179-1185",
       "tags": [
         "dedup"
       ],
-      "slot": 15
+      "slot": 5
     },
     {
       "id": "orch_handleTaskDirectives",
       "label": "handlePlannerTaskDirectives()",
       "categoryId": "dispatch",
-      "columnId": "server",
+      "columnId": "dispatch",
       "detail": "Parses CREATE_TASK, content-hash dedup, lazy swarm spawn, 2-pass create+dependency resolution. orchestrator.go:1671-1821",
       "tags": [
         "dispatch"
       ],
-      "slot": 46
+      "slot": 6
     },
     {
       "id": "orch_parseCreateTask",
       "label": "parseCreateTaskDirectives()",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "Per-marker balanced-brace JSON (pattern 1) + {tasks:[]} block fallback (pattern 2). orchestrator.go:2988-3048",
       "tags": [
         "parser"
       ],
-      "slot": 16
+      "slot": 7
     },
     {
       "id": "orch_batchHash",
       "label": "taskBatchHash + checkAndRecordDispatchHash",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "sha256 over sorted title|desc|caps; 60s window dedup of re-emitted batches on distinct turns. orchestrator.go:1829-1868",
       "tags": [
         "dedup"
       ],
-      "slot": 17
+      "slot": 8
     },
     {
       "id": "orch_lazySpawn",
       "label": "lazy swarm spawn",
       "categoryId": "dispatch",
-      "columnId": "swarm",
+      "columnId": "dispatch",
       "detail": "First CREATE_TASK batch brings up Tier-2 swarm via runnerSpawner.StartSwarm; idempotent. orchestrator.go:1730-1740",
       "tags": [
         "swarm",
         "lazy"
       ],
-      "slot": 0
+      "slot": 9
     },
     {
       "id": "orch_filterSpecs",
       "label": "filterSwarmSpecsByProject()",
       "categoryId": "dispatch",
-      "columnId": "swarm",
+      "columnId": "dispatch",
       "detail": "Filters specs by project.agents[] from brief; full-list fallback if absent/empty. orchestrator.go:1926-1964",
       "tags": [
         "swarm"
       ],
-      "slot": 1
+      "slot": 10
     },
     {
       "id": "orch_depResolve",
       "label": "2-pass dependency resolution",
       "categoryId": "dispatch",
-      "columnId": "server",
+      "columnId": "dispatch",
       "detail": "Pass1 create w/ empty deps + titleToID; Pass2 PATCH deps replacing sibling titles w/ IDs. orchestrator.go:1742-1820",
       "tags": [
         "dispatch"
       ],
-      "slot": 47
+      "slot": 11
     },
     {
       "id": "orch_observerLoop",
@@ -1240,7 +1244,7 @@
       "tags": [
         "loop"
       ],
-      "slot": 18
+      "slot": 9
     },
     {
       "id": "orch_observerCheck",
@@ -1251,7 +1255,7 @@
       "tags": [
         "observer"
       ],
-      "slot": 19
+      "slot": 10
     },
     {
       "id": "orch_detectAnomalies",
@@ -1262,7 +1266,7 @@
       "tags": [
         "observer"
       ],
-      "slot": 20
+      "slot": 11
     },
     {
       "id": "orch_anomalySig",
@@ -1274,394 +1278,394 @@
         "observer",
         "loop-guard"
       ],
-      "slot": 21
+      "slot": 12
     },
     {
       "id": "orch_tier1Watchdog",
       "label": "tier1Watchdog()",
       "categoryId": "observer",
-      "columnId": "coord",
+      "columnId": "plan",
       "detail": "Re-triggers idle Assurance/QA when queue non-empty + last turn >5min; honors synthesizedAt exclusion. orchestrator.go:2146-2205",
       "tags": [
         "observer",
         "watchdog"
       ],
-      "slot": 22
+      "slot": 3
     },
     {
       "id": "orch_buildSnapshot",
       "label": "buildStatusSnapshot()",
       "categoryId": "observer",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Parallel poll tasks/agents/locks/log (4 goroutines). orchestrator.go:2209-2260",
       "tags": [
         "observer",
         "server"
       ],
-      "slot": 48
+      "slot": 13
     },
     {
       "id": "orch_buildObserverPrompt",
       "label": "buildObserverPrompt()",
       "categoryId": "observer",
-      "columnId": "coord",
+      "columnId": "plan",
       "detail": "Renders snapshot+anomalies, instructs Observer to @planner w/ suggested actions, no tools. orchestrator.go:2538-2549",
       "tags": [
         "prompt"
       ],
-      "slot": 23
+      "slot": 4
     },
     {
       "id": "orch_coordEventLoop",
       "label": "coordinationEventLoop()",
       "categoryId": "infra",
-      "columnId": "server",
+      "columnId": "infra",
       "detail": "3s poll /api/log; surfaces lifecycle events as system messages; seeds lastCoordEventAt=now. orchestrator.go:696-719",
       "tags": [
         "loop",
         "server"
       ],
-      "slot": 49
+      "slot": 12
     },
     {
       "id": "orch_pollCoordEvents",
       "label": "pollCoordinationEvents()",
       "categoryId": "infra",
-      "columnId": "server",
+      "columnId": "coord",
       "detail": "Chronological emit; batch mode >8 events/tick to single summary; task_failed to autoroute(SystemEscalation). orchestrator.go:721-841",
       "tags": [
         "server"
       ],
-      "slot": 50
+      "slot": 14
     },
     {
       "id": "orch_formatCoordEvent",
       "label": "formatCoordEvent()",
       "categoryId": "infra",
-      "columnId": "coord",
+      "columnId": "infra",
       "detail": "Maps event type to emoji chat line; suppresses registration/bookkeeping. orchestrator.go:851-891",
       "tags": [
         "render"
       ],
-      "slot": 24
+      "slot": 13
     },
     {
       "id": "orch_validationLoop",
       "label": "validationPollLoop()",
       "categoryId": "validation",
-      "columnId": "coord",
+      "columnId": "validate",
       "detail": "10s ticker to checkPendingValidation; nil-guards on assurance agent. orchestrator.go:2553-2571",
       "tags": [
         "loop"
       ],
-      "slot": 25
+      "slot": 3
     },
     {
       "id": "orch_checkValidation",
       "label": "checkPendingValidation()",
       "categoryId": "validation",
-      "columnId": "server",
+      "columnId": "validate",
       "detail": "GET pending-validation; seen/attempt gating; >3 attempts to escalate(SystemEscalation); one-at-a-time routeToAssurance. orchestrator.go:2573-2611",
       "tags": [
         "validation"
       ],
-      "slot": 51
+      "slot": 4
     },
     {
       "id": "orch_routeToAssurance",
       "label": "routeToAssurance()",
       "categoryId": "validation",
-      "columnId": "tier1",
+      "columnId": "validate",
       "detail": "Runs Assurance turn, reads last assurance msg, parses verdict, SubmitVerdict, markSeen only on accept. orchestrator.go:2613-2671",
       "tags": [
         "validation"
       ],
-      "slot": 2
+      "slot": 5
     },
     {
       "id": "orch_buildValidationPrompt",
       "label": "buildValidationPrompt()",
       "categoryId": "validation",
-      "columnId": "coord",
+      "columnId": "validate",
       "detail": "Per-criterion view/grep protocol; agent report = locator-not-evidence; exact JSON verdict shape. orchestrator.go:3141-3171",
       "tags": [
         "prompt"
       ],
-      "slot": 26
+      "slot": 6
     },
     {
       "id": "orch_parseVerdict",
       "label": "parseValidationVerdict()",
       "categoryId": "validation",
-      "columnId": "coord",
+      "columnId": "validate",
       "detail": "Extracts criteriaResults JSON; passThreshold=95 gate; FAIL-CLOSED on empty criteria (Fix 23 / Round-6 #1). orchestrator.go:3077-3123",
       "tags": [
         "validation",
         "fail-closed"
       ],
-      "slot": 27
+      "slot": 7
     },
     {
       "id": "orch_qaLoop",
       "label": "qaPollLoop()",
       "categoryId": "qa",
-      "columnId": "coord",
+      "columnId": "synth",
       "detail": "10s ticker to checkValidatedTasks; nil-guards on qa_synthesizer agent. orchestrator.go:2675-2693",
       "tags": [
         "loop"
       ],
-      "slot": 28
+      "slot": 2
     },
     {
       "id": "orch_checkValidated",
       "label": "checkValidatedTasks()",
       "categoryId": "qa",
-      "columnId": "server",
+      "columnId": "synth",
       "detail": "GET validated; seen/attempt gating; >3 to escalate(SystemNoTask); one-at-a-time routeToQA. orchestrator.go:2695-2736",
-      "tags": [
-        "qa"
-      ],
-      "slot": 52
-    },
-    {
-      "id": "orch_routeToQA",
-      "label": "routeToQA()",
-      "categoryId": "qa",
-      "columnId": "tier1",
-      "detail": "Builds ValidatedOutput (result+validationScore from metadata), runs QA turn, parses synthesis, SubmitSynthesis. orchestrator.go:2738-2811",
       "tags": [
         "qa"
       ],
       "slot": 3
     },
     {
+      "id": "orch_routeToQA",
+      "label": "routeToQA()",
+      "categoryId": "qa",
+      "columnId": "synth",
+      "detail": "Builds ValidatedOutput (result+validationScore from metadata), runs QA turn, parses synthesis, SubmitSynthesis. orchestrator.go:2738-2811",
+      "tags": [
+        "qa"
+      ],
+      "slot": 4
+    },
+    {
       "id": "orch_parseSynthesis",
       "label": "parseSynthesisResponse()",
       "categoryId": "qa",
-      "columnId": "coord",
+      "columnId": "synth",
       "detail": "SYNTHESIS_COMPLETE: to complete; NEED_CLARIFICATION:@x to need_clarification; else in_progress. orchestrator.go:3128-3137",
       "tags": [
         "parser"
       ],
-      "slot": 29
+      "slot": 5
     },
     {
       "id": "orch_buildSynthesisPrompt",
       "label": "buildSynthesisPrompt()",
       "categoryId": "qa",
-      "columnId": "coord",
+      "columnId": "synth",
       "detail": "Instructs QA to end w/ SYNTHESIS_COMPLETE or NEED_CLARIFICATION; no tools; concise. orchestrator.go:3173-3185",
       "tags": [
         "prompt"
       ],
-      "slot": 30
+      "slot": 6
     },
     {
       "id": "orch_taskSynthesized",
       "label": "taskSynthesized()",
       "categoryId": "qa",
-      "columnId": "coord",
+      "columnId": "synth",
       "detail": "Reads metadata.synthesizedAt \u2014 server stamps it but leaves status='validated'; both QA filter+watchdog honor. orchestrator.go:1017-1023",
       "tags": [
         "qa"
       ],
-      "slot": 31
+      "slot": 7
     },
     {
       "id": "orch_qaClarification",
       "label": "maybeRouteQAClarification()",
       "categoryId": "qa",
-      "columnId": "server",
+      "columnId": "synth",
       "detail": "NEED_CLARIFICATION:@<swarm> to forward to agent inbox + suppress Planner autoroute; Planner-addressed falls through. orchestrator.go:2840-2866",
       "tags": [
         "qa",
         "routing"
       ],
-      "slot": 53
+      "slot": 8
     },
     {
       "id": "orch_autoRouteV",
       "label": "autoRoutePlannerV()",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "Forwards Tier-1 msg to Planner turn w/ variant; sliding-window cap (5/10min); fireWhenPlannerIdle. orchestrator.go:1316-1351",
       "tags": [
         "autoroute",
         "loop-guard"
       ],
-      "slot": 32
+      "slot": 12
     },
     {
       "id": "orch_autoRouteVariants",
       "label": "autoRouteVariant set",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "plan",
       "detail": "5 variants: Anomaly, PassVerdict, FailVerdict, SystemEscalation, SystemNoTask \u2014 each shapes Planner affordances. orchestrator.go:1356-1413",
       "tags": [
         "autoroute",
         "prompt"
       ],
-      "slot": 33
+      "slot": 5
     },
     {
       "id": "orch_slidingWindow",
       "label": "recentAutoRoutes sliding window",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "Wall-clock cap autoTurnCap=5 / autoRouteWindow=10min; pruneAutoRoutes; cleared on human input (Fix 6, replaced int counter). orchestrator.go:98,1319-1331",
       "tags": [
         "loop-guard"
       ],
-      "slot": 34
+      "slot": 13
     },
     {
       "id": "orch_fireWhenIdle",
       "label": "fireWhenPlannerIdle()",
       "categoryId": "dispatch",
-      "columnId": "coord",
+      "columnId": "infra",
       "detail": "Polls IsRoleBusy(planner) at 200ms up to 60s, then fires turn \u2014 avoids 'session processing' race. orchestrator.go:1645-1662",
       "tags": [
         "sync"
       ],
-      "slot": 35
+      "slot": 14
     },
     {
       "id": "orch_emitSystem",
       "label": "emitSystemMessage()",
       "categoryId": "infra",
-      "columnId": "coord",
+      "columnId": "infra",
       "detail": "Creates Role=System message; rendered as muted banner by TUI. orchestrator.go:959-969",
       "tags": [
         "render"
       ],
-      "slot": 36
+      "slot": 15
     },
     {
       "id": "orch_turnTimeout",
       "label": "agentTurnTimeout (5min)",
       "categoryId": "infra",
-      "columnId": "coord",
+      "columnId": "infra",
       "detail": "Per-turn ctx.WithTimeout; on expiry Cancel(session)+system message+drain done. orchestrator.go:598-624,671",
       "tags": [
         "timeout"
       ],
-      "slot": 37
+      "slot": 16
     },
     {
       "id": "orch_seenTracking",
       "label": "seen/attempt tracking",
       "categoryId": "validation",
-      "columnId": "coord",
+      "columnId": "dispatch",
       "detail": "alreadySeen/markSeen/incAttempt keyed validation:/qa:; caps maxValidationAttempts=maxSynthesisAttempts=3. orchestrator.go:3196-3225",
       "tags": [
         "dedup"
       ],
-      "slot": 38
+      "slot": 14
     },
     {
       "id": "orch_histThread",
       "label": "per-agent ThreadID notebooks",
       "categoryId": "orchestrator",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "In-process roles stamp threadID=role name in shared session; Planner=HistoryThread, others=HistoryNone. app.go:128-137; agent.go:155-162",
       "tags": [
         "notebooks",
         "history"
       ],
-      "slot": 4
+      "slot": 17
     },
     {
       "id": "orch_rebind",
       "label": "RebindSystemPrompt()",
       "categoryId": "intake",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "Rebuilds provider w/ fresh system msg after AGENTS.md write; refuses if busy. orchestrator.go:1603-1605; acp/agent.go:489",
       "tags": [
         "intake"
       ],
-      "slot": 5
+      "slot": 6
     },
     {
       "id": "orch_antigravity_uncommitted",
       "label": "antigravity/agy backend (in flight)",
       "categoryId": "orchestrator",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "UNCOMMITTED: app.go:104 switch cases + antigravityCLIDefaults spawn `node agy-acp.mjs`. app.go:104 (working-tree M); acp/agent.go:549-554; acp/antigravity_cli.go:18-19 (untracked)",
       "tags": [
         "backend",
         "uncommitted"
       ],
-      "slot": 6
+      "slot": 4
     },
     {
       "id": "app_tier1_switch",
       "label": "app.go Tier-1 backend switch",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "switch on backendChoice: case claude-code/antigravity/agy/codex/opencode to acp.NewACPAgent; default to in-process agent.NewAgent with Tier1ToolsForRole. backendChoice from cfg.Agents[agentName].Backend. app.go:90-138",
       "tags": [
         "dispatch",
         "backend",
         "switch"
       ],
-      "slot": 7
+      "slot": 5
     },
     {
       "id": "acp_agent",
       "label": "acp.ACPAgent",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "Implements agent.Service over a long-lived ACP subprocess; one per Tier-1 role; holds cmd+client, acpSessions map, priming injector. Constructor NewACPAgent. internal/acp/agent.go:40,95",
       "tags": [
         "acp",
         "backend",
         "subprocess"
       ],
-      "slot": 8
+      "slot": 6
     },
     {
       "id": "acp_client",
       "label": "acp.Client (JSON-RPC)",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Newline-delimited JSON-RPC 2.0 over stdio (NewNewlineTransport). initialize/session-new/session-prompt/session-cancel. internal/acp/agent.go:147; types.go:210-216",
       "tags": [
         "acp",
         "jsonrpc",
         "transport"
       ],
-      "slot": 9
+      "slot": 18
     },
     {
       "id": "acp_buildcommand",
       "label": "acp.buildCommand (host to argv)",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Derives spawn argv from host: claude-code/empty to claudeCodeDefaults; antigravity/agy to antigravityCLIDefaults; codex/opencode to explicit unimplemented error; default to unknown-backend error. internal/acp/agent.go:535-556",
       "tags": [
         "acp",
         "spawn",
         "host"
       ],
-      "slot": 10
+      "slot": 19
     },
     {
       "id": "acp_claudecode_defaults",
       "label": "claudeCodeDefaults",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Returns npx + claude-agent-acp@^0.37 argv. The only fully-implemented external Tier-1 host. internal/acp/claude_code.go:22",
       "tags": [
         "acp",
         "claude-code"
       ],
-      "slot": 11
+      "slot": 20
     },
     {
       "id": "acp_antigravity_defaults",
       "label": "antigravityCLIDefaults (agy)",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Returns ('node', [agyShimPath(env)]); agyShimPath resolves agy-acp.mjs from cfg.Env PATH binDir then os.Executable. UNCOMMITTED, in flight. internal/acp/antigravity_cli.go:18-19,31",
       "tags": [
         "acp",
@@ -1669,13 +1673,13 @@
         "agy",
         "uncommitted"
       ],
-      "slot": 12
+      "slot": 21
     },
     {
       "id": "agy_acp_mjs",
       "label": "agy-acp.mjs ACP shim",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "Bundled Node ACP-protocol shim bridging the agy CLI to ACP; spawned via node. UNCOMMITTED (?? agy-acp.mjs + runner/agy-acp.mjs in git status). runner/agy-acp.mjs",
       "tags": [
         "acp",
@@ -1683,26 +1687,26 @@
         "shim",
         "uncommitted"
       ],
-      "slot": 13
+      "slot": 7
     },
     {
       "id": "acp_priming_injector",
       "label": "ACP priming injector",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "On first session for an ACT sessionID, opens ACP session then sends role priming as a one-shot USER message (ACP has no system channel). StopReason logged (Audit Fix 8). internal/acp/agent.go:329-374",
       "tags": [
         "acp",
         "priming",
         "system-prompt"
       ],
-      "slot": 14
+      "slot": 7
     },
     {
       "id": "acp_runturn",
       "label": "ACPAgent.runTurn (content-only)",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "Sends ONLY content via session/prompt; no transcript replay; per-agent-scoped for INPUT by construction; stamps ThreadID=a.role on display msgs; streams agent_message_chunk deltas. internal/acp/agent.go:219",
       "tags": [
         "acp",
@@ -1710,65 +1714,65 @@
         "threadid",
         "streaming"
       ],
-      "slot": 15
+      "slot": 8
     },
     {
       "id": "acp_rebind",
       "label": "ACPAgent.RebindSystemPrompt",
       "categoryId": "acp",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "Discards cached acpSessions so next runTurn opens a fresh session and re-fires priming (picks up invalidated AGENTS.md). Refuses while a turn is in flight. internal/acp/agent.go:489",
       "tags": [
         "acp",
         "rebind",
         "prompt-cache"
       ],
-      "slot": 16
+      "slot": 8
     },
     {
       "id": "tier1_shim_bin",
       "label": "cmd/act-tier1-shim",
       "categoryId": "tools",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "Per-role `act` CLI wrapper for ACP-backed Tier-1 agents via symlink (act-tier1-<role>). Reads role from argv[0], validates subcommand against tools.IsAllowed, rejects banned metachars, execs exec.Command('act',...). cmd/act-tier1-shim/main.go:57-134",
       "tags": [
         "shim",
         "allowlist",
         "cli"
       ],
-      "slot": 17
+      "slot": 9
     },
     {
       "id": "role_subcommands",
       "label": "tools.RoleSubcommands allowlist",
       "categoryId": "tools",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Per-role allowed `act` subcommands. planner: status,context,log,graph,pvm,message,task retry/abandon,prompt-section. observer/assurance/qa narrower. IsAllowed/AllowedFor. internal/llm/tools/act_cli_whitelist.go:21,53,99",
       "tags": [
         "allowlist",
         "whitelist",
         "ki-02"
       ],
-      "slot": 18
+      "slot": 22
     },
     {
       "id": "act_cli_tool",
       "label": "act_cli in-process tool",
       "categoryId": "tools",
-      "columnId": "tier1",
+      "columnId": "execute",
       "detail": "NewActCLITool(role) \u2014 native JSON tool whitelist-gated by IsAllowed, banned-metachar guard, exec.CommandContext('act-agent',...). 'message' is the only mutating subcommand to permission prompt. internal/llm/tools/act_cli.go:104,175",
       "tags": [
         "tool",
         "act_cli",
         "whitelist"
       ],
-      "slot": 19
+      "slot": 10
     },
     {
       "id": "expand_prompt_tool",
       "label": "expand_prompt_section tool",
       "categoryId": "tools",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "Planner-only on-demand reference loader; Run() calls prompt.GetSection(name). Keeps base Planner prompt small. internal/llm/tools/expand_prompt_section.go:29,83",
       "tags": [
         "tool",
@@ -1776,39 +1780,39 @@
         "sections",
         "context-tiering"
       ],
-      "slot": 20
+      "slot": 9
     },
     {
       "id": "section_registry",
       "label": "prompt.sectionRegistry",
       "categoryId": "prompts",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "Maps evidence_routing/success_criteria/validation/examples to PlannerSection*() providers. Single source for BOTH the in-process expand_prompt_section tool AND the ACP prompt-section CLI path. internal/llm/prompt/sections.go:14,34,46",
       "tags": [
         "prompts",
         "sections",
         "registry"
       ],
-      "slot": 21
+      "slot": 10
     },
     {
       "id": "planner_sections",
       "label": "planner_section_*.go",
       "categoryId": "prompts",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "The four on-demand Planner reference sections returned by the registry; loaded lazily, not baked into base prompt. internal/llm/prompt/planner_section_{evidence,examples,success_criteria,validation}.go",
       "tags": [
         "prompts",
         "planner",
         "sections"
       ],
-      "slot": 22
+      "slot": 11
     },
     {
       "id": "tier1_tools_for_role",
       "label": "agent.Tier1ToolsForRole",
       "categoryId": "tools",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Per-role tool subset. planner to PlannerTools (act_cli+expand_prompt_section); observer to ObserverTools (act_cli only); assurance/qa to act_cli+view+grep; default to DeveloperTools. KI-02: NO bash for any Tier-1 role. internal/llm/agent/tools.go:75-124",
       "tags": [
         "tools",
@@ -1822,20 +1826,20 @@
       "id": "developer_tools",
       "label": "agent.DeveloperTools (Tier 2 roster)",
       "categoryId": "tools",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Full toolbox for Tier-2 swarm: bash, edit, fetch, glob, grep, ls, sourcegraph, view, patch, write, AgentTool + MCP tools. Tier1ToolsForRole falls back here for non-Tier-1 roles. internal/llm/agent/tools.go:18",
       "tags": [
         "tools",
         "tier2",
         "bash"
       ],
-      "slot": 0
+      "slot": 11
     },
     {
       "id": "mcp_tools",
       "label": "agent.GetMcpTools (native MCP client)",
       "categoryId": "tools",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Builds MCP tools from config.MCPServers (stdio + SSE clients). Each permission-gated. Only reaches Tier-1 roles that fall to DeveloperTools (none of the 4 canonical Tier-1 roles do). internal/llm/agent/mcp-tools.go:169",
       "tags": [
         "mcp",
@@ -1843,26 +1847,26 @@
         "stdio",
         "sse"
       ],
-      "slot": 1
+      "slot": 12
     },
     {
       "id": "prompt_dispatcher",
       "label": "prompt.GetAgentPrompt dispatcher",
       "categoryId": "prompts",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "Routes config.AgentName to role prompt fn (RolePlanner to PlannerPrompt, etc.). Unknown role to developer prompt + WARN. Appends project context (CLAUDE.md/ACT.md) for non-title roles. internal/llm/prompt/prompt.go:18",
       "tags": [
         "prompts",
         "dispatcher",
         "router"
       ],
-      "slot": 24
+      "slot": 12
     },
     {
       "id": "planner_prompt",
       "label": "PlannerPrompt (provider branch)",
       "categoryId": "prompts",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "provider==models.ProviderACP to actCLICommandsACP('planner') (shim-via-Bash framing); any real provider to actCLICommands('planner') (in-process, do-NOT-shell-out framing). internal/llm/prompt/planner.go:16,23",
       "tags": [
         "prompts",
@@ -1870,39 +1874,39 @@
         "acp",
         "provider-branch"
       ],
-      "slot": 25
+      "slot": 13
     },
     {
       "id": "actcli_fragment",
       "label": "actCLICommands / actCLICommandsACP",
       "categoryId": "prompts",
-      "columnId": "tier1",
+      "columnId": "plan",
       "detail": "In-process (common.go:72) + ACP (common.go:146) CLI fragments. Only planner diverges for ACP; ACP planner fragment instructs `act-tier1-planner <sub>` via Bash incl. prompt-section. internal/llm/prompt/common.go:72,146",
       "tags": [
         "prompts",
         "cli-fragment",
         "acp"
       ],
-      "slot": 26
+      "slot": 14
     },
     {
       "id": "provider_acp_const",
       "label": "models.ProviderACP",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Synthetic provider id 'acp' in the models package so the prompt dispatcher can branch without importing acp. No NewProvider case. internal/llm/models/models.go:53",
       "tags": [
         "config",
         "provider",
         "acp"
       ],
-      "slot": 27
+      "slot": 24
     },
     {
       "id": "history_mode",
       "label": "agent.HistoryMode + scopedHistory",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "HistoryMode Full/None/Thread; scopedHistory filters per mode. planner to HistoryThread, others to HistoryNone for in-process Tier-1. ACP path per-agent-scoped by construction. internal/llm/agent/agent.go:155",
       "tags": [
         "config",
@@ -1910,39 +1914,39 @@
         "notebooks",
         "threadid"
       ],
-      "slot": 28
+      "slot": 25
     },
     {
       "id": "agent_config_for_role",
       "label": "config.AgentConfigForRole",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "MODEL/BACKEND config lookup: agents.<role> first else RoleDeveloper. NEVER used for prompt selection (developer fallback would swap role identity). internal/config/config.go:170",
       "tags": [
         "config",
         "fallback",
         "developer"
       ],
-      "slot": 29
+      "slot": 26
     },
     {
       "id": "validate_agent",
       "label": "config.validateAgent",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "backend claude-code/antigravity/agy to skip provider/model checks; otherwise require provider+model+providerCfg+apiKey. codex/opencode NOT skipped. internal/config/config.go:515-521",
       "tags": [
         "config",
         "validation",
         "backend"
       ],
-      "slot": 30
+      "slot": 27
     },
     {
       "id": "with_tier1_shim_path",
       "label": "app.withTier1ShimPath",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Prepends the act-agent install dir (os.Executable parent) to ACPConfig.Env PATH so act-tier1-<role> + `act` resolve for the ACP subprocess. Carries parent PATH through. internal/app/app.go:206-238",
       "tags": [
         "config",
@@ -1950,13 +1954,13 @@
         "path",
         "shim"
       ],
-      "slot": 31
+      "slot": 28
     },
     {
       "id": "make_priming_injector",
       "label": "app.makePrimingInjector / wrapPriming",
       "categoryId": "config",
-      "columnId": "tier1",
+      "columnId": "infra",
       "detail": "Closure returns prompt.GetAgentPrompt(role, acp.ProviderACP) wrapped by wrapPriming: InternalPromptMarker + doNotRespondHeader + base + renderShimNote (live allowlist from tools.AllowedFor). internal/app/app.go:249",
       "tags": [
         "config",
@@ -1964,13 +1968,13 @@
         "acp",
         "shim-note"
       ],
-      "slot": 32
+      "slot": 29
     },
     {
       "id": "slash_backend",
       "label": "/backend slash command (Tier 1)",
       "categoryId": "tui",
-      "columnId": "tier1",
+      "columnId": "entry",
       "detail": "list / <role|all> <backend>. isValidTier1Backend accepts act-agent/claude-code/antigravity/agy. Persists via config.WriteAgentBackend; applies on NEXT TUI launch (no hot-rebuild). internal/app/slash.go:255,325",
       "tags": [
         "tui",
@@ -1978,13 +1982,13 @@
         "backend",
         "tier1"
       ],
-      "slot": 33
+      "slot": 1
     },
     {
       "id": "slash_swarm",
       "label": "/swarm slash command (Tier 2)",
       "categoryId": "tui",
-      "columnId": "tier2",
+      "columnId": "entry",
       "detail": "list/status/restart/<role|all> <backend>. swarmSetBackend validates via runner.IsValidBackend (act-agent|claude-code only), persists + RestartRole LIVE. Tier-1 roles rejected. internal/app/slash.go:42,188",
       "tags": [
         "tui",
@@ -1998,148 +2002,148 @@
       "id": "spawner",
       "label": "runner.Spawner (StartSwarm)",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Spawns one Node act-runner.mjs subprocess per SwarmRoleSpec. Lazy: called from orchestrator on first CREATE_TASK batch, not at launch. internal/runner/spawner.go:58",
       "tags": [
         "go",
         "tier2",
         "lazy-spawn"
       ],
-      "slot": 3
+      "slot": 13
     },
     {
       "id": "spawner_sweep",
       "label": "SweepOrphans (pkill)",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Runs `pkill -f act-runner.mjs` defensively before spawning, killing leftover runners (prevents 409 conflict storm). internal/runner/spawner.go:243-244",
       "tags": [
         "go",
         "cleanup",
         "pkill"
       ],
-      "slot": 4
+      "slot": 14
     },
     {
       "id": "spawner_pgid",
       "label": "setProcGroup (Setpgid)",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Sets attr.Setpgid=true so each runner gets its own process group; parent TUI kills the whole subtree via negative pgid on shutdown. internal/runner/spawner_unix.go:10",
       "tags": [
         "go",
         "process-group",
         "unix"
       ],
-      "slot": 5
+      "slot": 15
     },
     {
       "id": "spawner_log",
       "label": "per-role runner log",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "infra",
       "detail": "stdout/stderr redirected to ~/.act/runners/<role>.log (O_CREATE|O_APPEND) so runner output never corrupts the Bubble Tea chat. internal/runner/spawner.go:141",
       "tags": [
         "go",
         "logging",
         "isolation"
       ],
-      "slot": 6
+      "slot": 30
     },
     {
       "id": "spawner_reap",
       "label": "process reaper goroutine",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "infra",
       "detail": "Goroutine cmd.Wait()s each runner, writes a session-end line, closes fd, deletes the role from s.runners. internal/runner/spawner.go:176",
       "tags": [
         "go",
         "lifecycle"
       ],
-      "slot": 7
+      "slot": 31
     },
     {
       "id": "spawner_spec",
       "label": "SwarmRoleSpec / DefaultCapabilities",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "infra",
       "detail": "SwarmRoleSpec{Role,AgentID,Name,Backend,Capabilities,Model}; AllSwarmRoles = developer, frontend_dev, backend_dev, qa_engineer, researcher. internal/runner/swarm_roles.go:50",
       "tags": [
         "go",
         "roles",
         "capabilities"
       ],
-      "slot": 8
+      "slot": 32
     },
     {
       "id": "runner_mjs",
       "label": "act-runner.mjs (coordination loop)",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Main loop: register to poll getTask to executeTask to poll inbox to sleep POLL_INTERVAL. Node.js, no npm deps beyond built-ins. runner/act-runner.mjs:806",
       "tags": [
         "node",
         "poll-loop",
         "swarm-agent"
       ],
-      "slot": 9
+      "slot": 16
     },
     {
       "id": "runner_register",
       "label": "register() + 409 self-heal",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "POST /api/agents/register with projectName. On HTTP 409 (stale): DELETE /api/agents/<id> then retry once. runner/act-runner.mjs:129",
       "tags": [
         "node",
         "registration",
         "self-heal"
       ],
-      "slot": 10
+      "slot": 17
     },
     {
       "id": "runner_live",
       "label": "liveProcesses singleton",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "Map keyed by agentId; at task pickup if AGENT_ID already live, skip \u2014 one in-flight task per agent ID; cleared in finally. runner/act-runner.mjs:94",
       "tags": [
         "node",
         "singleton",
         "no-clone"
       ],
-      "slot": 11
+      "slot": 18
     },
     {
       "id": "runner_backend",
       "label": "runAgent backend switch",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "BACKEND==='claude-code' ? runAgentClaudeCode (claude --print --dangerously-skip-permissions) : runAgentActAgent (act-agent --agent --role --prompt). Default 'act-agent'. NO antigravity branch. runner/act-runner.mjs:227-231",
       "tags": [
         "node",
         "backend-select"
       ],
-      "slot": 12
+      "slot": 19
     },
     {
       "id": "runner_claudecode",
       "label": "runAgentClaudeCode (+EOF stdin, retry)",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "execFile claude with input:'' (EOF) to avoid 3s stdin-wait hang; one-shot retry on no-output failure. runner/act-runner.mjs:281",
       "tags": [
         "node",
         "claude-code",
         "retry"
       ],
-      "slot": 13
+      "slot": 20
     },
     {
       "id": "runner_brief",
       "label": "fetchAgentBrief (AGENTS.md inject)",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "intake",
       "detail": "GET /api/projects/<p>/briefs/<agent>. Short-circuits for claude-code backend when on-disk CLAUDE.md/AGENTS.md exists (claude auto-discovers it). runner/act-runner.mjs:536",
       "tags": [
         "node",
@@ -2152,7 +2156,7 @@
       "id": "runner_pvm",
       "label": "complexity-triggered PVM inject",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "coord",
       "detail": "scoreComplexity (len+caps+keywords); >4 threshold to fetchPVMContext GET /api/pvm/search injected into prompt. runner/act-runner.mjs:339",
       "tags": [
         "node",
@@ -2165,31 +2169,31 @@
       "id": "runner_complete",
       "label": "reportComplete to submit-for-validation",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "validate",
       "detail": "POST /api/tasks/<id>/complete then (on success) POST /api/tasks/<id>/submit-for-validation. This chain feeds Assurance+QA; failure skips validation. runner/act-runner.mjs:181-194",
       "tags": [
         "node",
         "validation-pipeline"
       ],
-      "slot": 16
+      "slot": 8
     },
     {
       "id": "runner_session_end",
       "label": "sendSessionEnded lifecycle",
       "categoryId": "runner",
-      "columnId": "tier2",
+      "columnId": "infra",
       "detail": "Main loop finally POST /api/messages 'session ended for task <id> (exit code N)'. runner/act-runner.mjs:217",
       "tags": [
         "node",
         "lifecycle"
       ],
-      "slot": 17
+      "slot": 33
     },
     {
       "id": "agy_runner_shim",
       "label": "agy-acp.mjs (runner copy)",
       "categoryId": "acp",
-      "columnId": "tier2",
+      "columnId": "execute",
       "detail": "(uncommitted, in flight) runner/agy-acp.mjs + agy-acp.mjs \u2014 JSON-RPC ACP server shim driving `agy --print`; INTERNAL_MARKER stored as system prompt, not forwarded. This is a Tier-1 ACP shim, NOT a Tier-2 runner backend. Untracked in git status. runner/agy-acp.mjs",
       "tags": [
         "node",
@@ -2197,312 +2201,312 @@
         "antigravity",
         "uncommitted"
       ],
-      "slot": 18
+      "slot": 21
     },
     {
       "id": "cli_main",
       "label": "act-cli.ts dispatch (main)",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "infra",
       "detail": "Reads command=args[0], subcommand=args[1]; if/else-if chain over `command === ...` branches dispatches to cmd* handlers. Replaces MCP (~47K token saving). cli/act-cli.ts:1052",
       "tags": [
         "typescript",
         "dispatch"
       ],
-      "slot": 0
+      "slot": 34
     },
     {
       "id": "cli_context",
       "label": "context",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "infra",
       "detail": "cmdContext \u2014 brief+task+parallel agents+locks+messages in one Promise.all; self-bootstrap for swarm agents on spawn. cli/act-cli.ts:27",
       "tags": [
         "typescript",
         "bootstrap"
       ],
-      "slot": 1
+      "slot": 35
     },
     {
       "id": "cli_register",
       "label": "register",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "infra",
       "detail": "cmdRegister; writes ~/.act/sessions/<sessionId> identity file for the stop hook. cli/act-cli.ts:651",
       "tags": [
         "typescript"
       ],
-      "slot": 2
+      "slot": 36
     },
     {
       "id": "cli_task",
       "label": "task complete/progress/retry/abandon/submit-for-validation",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "validate",
       "detail": "Five `task <sub>` handlers; submit-for-validation routes completed work to Assurance. cli/act-cli.ts:166,190,346,755,777",
       "tags": [
         "typescript",
         "task-lifecycle"
       ],
-      "slot": 3
+      "slot": 9
     },
     {
       "id": "cli_pvm",
       "label": "pvm search / reindex",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "coord",
       "detail": "cmdPvmSearch (GET /api/pvm/search, project-scoped unless --global) + cmdPvmReindex (POST /api/pvm/reindex). cli/act-cli.ts:687,707",
       "tags": [
         "typescript",
         "pvm"
       ],
-      "slot": 4
+      "slot": 16
     },
     {
       "id": "cli_codebase",
       "label": "codebase onboard",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "intake",
       "detail": "cmdCodebaseOnboard \u2014 deterministic AGENTS.md scaffold from manifests/configs/git (extractScaffold). No LLM, no server. Brownfield onboarding entry point. cli/act-cli.ts:978",
       "tags": [
         "typescript",
         "brownfield",
         "deterministic"
       ],
-      "slot": 5
+      "slot": 15
     },
     {
       "id": "cli_swarm",
       "label": "swarm list/set/status/restart",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "entry",
       "detail": "cmdSwarm \u2014 reads/writes agents.<role>.backend in ~/.act.json (atomic tmp+rename). VALID_BACKENDS=['act-agent','claude-code','antigravity']. cli/act-cli.ts:554,552",
       "tags": [
         "typescript",
         "swarm",
         "config"
       ],
-      "slot": 6
+      "slot": 3
     },
     {
       "id": "cli_help",
       "label": "act-cli help command table",
       "categoryId": "cli",
-      "columnId": "cli-layer",
+      "columnId": "infra",
       "detail": "commands Record lists ~20 entries \u2014 OMITS swarm though it is a live dispatch branch. cli/act-cli.ts:1000-1023",
       "tags": [
         "typescript",
         "help",
         "drift"
       ],
-      "slot": 7
+      "slot": 37
     },
     {
       "id": "provider_factory",
       "label": "provider.NewProvider switch",
       "categoryId": "provider",
-      "columnId": "go-core",
+      "columnId": "execute",
       "detail": "Switch on ModelProvider; pickBase() applies per-provider default base URL overridable via providers.<name>.baseURL. internal/llm/provider/provider.go:103",
       "tags": [
         "go",
         "provider-switch"
       ],
-      "slot": 0
+      "slot": 22
     },
     {
       "id": "provider_anthropic",
       "label": "anthropic (native client)",
       "categoryId": "provider",
-      "columnId": "go-core",
+      "columnId": "execute",
       "detail": "ProviderAnthropic to newAnthropicClient (only non-OpenAI-compat native path besides gemini/bedrock/azure/vertex). internal/llm/provider/provider.go:104",
       "tags": [
         "go"
       ],
-      "slot": 1
+      "slot": 23
     },
     {
       "id": "provider_openai_compat",
       "label": "OpenAI-compatible (openai/groq/openrouter/xai/local)",
       "categoryId": "provider",
-      "columnId": "go-core",
+      "columnId": "execute",
       "detail": "All route to newOpenAIClient with per-provider base URL (groq, openrouter+Referer/Title, xai, local LOCAL_ENDPOINT). internal/llm/provider/provider.go:109,155,167,175",
       "tags": [
         "go",
         "openai-compat"
       ],
-      "slot": 2
+      "slot": 24
     },
     {
       "id": "provider_nvidia",
       "label": "nvidia (NIM, NEW)",
       "categoryId": "provider",
-      "columnId": "go-core",
+      "columnId": "execute",
       "detail": "ProviderNVIDIA to newOpenAIClient base https://integrate.api.nvidia.com/v1 (free hosted Kimi/Llama). Const at models.go:37. internal/llm/provider/provider.go:135-139",
       "tags": [
         "go",
         "nvidia",
         "new"
       ],
-      "slot": 3
+      "slot": 25
     },
     {
       "id": "provider_cache",
       "label": "globalResponseCache (send path)",
       "categoryId": "provider",
-      "columnId": "go-core",
+      "columnId": "infra",
       "detail": "SendMessages keys on model+system+messages+tools; cache hit elides the network call (catches Assurance re-scoring, Observer re-fires). Streaming bypasses it. internal/llm/provider/provider.go:219",
       "tags": [
         "go",
         "cache"
       ],
-      "slot": 4
+      "slot": 38
     },
     {
       "id": "models_registry",
       "label": "models.ModelProvider constants",
       "categoryId": "provider",
-      "columnId": "go-core",
+      "columnId": "infra",
       "detail": "anthropic,openai,gemini,groq,nvidia,openrouter,xai,azure,vertexai,bedrock,local,__mock + synthetic ProviderACP. No model registry: user writes the upstream model string verbatim. internal/llm/models/models.go:32",
       "tags": [
         "go",
         "no-registry"
       ],
-      "slot": 5
+      "slot": 39
     },
     {
       "id": "act_client",
       "label": "act.Client (native HTTP)",
       "categoryId": "client",
-      "columnId": "go-core",
+      "columnId": "infra",
       "detail": "Go HTTP client to the ACT server (15s timeout). Replaced the old npx-tsx shell-out. Used by Tier-1 in-process agents + orchestrator. internal/act/client.go:20,28",
       "tags": [
         "go",
         "http-client"
       ],
-      "slot": 6
+      "slot": 40
     },
     {
       "id": "act_client_task",
       "label": "Client task ops",
       "categoryId": "client",
-      "columnId": "go-core",
+      "columnId": "dispatch",
       "detail": "CreateTask, ReportComplete:151, SubmitForValidation:212, SetTaskDependencies (two-pass), RetryTask, AbandonTask, SubmitVerdict:572, SubmitSynthesis:593. internal/act/client.go",
       "tags": [
         "go",
         "orchestrator-api"
       ],
-      "slot": 7
+      "slot": 15
     },
     {
       "id": "act_client_project",
       "label": "Client GetProject/CreateProject (intake)",
       "categoryId": "client",
-      "columnId": "go-core",
+      "columnId": "intake",
       "detail": "GetProject:522 (404 to false, drives intake-mode detection), CreateProject:552 (POSTed after PROJECT_BRIEF). internal/act/client.go:522,552",
       "tags": [
         "go",
         "intake"
       ],
-      "slot": 8
+      "slot": 16
     },
     {
       "id": "root_router",
       "label": "cmd/root.go binary router",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "Pre-cobra os.Args routing: reset / prompt-section / CLI subcommands handled before cobra; else rootCmd.Execute (RunE). cmd/root.go:660",
       "tags": [
         "go",
         "router"
       ],
-      "slot": 0
+      "slot": 41
     },
     {
       "id": "root_modes",
       "label": "RunE mode dispatch",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "--agent to RunAgent headless; -p to RunNonInteractive; no args to runTUI. CLI subcommand caught early. cmd/root.go:53",
       "tags": [
         "go",
         "modes"
       ],
-      "slot": 1
+      "slot": 42
     },
     {
       "id": "root_ensure_server",
       "label": "EnsureServerRunning",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "Calls actserver.EnsureServerRunning('') at TUI startup (non-fatal) and before routing a CLI subcommand. cmd/root.go:123",
       "tags": [
         "go",
         "server-autostart"
       ],
-      "slot": 2
+      "slot": 43
     },
     {
       "id": "root_cli_route",
       "label": "routeToCLI / findCLIScript",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "Prefers local node_modules/.bin/tsx then npx; findCLIScript resolves act-cli.ts via ~/.act/config.json actRoot to binary walk to cwd. cmd/root.go:550",
       "tags": [
         "go",
         "cli-routing"
       ],
-      "slot": 3
+      "slot": 44
     },
     {
       "id": "root_prompt_section",
       "label": "prompt-section (native pre-cobra)",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "plan",
       "detail": "runPromptSection prints a Planner reference section from prompt.SectionRegistry; the ACP equivalent of in-process expand_prompt_section, handled BEFORE cobra/CLI routing. cmd/root.go:468,689",
       "tags": [
         "go",
         "acp",
         "prompt"
       ],
-      "slot": 4
+      "slot": 15
     },
     {
       "id": "launcher",
       "label": "server.EnsureServerRunning (launcher)",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "PID-file + health-check guarded auto-start of `npx tsx server/src/index.ts`; sweeps stale tsx watch processes. internal/server/launcher.go:30",
       "tags": [
         "go",
         "server",
         "pid-file"
       ],
-      "slot": 5
+      "slot": 45
     },
     {
       "id": "launcher_find",
       "label": "findServerScript",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "Resolves server entry via ~/.act/config.json actRoot to binary walk to cwd fallback. Mirrors findCLIScript. internal/server/launcher.go:196",
       "tags": [
         "go",
         "resolution"
       ],
-      "slot": 6
+      "slot": 46
     },
     {
       "id": "install_sh",
       "label": "install.sh (bootstrap)",
       "categoryId": "server-launch",
-      "columnId": "bootstrap",
+      "columnId": "infra",
       "detail": "Builds the act-agent Go binary; symlinks ONLY 'act-agent' into PATH and REMOVES any old 'act' symlink; does NOT create act-tier1-<role> symlinks. install.sh:46,182-184",
       "tags": [
         "sh",
         "install",
         "symlink"
       ],
-      "slot": 7
+      "slot": 47
     }
   ],
   "flows": [
