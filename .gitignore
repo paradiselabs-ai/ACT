@@ -123,6 +123,7 @@ EXPORT/*
 .claude/*
 !.claude/settings.json
 !.claude/hooks/
+!.claude/architecture-flows-method.md
 .windsurf/
 .qodo/
 *.code-workspace
