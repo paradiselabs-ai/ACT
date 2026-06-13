@@ -1,66 +1,56 @@
 ---
-title: Session Handoff — cleanup-constitution effort complete (scaffolding phase)
+title: Targeted Handoff — open code issues (non-flow-html)
 status: current
-verified_against: 70344e3
+verified_against: c569034
 owner: project-owner
-last_verified: 2026-06-11
+last_verified: 2026-06-12
 ---
 
-# Session Handoff — 2026-06-11
+# Targeted Handoff — open code issues
 
-> **Trust rule (Constitution Art. 7):** if this file's `verified_against` is older than the
-> branch tip, everything below is advisory only — re-verify in code before acting.
+Ranked most-vital first. Each line: what / where / evidence / ticket. All code-verified this session.
+The architecture-flows lane-layout work is tracked separately (its own kanban ticket + in-flight) — not here.
 
-## TL;DR
+## 1. ACP-backed Planner `prompt-section` is a dead path — HIGH
+- Whitelist grants `prompt-section` and the ACP planner prompt instructs `act-tier1-planner prompt-section <name>`, but `cli/act-cli.ts` has NO such branch → falls to "Unknown command" (~act-cli.ts:1288).
+- In-process Planner is fine (native `expand_prompt_section`). ACP Planners (claude-code/antigravity) silently lose all on-demand sections.
+- Ticket: `acp-planner-prompt-section-dead-path-2026-06-12`.
 
-The cleanup-constitution effort's scaffolding phase is DONE and merged into `feat/remove-nomik`:
-project truth system live (`docs/constitution/` + freshness loops), every doc statement proven
-stale/false by the verification pipeline fixed, adversarial review passed with all approved fixes
-landed. **Anti-trust probation is active** (CLAUDE.md top section): code-verify everything until
-3 trustworthy cycles.
+## 2. antigravity/agy backends — uncommitted, undocumented, half-wired — HIGH
+- Working tree: 9 modified + 3 untracked (`internal/acp/antigravity_cli.go`, `agy-acp.mjs`, `runner/agy-acp.mjs`). In no doc until this session's ticket.
+- `gemini` dropped from the Tier-1 dispatch switch (app.go) — intentional? unverified.
+- CLI accepts `antigravity` as a **swarm** (Tier-2) backend (act-cli.ts VALID_BACKENDS) but the spawner rejects it (`IsValidBackend`, swarm_roles.go) → silently settable where it never starts.
+- Ticket: `document-antigravity-agy-backends-2026-06-11`. Owner's in-flight work — do not edit those files; finish + commit + doc.
 
-## What happened (full chain, all verified)
+## 3. Fix 23 (empty-criteria fail-open) is PARTIAL — MED/HIGH, decision pending
+- Shipped: verdict-parser fail-closed (`parseValidationVerdict`, `len(CriteriaResults)>0`).
+- NOT shipped: server-side zero-criteria gate (verdict endpoint trusts caller `passed`/`score` verbatim), assurance.go refusal clause, refuse+re-queue loop, the "no criteria" chat message.
+- `server/scripts/e2e-api.sh:122` actively POSTs `passed:true, criteriaResults:[]` — encodes the fail-open; will break when the server gate lands (update fixture with it).
+- Residual: `criteriaResults:[{}]` (len>0 junk) still passes.
+- DECISION: option-2-is-enough for alpha vs build full option-1. Ticket: `assurance-fail-closed-empty-criteria-2026-05-26` (in-progress).
 
-1. **Anti-trust verification** — 10 agents, 137 claims from F-handoff/CLAUDE.md/kanban vs live
-   code: 122 confirmed, 12 stale, 2 false (`docs/audits/handoff-verification-2026-06-10.md`).
-2. **Dual-path recon** — 6 agents verified the verification; zero verdict-errors; apex coverage
-   gap = the uncommitted antigravity/agy backends (`docs/audits/dual-path-recon-2026-06-10.md`).
-3. **Constitution + freshness system** — `docs/constitution/` (5 docs), `freshness.json` registry,
-   post-commit + post-merge stalers, session-start check, refresh marker. Bootstraps on fresh
-   clones (`.claude/settings.json` + hooks tracked, `$CLAUDE_PROJECT_DIR` paths,
-   `scripts/install-hooks.sh` in README/AGENTS/GEMINI).
-4. **Reconciliation (`d7ef63b`)** — all stale/false statements fixed; AGENTS/GEMINI → pointers;
-   combined-analysis 3.5 un-struck (Planner-only); planner-prompts false gate claim fixed;
-   block6 + qa-redesign tickets re-scoped; antigravity documentation ticket filed.
-5. **Adversarial review** — `docs/audits/review-plan-2026-06-11.md` (disposition inline): C1
-   bootstrap + C2 merge-blindness fixed (incl. my refinement: git fires post-merge, not
-   post-commit — wrapper added, end-to-end tested).
-6. **planner-prompts refreshed** (36 entries re-grepped, html synced) and marked fresh.
+## 4. Brownfield prompt-injection — no fence — MED (security; before any untrusted repo)
+- `agents_md.go` concatenates researcher `brief.CodebaseNotes` verbatim into AGENTS.md → every Tier 1+2 system prompt. No `<codebase_analysis>` fence, no `CREATE_TASK:`/`PROJECT_BRIEF:`/`[SYSTEM]` scrub.
+- Round-6 finding #2. Needs its own ticket.
 
-## Freshness state at handoff
+## 5. ACP non-Planner CLI fragment contradiction — MED
+- `actCLICommandsACP` branches Planner-only (`common.go`, sole caller planner.go). ACP-backed Observer/Assurance/QA still get the in-process "do NOT shell out" fragment while their shim note says to shell out.
+- Round-6 #3. Re-scoped into `block6-acp-cli-backend-2026-04-21`. combined-analysis 3.5 marked Planner-only.
 
-`architecture-flows` = STALE (intentional — rebuild deferred to its own scoped session, method:
-`.claude/architecture-flows-method.md`; it predates ACP/notebooks/act_cli). Everything else fresh.
-Run `./scripts/freshness-check.sh` — don't trust this paragraph.
+## 6. RebindSystemPrompt skipped on AGENTS.md write failure — MED
+- On AGENTS.md write failure the rebind loop is skipped (it's in the `else`); all 4 Tier-1 run stale intake-era prompts, never retried. `orchestrator.go` brief-accept path.
 
-## OPEN / NEXT
+## 7. QA synthesis persists a marker, not a deliverable — gap (design)
+- Synthesis stamps `synthesizedAt` + summary string; never persists the full assembled deliverable (server index.ts synthesis handler).
 
-1. ~~NVIDIA NIM provider~~ **DONE (`e56daaa`)** — provider `nvidia` live and verified
-   (120 models, `moonshotai/kimi-k2.6` completion round-trips). Keys + backup key in
-   `~/.act.json` only. Assign swarm roles to nvidia/openrouter free models during TUI e2e.
-2. **TUI e2e matrix** (gates the alpha PR) — methodology + preflight now in CLAUDE.md
-   "TUI Verification & Bug Reporting". Includes the owed **Phase-4 live verification**
-   (debug.log Prepared-messages thread scoping; Observer token drop). REBUILD THE BINARY FIRST.
-3. **antigravity/agy backends** — uncommitted working-tree code (9 modified + 3 untracked files),
-   in flight by the project owner. Ticket: `document-antigravity-agy-backends-2026-06-11`.
-   Do NOT touch those files; do NOT re-implement ACP anything.
-4. **architecture-flows rebuild** — scoped session, pre-alpha.
-5. Round-6 open findings #2 (brownfield injection fence) and #3 (ACP fragment for non-Planner
-   roles, re-scoped into block6 ticket) remain the named alpha-hardening items.
+## 8. TUI e2e matrix — OWED (task 12)
+- Methodology: CLAUDE.md "TUI Verification & Bug Reporting". Rebuild binary first (PATH one predates Phase 4). Includes owed Phase-4 live check (debug.log Prepared-messages thread scoping; Observer token drop). Swarm on free OpenRouter + NVIDIA models. Gates the NesTTY PR.
 
-## Where things live now (one home per fact)
+## Low / notes
+- Socket.io dashboard handlers vestigial (exist, no client consumer; clients use REST `/api/log`).
+- `TASK_TIMEOUT` 120s default can kill long swarm tasks.
+- `flushToSQLite` is a no-op stub under default `jsonl` storage.
+- 95% validation gate is server-side prompt-only (overlaps #3).
 
-Shipped log: `docs/dev/DEV_LOG.md` · tasks: `.devtool/features/` (spec format:
-`docs/constitution/TASK_TRACKING.md`) · audits: `docs/audits/` · process: `docs/constitution/` ·
-ideas/arc: `docs/dev/NOTES.md` / `ROADMAP.md`. Legacy `F-handoff.md` (repo root, gitignored) and
-`.claude/HANDOFF.md` are frozen history with correction banners.
+## Caught false-finding (anti-trust working)
+- An arch-flows inventory agent claimed `act-runner.mjs extractSuccessCriteria` splits on a literal `\n`. FALSE — live is `text.split('\n')` (real newline, matches the CLI sibling). Re-grep caught it; no ticket. A `spawn_task` chip for it is a false alarm.
