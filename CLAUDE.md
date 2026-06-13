@@ -11,6 +11,13 @@ Why this is non-negotiable:
 
 **When a doc and the code disagree: the code is the truth. Fix or omit the doc statement. NEVER change the codebase to make a doc statement true.**
 
+> ## ⛔ NEVER ALTER `.gitignore` OR TRACKING STATE WITHOUT EXPLICIT MANUAL APPROVAL
+> No edits to `.gitignore`, no `git rm --cached`, no re-tracking — ever — until d34d says so explicitly.
+> Tracking state and ignore rules are **deliberate**. A rule that looks like a bug (e.g. an ignore
+> path that doesn't match where a file lives) is a CLAIM about intent — surface it and ASK; do not
+> "fix" it. (2026-06-12: an assumed-bug ignore path was actually intentional; "fixing" it untracked
+> 205 deliberately-committed SPIL test files and reached the remote.)
+
 > `architecture-flows.html/.json` are currently **known stale** — do not consult them until they are rebuilt against the current codebase.
 
 ***
