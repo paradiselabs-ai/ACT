@@ -1,3856 +1,643 @@
 {
   "meta": {
-    "version": "7",
-    "generatedAt": "2026-06-12T06:52:31Z",
+    "version": 8,
     "branch": "feat/remove-nomik",
-    "headCommit": "4a290a2d9e6caf33a647fe1bf9ba3a6f1b3ed916",
-    "band_note": "Component count 183 (well above the 70 floor) and flow count 36 (above the 15-22 ceiling). The ceiling is exceeded deliberately, not by padding: this rebuild maps FOUR previously-unmapped subsystems the prior diagram predated \u2014 the ACP Tier-1 backend layer (spawn/prime/turn/shim), the per-role tool subsets + section registry, the Tier-2 runner/CLI/provider stack, and the binary-bootstrap/install path \u2014 on top of the server (46 REST routes + socket handlers) and the orchestrator's intake/dispatch/observer/validation/qa loops. Each flow is a distinct, separately-verified choreography (no flow is a re-slice of another). Collapsing them to fit 22 would force multi-subsystem flows that hide the very handoffs this diagram exists to show. The renderer's multi-select overlay + per-category filter chips keep 36 flows navigable. Every component and every ok-step file:line was re-grepped against working-tree HEAD 4a290a2.",
-    "working_tree_note": "HEAD is 4a290a2 but the inventory files were generated against 4727089; all ok cites below were RE-GREPPED against the current working tree (4a290a2) and confirmed live. The working tree carries UNCOMMITTED antigravity/agy backend code (M app.go/acp.agent.go/acp.types.go/slash.go/config.go; ?? acp/antigravity_cli.go, agy-acp.mjs, runner/agy-acp.mjs). Those steps are marked '(uncommitted, in flight)'. One inventory claim (tier1.md FT1-1, 'prompt-section is a dead path in act-cli.ts') was DEMOTED on re-grep: prompt-section is handled natively in cmd/root.go:689 (pre-cobra), so the in-process AND ACP shim paths both reach it; the real, narrower gap is shim bootstrap (F-acp-shim-unbootstrapped).",
-    "findings": [
-      {
-        "id": "F-no-auth",
-        "title": "No-auth trust boundary",
-        "summary": "The ACT server mounts only cors(), express.static, express.json \u2014 zero authentication/authorization on any REST or Socket.io route. Anything that can reach the bound port can create/complete/validate tasks, register agents, and read the full ChronLog.",
-        "evidence": "server/src/index.ts:28-30 (only middleware); grep jwt|bearer|authorization|api[_-]?key|authenticate over index.ts returns nothing"
-      },
-      {
-        "id": "F-qa-persist",
-        "title": "QA synthesis = boundary marker, not full deliverable persistence",
-        "summary": "POST /api/tasks/:id/synthesis (kind=complete) only stamps metadata.synthesizedAt and logs a summary STRING; the assembled final deliverable is never persisted server-side. The done-marker half works; the deliverable-storage half does not.",
-        "evidence": "server/src/index.ts:942-957"
-      },
-      {
-        "id": "F-95gate-prompt-only",
-        "title": "95% validation gate is prompt-enforced server-side, code-backstopped orchestrator-side",
-        "summary": "POST /api/tasks/:id/validation-verdict trusts the caller's passed/score verbatim \u2014 there is NO server-side 95% threshold check; the e2e fixture posts passed:true score:95 with criteriaResults:[] directly. The 95% gate lives in the Assurance prompt. The orchestrator's parseValidationVerdict adds a CODE backstop (passThreshold=95 + FAIL-CLOSED on empty criteria, Fix 23), but the SERVER endpoint itself records whatever verdict it is handed.",
-        "evidence": "server/src/index.ts:875-892; server/scripts/e2e-api.sh:122; act-agent/internal/app/orchestrator.go:3094-3122"
-      },
-      {
-        "id": "F-socketio-vestigial",
-        "title": "Socket.io dashboard pull-handlers are vestigial; REST is the live coordination surface",
-        "summary": "A full Socket.io coordination + dashboard API is implemented (register_agent, create_task, task_progress, get_project_status/get_agent_registry/get_tasks), but the shipped ACT clients (TUI orchestrator, Runner, CLI) drive the REST surface; the orchestrator's live coordination-event feed is the REST /api/log poll. The dashboard pull handlers have no shipped consumer. (Reframed from the older 'whole Socket.io path vestigial' \u2014 registration/messaging socket handlers exist and the REST counterparts dominate.)",
-        "evidence": "server/src/index.ts:1300 (connection root), 1498-1525 (dashboard handlers); /api/log REST poll index.ts:1277 consumed by orchestrator.go:696-719"
-      },
-      {
-        "id": "F-qdrant-excluded",
-        "title": "Qdrant store build-excluded + placeholder analytics",
-        "summary": "QdrantVectorStore.ts is excluded from the TS build; it still carries placeholder embeddings and 0.85+Math.random() success rates with TODOs. The ACTIVE store is LocalEmbeddingVectorStore (real all-MiniLM-L6-v2 embeddings + real outcome-derived analytics \u2014 zero Math.random in that file).",
-        "evidence": "server/tsconfig.json:20 (exclude); server/src/services/QdrantVectorStore.ts:265; active store index.ts:42"
-      },
-      {
-        "id": "F-mock-placeholder",
-        "title": "MockVectorStore placeholder analytics survive (dormant, not instantiated)",
-        "summary": "MockVectorStore still returns 0.85+Math.random() success rates, but it is NOT instantiated anywhere in index.ts \u2014 only LocalEmbeddingVectorStore is. The placeholder is dormant, not on any live path.",
-        "evidence": "server/src/services/MockVectorStore.ts:194; index.ts:42 instantiates LocalEmbeddingVectorStore only"
-      },
-      {
-        "id": "F-conflict-unwired",
-        "title": "Conflict detection/resolution engine implemented but unwired",
-        "summary": "TaskCoordinator.detectConflicts + EventHub.resolveDetectedConflicts + simulateAutonomousCoordination are fully written but have NO REST/socket/interval caller (grep of index.ts finds none); resolution is demo setTimeout broadcasts. Only a single inline conflict_detected emit fires on no-agent assignment.",
-        "evidence": "server/src/services/TaskCoordinator.ts:388; server/src/services/EventHub.ts:427; no caller in index.ts; inline emit index.ts:1390"
-      },
-      {
-        "id": "F-agentsmd-unfenced",
-        "title": "AGENTS.md brief fields injected unfenced into every agent prompt",
-        "summary": "renderAgentsMd fmt.Sprintf's raw brief fields (Description/TechStack/Constraints/CodebaseNotes) into AGENTS.md with NO escaping or fencing. That file is auto-loaded into every Tier-1 and Tier-2 prompt and mirrored to CLAUDE.md. A brief field carrying markdown headings, the userNotesMarker sentinel, or injection text lands verbatim in the system context of every agent. The write/preserve machinery works; the injection-safety half does not.",
-        "evidence": "act-agent/internal/app/agents_md.go:34-61 (raw %s interpolation), 110-111 (marker preserve); injected via orchestrator.go:1589"
-      },
-      {
-        "id": "F-rebind-writefail",
-        "title": "Brief-accept Tier-1 rebind is skipped on AGENTS.md write failure",
-        "summary": "InvalidateContextCache + RebindSystemPrompt for all four Tier-1 roles live inside the success (else) branch of writeAgentsMd. If the write fails, only a Warn logs and no rebind happens \u2014 every Tier-1 agent keeps its startup system prompt with NO project context for the rest of the session, silently.",
-        "evidence": "act-agent/internal/app/orchestrator.go:1589-1607"
-      },
-      {
-        "id": "F-rebind-busy",
-        "title": "RebindSystemPrompt busy-failure is unrecovered",
-        "summary": "RebindSystemPrompt refuses (returns error) while a turn is in flight / agent IsBusy. The orchestrator only Warn-logs that error and never retries. A Tier-1 role mid-turn when the brief is accepted permanently misses its context rebind for that session. Idle-time rebind works; the busy/error case has no retry.",
-        "evidence": "act-agent/internal/app/orchestrator.go:1603-1605; refusal at internal/acp/agent.go:489 (ACP) and the in-process RebindSystemPrompt"
-      },
-      {
-        "id": "F-acp-shim-unbootstrapped",
-        "title": "ACP-backed Tier-1 shim CLI path is unbootstrapped by the installer",
-        "summary": "REPLACES the inventory's false FT1-1. The shim (cmd/act-tier1-shim) execs exec.Command('act', ...) and relies on act-tier1-<role> symlinks on PATH, but install.sh creates ONLY an 'act-agent' symlink (and deliberately REMOVES any old 'act' symlink to avoid the nektos/act collision) and never creates the act-tier1-<role> symlinks at all. So after a standard install, ACP-backed Tier-1 agents cannot resolve either the 'act' binary name or their role shims \u2014 the whole shim CLI surface (status/log/validation/prompt-section/etc.) is dead. NOTE: prompt-section itself is NOT a dead path \u2014 cmd/root.go:689 handles it natively pre-cobra; the in-process Planner reaches it via the expand_prompt_section tool. The gap is install-time bootstrap of the ACP shim, not the section registry.",
-        "evidence": "act-agent/cmd/act-tier1-shim/main.go:134 (exec.Command 'act'); install.sh:46 (only act-agent symlink), install.sh:182-184 (removes old act symlink); grep 'act-tier1' install.sh returns nothing; native prompt-section route cmd/root.go:689,468"
-      },
-      {
-        "id": "F-antigravity-uncommitted",
-        "title": "antigravity/agy Tier-1 backend is live in the working tree but uncommitted",
-        "summary": "buildCommand routes antigravity/agy to antigravityCLIDefaults which spawns `node agy-acp.mjs`; app.go's switch, slash.go's validator, and config.validateAgent all accept them, and the tree builds clean. But all of it is untracked/modified (git status: M app.go, ?? internal/acp/antigravity_cli.go, ?? agy-acp.mjs, ?? runner/agy-acp.mjs). An agent reading the working tree sees a wired agy backend; a fresh clone of feat/remove-nomik HEAD does NOT have it.",
-        "evidence": "act-agent/internal/acp/agent.go:549-554; act-agent/internal/acp/antigravity_cli.go:18-19; act-agent/internal/app/app.go:104; git status ?? runner/agy-acp.mjs"
-      },
-      {
-        "id": "F-antigravity-tier2-gap",
-        "title": "antigravity backend is Tier-1-only; the CLI advertises it for Tier 2 where it is rejected",
-        "summary": "`act-agent swarm set <role> antigravity` passes the CLI's VALID_BACKENDS check (act-cli.ts:552) and writes agents.<role>.backend='antigravity', but the Tier-2 path refuses it: runner.IsValidBackend accepts only act-agent/claude-code (swarm_roles.go:44-46) and act-runner.mjs runAgent has no antigravity branch (only claude-code vs act-agent). A user can configure a swarm backend that silently never starts. antigravity/agy is real only on the Tier-1 ACP path.",
-        "evidence": "act-agent/cli/act-cli.ts:552; act-agent/internal/runner/swarm_roles.go:44-46; act-agent/runner/act-runner.mjs:228-231"
-      },
-      {
-        "id": "F-cli-help-omits-swarm",
-        "title": "act-cli --help command table omits `swarm` \u2014 doc/code drift",
-        "summary": "The help `commands` object in act-cli.ts (lines 1000-1023) lists ~20 entries but does NOT include `swarm`, even though `swarm` is a live dispatch branch (act-cli.ts:1281) and the documented CLI surface for Tier-2 backend selection. A user running help never sees swarm. The dispatch chain is the source of truth; the help table is stale relative to it.",
-        "evidence": "act-agent/cli/act-cli.ts:1000-1023; live dispatch act-cli.ts:1281"
-      },
-      {
-        "id": "F-runner-task-timeout",
-        "title": "Runner TASK_TIMEOUT default (120s) can guillotine long swarm tasks",
-        "summary": "act-runner.mjs TASK_TIMEOUT defaults to 120000ms for a single agent invocation. Real implementation tasks routinely exceed 2 minutes; on timeout the subprocess is killed and reportComplete fires with success=false, sending the task back through retry. Config knob (TASK_TIMEOUT_MS) exists but the default is aggressive for the swarm's actual workload.",
-        "evidence": "act-agent/runner/act-runner.mjs:37"
-      }
-    ]
+    "model": "actor-coordination",
+    "summary": "Actors (agents + systems) are nodes. Click a flow to trace the handoffs \u2014 edge labels are the real mechanism (CLI command / endpoint / marker), cited to file:line."
   },
-  "categories": [
+  "nodes": [
     {
-      "id": "server",
-      "label": "ACT Server",
-      "color": "#e0b341"
+      "id": "human",
+      "label": "Human",
+      "group": "human",
+      "detail": ""
     },
     {
-      "id": "orchestrator",
-      "label": "Orchestrator",
-      "color": "#5aa9e6"
-    },
-    {
-      "id": "intake",
-      "label": "Intake / Brownfield",
-      "color": "#7bd389"
-    },
-    {
-      "id": "dispatch",
-      "label": "Dispatch / Autoroute",
-      "color": "#c97bd3"
+      "id": "planner",
+      "label": "Planner",
+      "group": "tier1",
+      "detail": ""
     },
     {
       "id": "observer",
       "label": "Observer",
-      "color": "#56c5c0"
+      "group": "tier1",
+      "detail": ""
     },
     {
-      "id": "validation",
-      "label": "Validation (Assurance)",
-      "color": "#d37b7b"
+      "id": "assurance",
+      "label": "Assurance",
+      "group": "tier1",
+      "detail": ""
     },
     {
       "id": "qa",
-      "label": "QA / Synthesizer",
-      "color": "#b98cdb"
+      "label": "QA \u00b7 Synthesizer",
+      "group": "tier1",
+      "detail": ""
     },
     {
-      "id": "acp",
-      "label": "ACP Tier-1 Backend",
-      "color": "#e08a4b"
+      "id": "swarm_developer",
+      "label": "Swarm \u00b7 developer",
+      "group": "tier2",
+      "detail": ""
     },
     {
-      "id": "prompts",
-      "label": "Role Prompts / Sections",
-      "color": "#8cb9db"
-    },
-    {
-      "id": "tools",
-      "label": "Tier-1 Tool Subsets",
-      "color": "#d3c97b"
-    },
-    {
-      "id": "config",
-      "label": "Config / Backend Resolution",
-      "color": "#9ad3b0"
+      "id": "act_server",
+      "label": "ACT Server",
+      "group": "system",
+      "detail": "Coordination server: tasks, projects, validation, PVM, REST + Socket.io."
     },
     {
       "id": "runner",
-      "label": "Runner / Swarm Spawner",
-      "color": "#e6925a"
+      "label": "Runner (spawner)",
+      "group": "system",
+      "detail": "Spawns one Node process per swarm role; polls for tasks, reports completion."
     },
     {
-      "id": "cli",
-      "label": "Agent CLI (TS)",
-      "color": "#7b9fd3"
-    },
-    {
-      "id": "provider",
-      "label": "LLM Provider Layer",
-      "color": "#d3a07b"
-    },
-    {
-      "id": "client",
-      "label": "Native HTTP Client",
-      "color": "#7bd3c0"
-    },
-    {
-      "id": "server-launch",
-      "label": "Bootstrap / Server Launch",
-      "color": "#b0b07b"
+      "id": "acp_host",
+      "label": "ACP host (claude-code / antigravity)",
+      "group": "system",
+      "detail": ""
     },
     {
       "id": "tui",
-      "label": "TUI Slash Commands",
-      "color": "#c0a0d3"
+      "label": "TUI \u00b7 Orchestrator",
+      "group": "system",
+      "detail": "The NesTTY window process; parses Planner markers, runs the coordination loops."
     },
     {
-      "id": "infra",
-      "label": "Orchestrator Infra",
-      "color": "#8a8aa0"
-    }
-  ],
-  "columns": [
-    {
-      "id": "entry",
-      "label": "Entry / Human"
-    },
-    {
-      "id": "intake",
-      "label": "Intake / Brief"
-    },
-    {
-      "id": "plan",
-      "label": "Plan / Decide"
-    },
-    {
-      "id": "dispatch",
-      "label": "Dispatch"
-    },
-    {
-      "id": "execute",
-      "label": "Execute / Swarm"
-    },
-    {
-      "id": "coord",
-      "label": "Coordinate / Observe"
-    },
-    {
-      "id": "validate",
-      "label": "Validate"
-    },
-    {
-      "id": "synth",
-      "label": "Synthesize"
-    },
-    {
-      "id": "store",
-      "label": "Stores / Endpoints"
-    },
-    {
-      "id": "infra",
-      "label": "Infra / Substrate"
-    }
-  ],
-  "components": [
-    {
-      "id": "srv_express_app",
-      "label": "Express app + HTTP server",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "express() + createServer + socket.io Server; cors(), express.static('public'), express.json() middleware. index.ts:18-30",
-      "tags": [
-        "entrypoint",
-        "express",
-        "http"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "srv_socketio",
-      "label": "Socket.io server (io)",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "new Server(io) with CORS allowlist for localhost:3000/3001/5173/5000/8080. index.ts:20-25. Connection handler index.ts:1300",
-      "tags": [
-        "socketio",
-        "realtime",
-        "vestigial-partial"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "svc_agent_registry",
-      "label": "AgentRegistry",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "In-memory Map<agentId,Agent>; register/status/performance/health, getOptimalAgent capability scorer (0.6 cap +0.3 perf +0.1 workload). services/AgentRegistry.ts:27",
-      "tags": [
-        "service",
-        "agents",
-        "in-memory"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "svc_task_coordinator",
-      "label": "TaskCoordinator",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Task lifecycle state machine, FORBIDDEN_TRANSITIONS terminal-state guard, assignOptimalAgent, dependency/cycle detection, retry/abandon. services/TaskCoordinator.ts:69",
-      "tags": [
-        "service",
-        "tasks",
-        "state-machine"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "svc_event_hub",
-      "label": "EventHub",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Message classification (direct_mention/status/question/help/peer), per-agent rate limiting, socket routing, ChronLog append. services/EventHub.ts:23",
-      "tags": [
-        "service",
-        "messaging",
-        "rate-limit"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "svc_chronlog",
-      "label": "ChronologicalLog",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Append-only JSONL event store w/ in-memory buffer, fsync flush, per-project mirror writes, event-sourcing restoreFromLog. services/ChronologicalLog.ts:88",
-      "tags": [
-        "service",
-        "event-log",
-        "jsonl",
-        "append-only"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "svc_local_vector",
-      "label": "LocalEmbeddingVectorStore (ACTIVE)",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Real all-MiniLM-L6-v2 embeddings (@xenova/transformers, dim 384), cosine search, REAL analytics (getAgentProfile/Synergy/compareAgents from task-outcome joins). Zero Math.random. Instantiated index.ts:42. services/LocalEmbeddingVectorStore.ts:57",
-      "tags": [
-        "service",
-        "embeddings",
-        "pvm",
-        "active"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "svc_pvm_indexer",
-      "label": "PVMIndexer",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Background loop (10s) indexing ChronLog events into vector store; scope classifier (meta/project), extractProjectName tagging, buildEmbeddingText enrichment. services/PVMIndexer.ts:84",
-      "tags": [
-        "service",
-        "pvm",
-        "indexer"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "svc_spil_parser",
-      "label": "SPILParser",
-      "categoryId": "server",
-      "columnId": "dispatch",
-      "detail": "MVP @-section extractor; extractSuccessCriteria feeds pending-validation enrichment. services/SPILParser.ts:30,123",
-      "tags": [
-        "service",
-        "spil",
-        "parser",
-        "mvp"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "svc_self_improve",
-      "label": "SelfImprovementEngine",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "Instantiated index.ts:46; exposed via POST /api/improve + GET /api/improvement/status only. services/SelfImprovementEngine.ts",
-      "tags": [
-        "service",
-        "improvement",
-        "peripheral"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "svc_mock_vector",
-      "label": "MockVectorStore (inactive)",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "Not instantiated in index.ts (only LocalEmbeddingVectorStore is). Placeholder analytics survive here: successRate 0.85+Math.random(). services/MockVectorStore.ts:194",
-      "tags": [
-        "service",
-        "mock",
-        "inactive",
-        "placeholder"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "svc_qdrant_vector",
-      "label": "QdrantVectorStore (build-excluded)",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "Excluded from tsc build (tsconfig.json:20). Placeholder embed + analytics (0.85+Math.random, TODO real calc). services/QdrantVectorStore.ts:265",
-      "tags": [
-        "service",
-        "qdrant",
-        "build-excluded",
-        "placeholder"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "store_projects",
-      "label": "projects Map (in-memory)",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Map<name,ProjectRecord> incl. briefs Record<agentId,md>. index.ts:344",
-      "tags": [
-        "store",
-        "projects",
-        "in-memory"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "store_agent_inboxes",
-      "label": "agentInboxes Map (TTL 10m)",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Per-agent buffered messages for REST agents w/o socket; INBOX_TTL_MS 10min, pruneInbox. index.ts:356-380",
-      "tags": [
-        "store",
-        "inbox",
-        "in-memory",
-        "ttl"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "store_file_locks",
-      "label": "fileLocks Map",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Map keyed project+filePath; in-memory, auto-released on task complete / agent removal; replayed from ChronLog. index.ts:1068",
-      "tags": [
-        "store",
-        "file-locking",
-        "in-memory"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "data_global_jsonl",
-      "label": "data/coordination-log.jsonl",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Global append-only event stream, default jsonlPath './data/coordination-log.jsonl'. services/ChronologicalLog.ts:45",
-      "tags": [
-        "data",
-        "jsonl",
-        "global-stream"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "data_project_jsonl",
-      "label": "data/projects/<name>/coordination-log.jsonl",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Per-project mirror written on every flush; projectLogPath sanitizes name. services/ChronologicalLog.ts:247",
-      "tags": [
-        "data",
-        "jsonl",
-        "per-project"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "data_pid_file",
-      "label": "data/act-server.pid",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "PID file for Go launcher stale-process detection + duplicate-instance guard. index.ts:1536,1603",
-      "tags": [
-        "data",
-        "pid",
-        "lifecycle"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "ep_health",
-      "label": "GET /health",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "agent+task counts. index.ts:101",
-      "tags": [
-        "endpoint",
-        "health"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "ep_status",
-      "label": "GET /api/status",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Full status; ?project= scope via queryProject; pvm status when unscoped. index.ts:114",
-      "tags": [
-        "endpoint",
-        "status",
-        "observer"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "ep_dev_reset",
-      "label": "POST /api/dev/reset",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Clears all state + appends dev_reset event (replay void marker). index.ts:162",
-      "tags": [
-        "endpoint",
-        "reset",
-        "dev"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "ep_a2a_server_card",
-      "label": "GET /.well-known/agent.json",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "System Agent Card (A2A) describing the ACT server. index.ts:188",
-      "tags": [
-        "endpoint",
-        "a2a",
-        "agent-card"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "ep_a2a_agent_card",
-      "label": "GET /api/agents/:id/agent.json",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Per-agent Agent Card incl. pvmProfile counters. index.ts:202",
-      "tags": [
-        "endpoint",
-        "a2a",
-        "agent-card"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "ep_a2a_task_push",
-      "label": "POST /api/agents/:id/tasks",
-      "categoryId": "server",
-      "columnId": "dispatch",
-      "detail": "A2A task push pre-assigned to target agent; emits task_assigned. index.ts:221",
-      "tags": [
-        "endpoint",
-        "a2a",
-        "task-push"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "ep_agents_list",
-      "label": "GET /api/agents",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "List agents, ?projectName=/?project= scope. index.ts:260",
-      "tags": [
-        "endpoint",
-        "agents"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "ep_agents_register",
-      "label": "POST /api/agents/register",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "REST registration; 409 on live-online ID collision; retryPendingTasks after. index.ts:265",
-      "tags": [
-        "endpoint",
-        "agents",
-        "register",
-        "409"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "ep_agents_delete",
-      "label": "DELETE /api/agents/:id",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Deregister + auto-release that agent's file locks. index.ts:315",
-      "tags": [
-        "endpoint",
-        "agents",
-        "deregister"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "ep_projects_create",
-      "label": "POST /api/projects",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Create ProjectRecord; appends project_created. index.ts:383",
-      "tags": [
-        "endpoint",
-        "projects",
-        "intake"
-      ],
-      "slot": 15
-    },
-    {
-      "id": "ep_projects_get",
-      "label": "GET /api/projects/:name",
-      "categoryId": "server",
-      "columnId": "intake",
-      "detail": "Project + live task breakdown + derived status. 404 used by Planner INTAKE detection. index.ts:414",
-      "tags": [
-        "endpoint",
-        "projects",
-        "intake-404"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "ep_briefs_post",
-      "label": "POST /api/projects/:name/briefs",
-      "categoryId": "server",
-      "columnId": "intake",
-      "detail": "Store AGENT.md brief; appends brief_stored. index.ts:466",
-      "tags": [
-        "endpoint",
-        "briefs"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "ep_briefs_get",
-      "label": "GET /api/projects/:name/briefs/:agentId",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Fetch brief content. index.ts:482",
-      "tags": [
-        "endpoint",
-        "briefs"
-      ],
-      "slot": 16
-    },
-    {
-      "id": "ep_tasks_create",
-      "label": "POST /api/tasks",
-      "categoryId": "server",
-      "columnId": "dispatch",
-      "detail": "Create task; fail-closed empty title/description guard (code empty_title/empty_description); auto-assign. index.ts:502",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "create",
-        "guard"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "ep_tasks_assigned",
-      "label": "GET /api/tasks/assigned",
-      "categoryId": "server",
-      "columnId": "execute",
-      "detail": "Runner poll; doubles as liveness heartbeat + idle-sweep assignOptimalAgent. index.ts:590",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "runner-poll",
-        "heartbeat"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "ep_tasks_pending_val",
-      "label": "GET /api/tasks/pending-validation",
-      "categoryId": "server",
-      "columnId": "validate",
-      "detail": "submitted_for_validation tasks enriched with extractSuccessCriteria. index.ts:632",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "assurance",
-        "spil"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "ep_tasks_validated",
-      "label": "GET /api/tasks/validated",
-      "categoryId": "server",
-      "columnId": "synth",
-      "detail": "validated && !synthesizedAt \u2014 QA poll queue. index.ts:652",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "qa"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "ep_tasks_progress",
-      "label": "POST /api/tasks/:taskId/progress",
-      "categoryId": "server",
-      "columnId": "execute",
-      "detail": "Update progress/status; 409 on terminal-state guard. index.ts:691",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "progress"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "ep_tasks_complete",
-      "label": "POST /api/tasks/:taskId/complete",
-      "categoryId": "server",
-      "columnId": "execute",
-      "detail": "complete/fail; auto-release locks; emits task_completed/task_failed. index.ts:708",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "complete"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "ep_tasks_retry",
-      "label": "POST /api/tasks/:taskId/retry",
-      "categoryId": "server",
-      "columnId": "execute",
-      "detail": "Reset failed to pending, increment retryCount, 409 permanently-failed. index.ts:774",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "retry"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "ep_tasks_abandon",
-      "label": "POST /api/tasks/:taskId/abandon",
-      "categoryId": "server",
-      "columnId": "plan",
-      "detail": "Planner escalation; marks permanently-failed + metadata.abandoned. index.ts:815",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "abandon"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "ep_tasks_submit_val",
-      "label": "POST /api/tasks/:taskId/submit-for-validation",
-      "categoryId": "server",
-      "columnId": "validate",
-      "detail": "completed|in_progress to submitted_for_validation; stores selfVerification. index.ts:838",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "validation",
-        "assurance"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "ep_tasks_verdict",
-      "label": "POST /api/tasks/:taskId/validation-verdict",
-      "categoryId": "server",
-      "columnId": "validate",
-      "detail": "Assurance verdict; pass to validated, fail to assigned+attempts. Trusts caller-supplied passed/score. index.ts:875",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "validation",
-        "verdict"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "ep_tasks_synthesis",
-      "label": "POST /api/tasks/:taskId/synthesis",
-      "categoryId": "server",
-      "columnId": "synth",
-      "detail": "QA outcome: kind=complete stamps synthesizedAt + summary string; kind=need_clarification routes question. index.ts:934",
-      "tags": [
-        "endpoint",
-        "tasks",
-        "qa",
-        "synthesis"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "ep_messages_post",
-      "label": "POST /api/messages",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Agent message via EventHub + buffer into same-project inboxes. index.ts:980",
-      "tags": [
-        "endpoint",
-        "messages"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "ep_messages_get",
-      "label": "GET /api/agents/:id/messages",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Drain inbox, ?since/?limit/?project; marks read. index.ts:1025",
-      "tags": [
-        "endpoint",
-        "messages",
-        "inbox"
-      ],
-      "slot": 17
-    },
-    {
-      "id": "ep_files_claim",
-      "label": "POST /api/files/claim",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Claim files; 409 conflict on cross-agent lock; appends file_claim. index.ts:1072",
-      "tags": [
-        "endpoint",
-        "files",
-        "lock"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "ep_files_release",
-      "label": "POST /api/files/release",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Release own locks; appends file_release. index.ts:1115",
-      "tags": [
-        "endpoint",
-        "files",
-        "lock"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "ep_pvm_search",
-      "label": "GET /api/pvm/search",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "Semantic search via pvmIndexer.search; cross-project default, ?project= opt-in. index.ts:1178",
-      "tags": [
-        "endpoint",
-        "pvm",
-        "search"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "ep_pvm_profile",
-      "label": "GET /api/pvm/profile",
-      "categoryId": "server",
-      "columnId": "coord",
-      "detail": "vectorStore.getAgentProfile \u2014 real outcome-derived metrics. index.ts:1225",
-      "tags": [
-        "endpoint",
-        "pvm",
-        "analytics"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "ep_log",
-      "label": "GET /api/log",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Raw ChronLog; ?project= reads per-project file, else global getRecent. Polled by orchestrator coordinationEventLoop. index.ts:1277",
-      "tags": [
-        "endpoint",
-        "log",
-        "coordination-events"
-      ],
-      "slot": 18
-    },
-    {
-      "id": "sock_register_agent",
-      "label": "socket register_agent",
-      "categoryId": "server",
-      "columnId": "store",
-      "detail": "Socket registration to registerAgent + agent_joined + retryPendingTasks. index.ts:1305",
-      "tags": [
-        "socket",
-        "agents"
-      ],
-      "slot": 19
-    },
-    {
-      "id": "sock_create_task",
-      "label": "socket create_task",
-      "categoryId": "server",
-      "columnId": "dispatch",
-      "detail": "Create+assign via socket; emits task_assigned/task_pending/conflict_detected. index.ts:1363",
-      "tags": [
-        "socket",
-        "tasks"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "sock_dashboard_queries",
-      "label": "socket get_project_status / get_agent_registry / get_tasks",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "Dashboard pull handlers \u2014 no shipped consumer. index.ts:1498-1525",
-      "tags": [
-        "socket",
-        "dashboard",
-        "vestigial"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "lifecycle_startup",
-      "label": "Startup: ChronLog restore to PVM to listen",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "initialize to restoreFromLog to restore agents/tasks to startIndexing to PID guard to listen to 60s health sweep. index.ts:1582-1636",
-      "tags": [
-        "lifecycle",
-        "startup",
-        "event-sourcing"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "e2e_api_harness",
-      "label": "scripts/e2e-api.sh",
-      "categoryId": "server",
-      "columnId": "infra",
-      "detail": "API smoke harness: project create, task create to complete to submit to verdict(pass score95, criteriaResults:[]), indexer assertions. scripts/e2e-api.sh:122",
-      "tags": [
-        "test",
-        "e2e",
-        "fixture"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "orch_struct",
-      "label": "Orchestrator",
-      "categoryId": "orchestrator",
-      "columnId": "infra",
-      "detail": "Coordinates 4 Tier-1 agents in one shared TUI session; mu-guarded maps for owners/seen/attempts/dispatched; background loops. orchestrator.go:42-113",
-      "tags": [
-        "core",
-        "goroutines"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "orch_app",
-      "label": "App (Tier1 wiring)",
-      "categoryId": "orchestrator",
-      "columnId": "infra",
-      "detail": "Builds 4 Tier-1 agent.Service in New(); per-role backend dispatch + per-role HistoryMode + per-role tool subset. app.go:53-194",
-      "tags": [
-        "wiring"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "orch_start",
-      "label": "Start()",
-      "categoryId": "orchestrator",
-      "columnId": "intake",
-      "detail": "Idempotent; sets projectDir/projectName, runs detectProjectState, spawns loops, fires Tier-1 startup pings, conditionally runs brownfield onboard. orchestrator.go:141-201",
-      "tags": [
-        "lifecycle"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "orch_handleHuman",
-      "label": "HandleHumanInput()",
-      "categoryId": "orchestrator",
-      "columnId": "entry",
-      "detail": "Main TUI entry; clears recentAutoRoutes + Observer hash, prepends resumeContext on first turn, runs Planner turn fromHuman=true. orchestrator.go:224-243",
-      "tags": [
-        "entry"
-      ],
-      "slot": 0
-    },
-    {
-      "id": "orch_runTurn",
-      "label": "runAgentTurn()",
-      "categoryId": "orchestrator",
-      "columnId": "plan",
-      "detail": "Single role turn; fromHuman gate prepends InternalPromptMarker on injected turns; sets currentSpeaker+lastTurnAt; 5-min ctx timeout. orchestrator.go:582-624",
-      "tags": [
-        "core"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "orch_internalMarker",
-      "label": "InternalPromptMarker",
-      "categoryId": "infra",
-      "columnId": "infra",
-      "detail": "ACT_INTERNAL sentinel prepended to all non-human injected turns; chat list hides them. orchestrator.go:587; consumed at internal/tui/components/chat/list.go:308-313",
-      "tags": [
-        "visibility"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "orch_detectState",
-      "label": "detectProjectState()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "GET project: 404 to intake, 200 to resume, code-but-no-record to brownfield, server-down to skip. orchestrator.go:248-325",
-      "tags": [
-        "intake"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "orch_hasCode",
-      "label": "hasExistingCode()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Manifest probe (go.mod/package.json/...) or git-log; cheap, no LLM. orchestrator.go:329-339",
-      "tags": [
-        "intake",
-        "brownfield"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "orch_brownfieldOnboard",
-      "label": "runBrownfieldOnboard()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Off-startup: deterministic scaffold to researcher enrichment to stash analysis to seed Planner 2-question intake. orchestrator.go:344-388",
-      "tags": [
-        "brownfield"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "orch_scaffold",
-      "label": "deterministicScaffold()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Shells self `codebase onboard --dir`; 20s timeout; empty on failure. orchestrator.go:392-408",
-      "tags": [
-        "brownfield"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "orch_enrich",
-      "label": "runResearcherEnrichment()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Backend-aware: claude-code subprocess vs in-process headless researcher per ~/.act.json. orchestrator.go:415-430",
-      "tags": [
-        "brownfield",
-        "backend"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "orch_handleBrief",
-      "label": "handleProjectBrief()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Parses PROJECT_BRIEF, POSTs CreateProject, writes AGENTS.md, rebinds Tier-1 prompts, clears intakeMode, fires BUILD trigger. orchestrator.go:1542-1637",
-      "tags": [
-        "intake"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "orch_parseBrief",
-      "label": "parseProjectBrief()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Brace-balanced JSON extract near PROJECT_BRIEF: marker, fallback to any JSON w/ successCriteria. orchestrator.go:3054-3073",
-      "tags": [
-        "parser"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "orch_renderBriefCtx",
-      "label": "renderBriefContext()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Composes [SYSTEM] resume/build blocks w/ full brief + in-flight/completed task partition. orchestrator.go:1466-1528",
-      "tags": [
-        "intake"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "orch_renderBrownfieldIntake",
-      "label": "renderBrownfieldIntake()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Builds the CODEBASE ANALYSIS [SYSTEM] turn keying planner.go brownfield branch (2 questions, hard-stop). orchestrator.go:530-541",
-      "tags": [
-        "brownfield",
-        "prompt"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "orch_writeAgentsMd",
-      "label": "writeAgentsMd()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Writes AGENTS.md + mirrored CLAUDE.md; preserves user-notes after marker. agents_md.go:75-98",
-      "tags": [
-        "intake",
-        "fs"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "orch_renderAgentsMd",
-      "label": "renderAgentsMd()",
-      "categoryId": "intake",
-      "columnId": "intake",
-      "detail": "Short markdown body; raw brief fields (incl. brownfield CodebaseNotes) interpolated unfenced via fmt.Sprintf. agents_md.go:34-61",
-      "tags": [
-        "intake"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "orch_msgOwnership",
-      "label": "messageOwnershipLoop()",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Subscribes message PubSub; tags assistant msgs w/ currentSpeaker; on finalize routes by role to brief/task/clarification/autoroute. orchestrator.go:1145-1256",
-      "tags": [
-        "loop",
-        "pubsub"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "orch_applyRoleLabel",
-      "label": "applyRoleLabel()",
-      "categoryId": "dispatch",
-      "columnId": "plan",
-      "detail": "Code-asserts speaker label; strips hallucinated Human:/role prefixes, prepends authoritative label; idempotent. orchestrator.go:1053-1068",
-      "tags": [
-        "visibility"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "orch_dispatchedGuard",
-      "label": "dispatchedMsgs guard",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Once-only per msg.ID; blocks duplicate CREATE_TASK/brief handling when PubSub re-fires UpdatedEvent. orchestrator.go:1179-1185",
-      "tags": [
-        "dedup"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "orch_handleTaskDirectives",
-      "label": "handlePlannerTaskDirectives()",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Parses CREATE_TASK, content-hash dedup, lazy swarm spawn, 2-pass create+dependency resolution. orchestrator.go:1671-1821",
-      "tags": [
-        "dispatch"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "orch_parseCreateTask",
-      "label": "parseCreateTaskDirectives()",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Per-marker balanced-brace JSON (pattern 1) + {tasks:[]} block fallback (pattern 2). orchestrator.go:2988-3048",
-      "tags": [
-        "parser"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "orch_batchHash",
-      "label": "taskBatchHash + checkAndRecordDispatchHash",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "sha256 over sorted title|desc|caps; 60s window dedup of re-emitted batches on distinct turns. orchestrator.go:1829-1868",
-      "tags": [
-        "dedup"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "orch_lazySpawn",
-      "label": "lazy swarm spawn",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "First CREATE_TASK batch brings up Tier-2 swarm via runnerSpawner.StartSwarm; idempotent. orchestrator.go:1730-1740",
-      "tags": [
-        "swarm",
-        "lazy"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "orch_filterSpecs",
-      "label": "filterSwarmSpecsByProject()",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Filters specs by project.agents[] from brief; full-list fallback if absent/empty. orchestrator.go:1926-1964",
-      "tags": [
-        "swarm"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "orch_depResolve",
-      "label": "2-pass dependency resolution",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Pass1 create w/ empty deps + titleToID; Pass2 PATCH deps replacing sibling titles w/ IDs. orchestrator.go:1742-1820",
-      "tags": [
-        "dispatch"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "orch_observerLoop",
-      "label": "observerLoop()",
-      "categoryId": "observer",
-      "columnId": "coord",
-      "detail": "120s ticker to runObserverCheck; returns early if no observer agent. orchestrator.go:2006-2024",
-      "tags": [
-        "loop"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "orch_observerCheck",
-      "label": "runObserverCheck()",
-      "categoryId": "observer",
-      "columnId": "coord",
-      "detail": "Render stats; skip if any busy; snapshot; tier1Watchdog; detectAnomalies; no-op gate; health ping every 4th cycle. orchestrator.go:2026-2139",
-      "tags": [
-        "observer"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "orch_detectAnomalies",
-      "label": "detectAnomalies()",
-      "categoryId": "observer",
-      "columnId": "coord",
-      "detail": "7 rules: stuck task, stale lock, idle agent, unvalidated, bottleneck, failed task, orphaned-pending(3-way). orchestrator.go:2285-2502",
-      "tags": [
-        "observer"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "orch_anomalySig",
-      "label": "anomalySignature no-op gate",
-      "categoryId": "observer",
-      "columnId": "coord",
-      "detail": "Hashes category|task|agent SET (not rendered prompt w/ volatile durations); skip if unchanged; cleared on human input. orchestrator.go:2112-2128",
-      "tags": [
-        "observer",
-        "loop-guard"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "orch_tier1Watchdog",
-      "label": "tier1Watchdog()",
-      "categoryId": "observer",
-      "columnId": "plan",
-      "detail": "Re-triggers idle Assurance/QA when queue non-empty + last turn >5min; honors synthesizedAt exclusion. orchestrator.go:2146-2205",
-      "tags": [
-        "observer",
-        "watchdog"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "orch_buildSnapshot",
-      "label": "buildStatusSnapshot()",
-      "categoryId": "observer",
-      "columnId": "coord",
-      "detail": "Parallel poll tasks/agents/locks/log (4 goroutines). orchestrator.go:2209-2260",
-      "tags": [
-        "observer",
-        "server"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "orch_buildObserverPrompt",
-      "label": "buildObserverPrompt()",
-      "categoryId": "observer",
-      "columnId": "plan",
-      "detail": "Renders snapshot+anomalies, instructs Observer to @planner w/ suggested actions, no tools. orchestrator.go:2538-2549",
-      "tags": [
-        "prompt"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "orch_coordEventLoop",
-      "label": "coordinationEventLoop()",
-      "categoryId": "infra",
-      "columnId": "infra",
-      "detail": "3s poll /api/log; surfaces lifecycle events as system messages; seeds lastCoordEventAt=now. orchestrator.go:696-719",
-      "tags": [
-        "loop",
-        "server"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "orch_pollCoordEvents",
-      "label": "pollCoordinationEvents()",
-      "categoryId": "infra",
-      "columnId": "coord",
-      "detail": "Chronological emit; batch mode >8 events/tick to single summary; task_failed to autoroute(SystemEscalation). orchestrator.go:721-841",
-      "tags": [
-        "server"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "orch_formatCoordEvent",
-      "label": "formatCoordEvent()",
-      "categoryId": "infra",
-      "columnId": "infra",
-      "detail": "Maps event type to emoji chat line; suppresses registration/bookkeeping. orchestrator.go:851-891",
-      "tags": [
-        "render"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "orch_validationLoop",
-      "label": "validationPollLoop()",
-      "categoryId": "validation",
-      "columnId": "validate",
-      "detail": "10s ticker to checkPendingValidation; nil-guards on assurance agent. orchestrator.go:2553-2571",
-      "tags": [
-        "loop"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "orch_checkValidation",
-      "label": "checkPendingValidation()",
-      "categoryId": "validation",
-      "columnId": "validate",
-      "detail": "GET pending-validation; seen/attempt gating; >3 attempts to escalate(SystemEscalation); one-at-a-time routeToAssurance. orchestrator.go:2573-2611",
-      "tags": [
-        "validation"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "orch_routeToAssurance",
-      "label": "routeToAssurance()",
-      "categoryId": "validation",
-      "columnId": "validate",
-      "detail": "Runs Assurance turn, reads last assurance msg, parses verdict, SubmitVerdict, markSeen only on accept. orchestrator.go:2613-2671",
-      "tags": [
-        "validation"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "orch_buildValidationPrompt",
-      "label": "buildValidationPrompt()",
-      "categoryId": "validation",
-      "columnId": "validate",
-      "detail": "Per-criterion view/grep protocol; agent report = locator-not-evidence; exact JSON verdict shape. orchestrator.go:3141-3171",
-      "tags": [
-        "prompt"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "orch_parseVerdict",
-      "label": "parseValidationVerdict()",
-      "categoryId": "validation",
-      "columnId": "validate",
-      "detail": "Extracts criteriaResults JSON; passThreshold=95 gate; FAIL-CLOSED on empty criteria (Fix 23 / Round-6 #1). orchestrator.go:3077-3123",
-      "tags": [
-        "validation",
-        "fail-closed"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "orch_qaLoop",
-      "label": "qaPollLoop()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "10s ticker to checkValidatedTasks; nil-guards on qa_synthesizer agent. orchestrator.go:2675-2693",
-      "tags": [
-        "loop"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "orch_checkValidated",
-      "label": "checkValidatedTasks()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "GET validated; seen/attempt gating; >3 to escalate(SystemNoTask); one-at-a-time routeToQA. orchestrator.go:2695-2736",
-      "tags": [
-        "qa"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "orch_routeToQA",
-      "label": "routeToQA()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "Builds ValidatedOutput (result+validationScore from metadata), runs QA turn, parses synthesis, SubmitSynthesis. orchestrator.go:2738-2811",
-      "tags": [
-        "qa"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "orch_parseSynthesis",
-      "label": "parseSynthesisResponse()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "SYNTHESIS_COMPLETE: to complete; NEED_CLARIFICATION:@x to need_clarification; else in_progress. orchestrator.go:3128-3137",
-      "tags": [
-        "parser"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "orch_buildSynthesisPrompt",
-      "label": "buildSynthesisPrompt()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "Instructs QA to end w/ SYNTHESIS_COMPLETE or NEED_CLARIFICATION; no tools; concise. orchestrator.go:3173-3185",
-      "tags": [
-        "prompt"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "orch_taskSynthesized",
-      "label": "taskSynthesized()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "Reads metadata.synthesizedAt \u2014 server stamps it but leaves status='validated'; both QA filter+watchdog honor. orchestrator.go:1017-1023",
-      "tags": [
-        "qa"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "orch_qaClarification",
-      "label": "maybeRouteQAClarification()",
-      "categoryId": "qa",
-      "columnId": "synth",
-      "detail": "NEED_CLARIFICATION:@<swarm> to forward to agent inbox + suppress Planner autoroute; Planner-addressed falls through. orchestrator.go:2840-2866",
-      "tags": [
-        "qa",
-        "routing"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "orch_autoRouteV",
-      "label": "autoRoutePlannerV()",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Forwards Tier-1 msg to Planner turn w/ variant; sliding-window cap (5/10min); fireWhenPlannerIdle. orchestrator.go:1316-1351",
-      "tags": [
-        "autoroute",
-        "loop-guard"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "orch_autoRouteVariants",
-      "label": "autoRouteVariant set",
-      "categoryId": "dispatch",
-      "columnId": "plan",
-      "detail": "5 variants: Anomaly, PassVerdict, FailVerdict, SystemEscalation, SystemNoTask \u2014 each shapes Planner affordances. orchestrator.go:1356-1413",
-      "tags": [
-        "autoroute",
-        "prompt"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "orch_slidingWindow",
-      "label": "recentAutoRoutes sliding window",
-      "categoryId": "dispatch",
-      "columnId": "dispatch",
-      "detail": "Wall-clock cap autoTurnCap=5 / autoRouteWindow=10min; pruneAutoRoutes; cleared on human input (Fix 6, replaced int counter). orchestrator.go:98,1319-1331",
-      "tags": [
-        "loop-guard"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "orch_fireWhenIdle",
-      "label": "fireWhenPlannerIdle()",
-      "categoryId": "dispatch",
-      "columnId": "infra",
-      "detail": "Polls IsRoleBusy(planner) at 200ms up to 60s, then fires turn \u2014 avoids 'session processing' race. orchestrator.go:1645-1662",
-      "tags": [
-        "sync"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "orch_emitSystem",
-      "label": "emitSystemMessage()",
-      "categoryId": "infra",
-      "columnId": "infra",
-      "detail": "Creates Role=System message; rendered as muted banner by TUI. orchestrator.go:959-969",
-      "tags": [
-        "render"
-      ],
-      "slot": 15
-    },
-    {
-      "id": "orch_turnTimeout",
-      "label": "agentTurnTimeout (5min)",
-      "categoryId": "infra",
-      "columnId": "infra",
-      "detail": "Per-turn ctx.WithTimeout; on expiry Cancel(session)+system message+drain done. orchestrator.go:598-624,671",
-      "tags": [
-        "timeout"
-      ],
-      "slot": 16
-    },
-    {
-      "id": "orch_seenTracking",
-      "label": "seen/attempt tracking",
-      "categoryId": "validation",
-      "columnId": "dispatch",
-      "detail": "alreadySeen/markSeen/incAttempt keyed validation:/qa:; caps maxValidationAttempts=maxSynthesisAttempts=3. orchestrator.go:3196-3225",
-      "tags": [
-        "dedup"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "orch_histThread",
-      "label": "per-agent ThreadID notebooks",
-      "categoryId": "orchestrator",
-      "columnId": "infra",
-      "detail": "In-process roles stamp threadID=role name in shared session; Planner=HistoryThread, others=HistoryNone. app.go:128-137; agent.go:155-162",
-      "tags": [
-        "notebooks",
-        "history"
-      ],
-      "slot": 17
-    },
-    {
-      "id": "orch_rebind",
-      "label": "RebindSystemPrompt()",
-      "categoryId": "intake",
-      "columnId": "plan",
-      "detail": "Rebuilds provider w/ fresh system msg after AGENTS.md write; refuses if busy. orchestrator.go:1603-1605; acp/agent.go:489",
-      "tags": [
-        "intake"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "orch_antigravity_uncommitted",
-      "label": "antigravity/agy backend (in flight)",
-      "categoryId": "orchestrator",
-      "columnId": "execute",
-      "detail": "UNCOMMITTED: app.go:104 switch cases + antigravityCLIDefaults spawn `node agy-acp.mjs`. app.go:104 (working-tree M); acp/agent.go:549-554; acp/antigravity_cli.go:18-19 (untracked)",
-      "tags": [
-        "backend",
-        "uncommitted"
-      ],
-      "slot": 4
-    },
-    {
-      "id": "app_tier1_switch",
-      "label": "app.go Tier-1 backend switch",
-      "categoryId": "config",
-      "columnId": "execute",
-      "detail": "switch on backendChoice: case claude-code/antigravity/agy/codex/opencode to acp.NewACPAgent; default to in-process agent.NewAgent with Tier1ToolsForRole. backendChoice from cfg.Agents[agentName].Backend. app.go:90-138",
-      "tags": [
-        "dispatch",
-        "backend",
-        "switch"
-      ],
-      "slot": 5
-    },
-    {
-      "id": "acp_agent",
-      "label": "acp.ACPAgent",
-      "categoryId": "acp",
-      "columnId": "execute",
-      "detail": "Implements agent.Service over a long-lived ACP subprocess; one per Tier-1 role; holds cmd+client, acpSessions map, priming injector. Constructor NewACPAgent. internal/acp/agent.go:40,95",
-      "tags": [
-        "acp",
-        "backend",
-        "subprocess"
-      ],
-      "slot": 6
-    },
-    {
-      "id": "acp_client",
-      "label": "acp.Client (JSON-RPC)",
-      "categoryId": "acp",
-      "columnId": "infra",
-      "detail": "Newline-delimited JSON-RPC 2.0 over stdio (NewNewlineTransport). initialize/session-new/session-prompt/session-cancel. internal/acp/agent.go:147; types.go:210-216",
-      "tags": [
-        "acp",
-        "jsonrpc",
-        "transport"
-      ],
-      "slot": 18
-    },
-    {
-      "id": "acp_buildcommand",
-      "label": "acp.buildCommand (host to argv)",
-      "categoryId": "acp",
-      "columnId": "infra",
-      "detail": "Derives spawn argv from host: claude-code/empty to claudeCodeDefaults; antigravity/agy to antigravityCLIDefaults; codex/opencode to explicit unimplemented error; default to unknown-backend error. internal/acp/agent.go:535-556",
-      "tags": [
-        "acp",
-        "spawn",
-        "host"
-      ],
-      "slot": 19
-    },
-    {
-      "id": "acp_claudecode_defaults",
-      "label": "claudeCodeDefaults",
-      "categoryId": "acp",
-      "columnId": "infra",
-      "detail": "Returns npx + claude-agent-acp@^0.37 argv. The only fully-implemented external Tier-1 host. internal/acp/claude_code.go:22",
-      "tags": [
-        "acp",
-        "claude-code"
-      ],
-      "slot": 20
-    },
-    {
-      "id": "acp_antigravity_defaults",
-      "label": "antigravityCLIDefaults (agy)",
-      "categoryId": "acp",
-      "columnId": "infra",
-      "detail": "Returns ('node', [agyShimPath(env)]); agyShimPath resolves agy-acp.mjs from cfg.Env PATH binDir then os.Executable. UNCOMMITTED, in flight. internal/acp/antigravity_cli.go:18-19,31",
-      "tags": [
-        "acp",
-        "antigravity",
-        "agy",
-        "uncommitted"
-      ],
-      "slot": 21
-    },
-    {
-      "id": "agy_acp_mjs",
-      "label": "agy-acp.mjs ACP shim",
-      "categoryId": "acp",
-      "columnId": "execute",
-      "detail": "Bundled Node ACP-protocol shim bridging the agy CLI to ACP; spawned via node. UNCOMMITTED (?? agy-acp.mjs + runner/agy-acp.mjs in git status). runner/agy-acp.mjs",
-      "tags": [
-        "acp",
-        "agy",
-        "shim",
-        "uncommitted"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "acp_priming_injector",
-      "label": "ACP priming injector",
-      "categoryId": "acp",
-      "columnId": "plan",
-      "detail": "On first session for an ACT sessionID, opens ACP session then sends role priming as a one-shot USER message (ACP has no system channel). StopReason logged (Audit Fix 8). internal/acp/agent.go:329-374",
-      "tags": [
-        "acp",
-        "priming",
-        "system-prompt"
-      ],
-      "slot": 7
-    },
-    {
-      "id": "acp_runturn",
-      "label": "ACPAgent.runTurn (content-only)",
-      "categoryId": "acp",
-      "columnId": "execute",
-      "detail": "Sends ONLY content via session/prompt; no transcript replay; per-agent-scoped for INPUT by construction; stamps ThreadID=a.role on display msgs; streams agent_message_chunk deltas. internal/acp/agent.go:219",
-      "tags": [
-        "acp",
-        "turn",
-        "threadid",
-        "streaming"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "acp_rebind",
-      "label": "ACPAgent.RebindSystemPrompt",
-      "categoryId": "acp",
-      "columnId": "plan",
-      "detail": "Discards cached acpSessions so next runTurn opens a fresh session and re-fires priming (picks up invalidated AGENTS.md). Refuses while a turn is in flight. internal/acp/agent.go:489",
-      "tags": [
-        "acp",
-        "rebind",
-        "prompt-cache"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "tier1_shim_bin",
-      "label": "cmd/act-tier1-shim",
-      "categoryId": "tools",
-      "columnId": "execute",
-      "detail": "Per-role `act` CLI wrapper for ACP-backed Tier-1 agents via symlink (act-tier1-<role>). Reads role from argv[0], validates subcommand against tools.IsAllowed, rejects banned metachars, execs exec.Command('act',...). cmd/act-tier1-shim/main.go:57-134",
-      "tags": [
-        "shim",
-        "allowlist",
-        "cli"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "role_subcommands",
-      "label": "tools.RoleSubcommands allowlist",
-      "categoryId": "tools",
-      "columnId": "infra",
-      "detail": "Per-role allowed `act` subcommands. planner: status,context,log,graph,pvm,message,task retry/abandon,prompt-section. observer/assurance/qa narrower. IsAllowed/AllowedFor. internal/llm/tools/act_cli_whitelist.go:21,53,99",
-      "tags": [
-        "allowlist",
-        "whitelist",
-        "ki-02"
-      ],
-      "slot": 22
-    },
-    {
-      "id": "act_cli_tool",
-      "label": "act_cli in-process tool",
-      "categoryId": "tools",
-      "columnId": "execute",
-      "detail": "NewActCLITool(role) \u2014 native JSON tool whitelist-gated by IsAllowed, banned-metachar guard, exec.CommandContext('act-agent',...). 'message' is the only mutating subcommand to permission prompt. internal/llm/tools/act_cli.go:104,175",
-      "tags": [
-        "tool",
-        "act_cli",
-        "whitelist"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "expand_prompt_tool",
-      "label": "expand_prompt_section tool",
-      "categoryId": "tools",
-      "columnId": "plan",
-      "detail": "Planner-only on-demand reference loader; Run() calls prompt.GetSection(name). Keeps base Planner prompt small. internal/llm/tools/expand_prompt_section.go:29,83",
-      "tags": [
-        "tool",
-        "planner",
-        "sections",
-        "context-tiering"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "section_registry",
-      "label": "prompt.sectionRegistry",
-      "categoryId": "prompts",
-      "columnId": "plan",
-      "detail": "Maps evidence_routing/success_criteria/validation/examples to PlannerSection*() providers. Single source for BOTH the in-process expand_prompt_section tool AND the ACP prompt-section CLI path. internal/llm/prompt/sections.go:14,34,46",
-      "tags": [
-        "prompts",
-        "sections",
-        "registry"
-      ],
-      "slot": 10
-    },
-    {
-      "id": "planner_sections",
-      "label": "planner_section_*.go",
-      "categoryId": "prompts",
-      "columnId": "plan",
-      "detail": "The four on-demand Planner reference sections returned by the registry; loaded lazily, not baked into base prompt. internal/llm/prompt/planner_section_{evidence,examples,success_criteria,validation}.go",
-      "tags": [
-        "prompts",
-        "planner",
-        "sections"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "tier1_tools_for_role",
-      "label": "agent.Tier1ToolsForRole",
-      "categoryId": "tools",
-      "columnId": "infra",
-      "detail": "Per-role tool subset. planner to PlannerTools (act_cli+expand_prompt_section); observer to ObserverTools (act_cli only); assurance/qa to act_cli+view+grep; default to DeveloperTools. KI-02: NO bash for any Tier-1 role. internal/llm/agent/tools.go:75-124",
-      "tags": [
-        "tools",
-        "subset",
-        "ki-02",
-        "no-bash"
-      ],
-      "slot": 23
-    },
-    {
-      "id": "developer_tools",
-      "label": "agent.DeveloperTools (Tier 2 roster)",
-      "categoryId": "tools",
-      "columnId": "execute",
-      "detail": "Full toolbox for Tier-2 swarm: bash, edit, fetch, glob, grep, ls, sourcegraph, view, patch, write, AgentTool + MCP tools. Tier1ToolsForRole falls back here for non-Tier-1 roles. internal/llm/agent/tools.go:18",
-      "tags": [
-        "tools",
-        "tier2",
-        "bash"
-      ],
-      "slot": 11
-    },
-    {
-      "id": "mcp_tools",
-      "label": "agent.GetMcpTools (native MCP client)",
-      "categoryId": "tools",
-      "columnId": "execute",
-      "detail": "Builds MCP tools from config.MCPServers (stdio + SSE clients). Each permission-gated. Only reaches Tier-1 roles that fall to DeveloperTools (none of the 4 canonical Tier-1 roles do). internal/llm/agent/mcp-tools.go:169",
-      "tags": [
-        "mcp",
-        "tools",
-        "stdio",
-        "sse"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "prompt_dispatcher",
-      "label": "prompt.GetAgentPrompt dispatcher",
-      "categoryId": "prompts",
-      "columnId": "plan",
-      "detail": "Routes config.AgentName to role prompt fn (RolePlanner to PlannerPrompt, etc.). Unknown role to developer prompt + WARN. Appends project context (CLAUDE.md/ACT.md) for non-title roles. internal/llm/prompt/prompt.go:18",
-      "tags": [
-        "prompts",
-        "dispatcher",
-        "router"
-      ],
-      "slot": 12
-    },
-    {
-      "id": "planner_prompt",
-      "label": "PlannerPrompt (provider branch)",
-      "categoryId": "prompts",
-      "columnId": "plan",
-      "detail": "provider==models.ProviderACP to actCLICommandsACP('planner') (shim-via-Bash framing); any real provider to actCLICommands('planner') (in-process, do-NOT-shell-out framing). internal/llm/prompt/planner.go:16,23",
-      "tags": [
-        "prompts",
-        "planner",
-        "acp",
-        "provider-branch"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "actcli_fragment",
-      "label": "actCLICommands / actCLICommandsACP",
-      "categoryId": "prompts",
-      "columnId": "plan",
-      "detail": "In-process (common.go:72) + ACP (common.go:146) CLI fragments. Only planner diverges for ACP; ACP planner fragment instructs `act-tier1-planner <sub>` via Bash incl. prompt-section. internal/llm/prompt/common.go:72,146",
-      "tags": [
-        "prompts",
-        "cli-fragment",
-        "acp"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "provider_acp_const",
-      "label": "models.ProviderACP",
-      "categoryId": "config",
-      "columnId": "infra",
-      "detail": "Synthetic provider id 'acp' in the models package so the prompt dispatcher can branch without importing acp. No NewProvider case. internal/llm/models/models.go:53",
-      "tags": [
-        "config",
-        "provider",
-        "acp"
-      ],
-      "slot": 24
-    },
-    {
-      "id": "history_mode",
-      "label": "agent.HistoryMode + scopedHistory",
-      "categoryId": "config",
-      "columnId": "infra",
-      "detail": "HistoryMode Full/None/Thread; scopedHistory filters per mode. planner to HistoryThread, others to HistoryNone for in-process Tier-1. ACP path per-agent-scoped by construction. internal/llm/agent/agent.go:155",
-      "tags": [
-        "config",
-        "history",
-        "notebooks",
-        "threadid"
-      ],
-      "slot": 25
-    },
-    {
-      "id": "agent_config_for_role",
-      "label": "config.AgentConfigForRole",
-      "categoryId": "config",
-      "columnId": "infra",
-      "detail": "MODEL/BACKEND config lookup: agents.<role> first else RoleDeveloper. NEVER used for prompt selection (developer fallback would swap role identity). internal/config/config.go:170",
-      "tags": [
-        "config",
-        "fallback",
-        "developer"
-      ],
-      "slot": 26
-    },
-    {
-      "id": "validate_agent",
-      "label": "config.validateAgent",
-      "categoryId": "config",
-      "columnId": "infra",
-      "detail": "backend claude-code/antigravity/agy to skip provider/model checks; otherwise require provider+model+providerCfg+apiKey. codex/opencode NOT skipped. internal/config/config.go:515-521",
-      "tags": [
-        "config",
-        "validation",
-        "backend"
-      ],
-      "slot": 27
-    },
-    {
-      "id": "with_tier1_shim_path",
-      "label": "app.withTier1ShimPath",
-      "categoryId": "config",
-      "columnId": "infra",
-      "detail": "Prepends the act-agent install dir (os.Executable parent) to ACPConfig.Env PATH so act-tier1-<role> + `act` resolve for the ACP subprocess. Carries parent PATH through. internal/app/app.go:206-238",
-      "tags": [
-        "config",
-        "acp",
-        "path",
-        "shim"
-      ],
-      "slot": 28
-    },
-    {
-      "id": "make_priming_injector",
-      "label": "app.makePrimingInjector / wrapPriming",
-      "categoryId": "config",
-      "columnId": "infra",
-      "detail": "Closure returns prompt.GetAgentPrompt(role, acp.ProviderACP) wrapped by wrapPriming: InternalPromptMarker + doNotRespondHeader + base + renderShimNote (live allowlist from tools.AllowedFor). internal/app/app.go:249",
-      "tags": [
-        "config",
-        "priming",
-        "acp",
-        "shim-note"
-      ],
-      "slot": 29
-    },
-    {
-      "id": "slash_backend",
-      "label": "/backend slash command (Tier 1)",
-      "categoryId": "tui",
-      "columnId": "entry",
-      "detail": "list / <role|all> <backend>. isValidTier1Backend accepts act-agent/claude-code/antigravity/agy. Persists via config.WriteAgentBackend; applies on NEXT TUI launch (no hot-rebuild). internal/app/slash.go:255,325",
-      "tags": [
-        "tui",
-        "slash",
-        "backend",
-        "tier1"
-      ],
-      "slot": 1
-    },
-    {
-      "id": "slash_swarm",
-      "label": "/swarm slash command (Tier 2)",
-      "categoryId": "tui",
-      "columnId": "entry",
-      "detail": "list/status/restart/<role|all> <backend>. swarmSetBackend validates via runner.IsValidBackend (act-agent|claude-code only), persists + RestartRole LIVE. Tier-1 roles rejected. internal/app/slash.go:42,188",
-      "tags": [
-        "tui",
-        "slash",
-        "swarm",
-        "tier2"
-      ],
-      "slot": 2
-    },
-    {
-      "id": "spawner",
-      "label": "runner.Spawner (StartSwarm)",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "Spawns one Node act-runner.mjs subprocess per SwarmRoleSpec. Lazy: called from orchestrator on first CREATE_TASK batch, not at launch. internal/runner/spawner.go:58",
-      "tags": [
-        "go",
-        "tier2",
-        "lazy-spawn"
-      ],
-      "slot": 13
-    },
-    {
-      "id": "spawner_sweep",
-      "label": "SweepOrphans (pkill)",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "Runs `pkill -f act-runner.mjs` defensively before spawning, killing leftover runners (prevents 409 conflict storm). internal/runner/spawner.go:243-244",
-      "tags": [
-        "go",
-        "cleanup",
-        "pkill"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "spawner_pgid",
-      "label": "setProcGroup (Setpgid)",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "Sets attr.Setpgid=true so each runner gets its own process group; parent TUI kills the whole subtree via negative pgid on shutdown. internal/runner/spawner_unix.go:10",
-      "tags": [
-        "go",
-        "process-group",
-        "unix"
-      ],
-      "slot": 15
-    },
-    {
-      "id": "spawner_log",
-      "label": "per-role runner log",
-      "categoryId": "runner",
-      "columnId": "infra",
-      "detail": "stdout/stderr redirected to ~/.act/runners/<role>.log (O_CREATE|O_APPEND) so runner output never corrupts the Bubble Tea chat. internal/runner/spawner.go:141",
-      "tags": [
-        "go",
-        "logging",
-        "isolation"
-      ],
-      "slot": 30
-    },
-    {
-      "id": "spawner_reap",
-      "label": "process reaper goroutine",
-      "categoryId": "runner",
-      "columnId": "infra",
-      "detail": "Goroutine cmd.Wait()s each runner, writes a session-end line, closes fd, deletes the role from s.runners. internal/runner/spawner.go:176",
-      "tags": [
-        "go",
-        "lifecycle"
-      ],
-      "slot": 31
-    },
-    {
-      "id": "spawner_spec",
-      "label": "SwarmRoleSpec / DefaultCapabilities",
-      "categoryId": "runner",
-      "columnId": "infra",
-      "detail": "SwarmRoleSpec{Role,AgentID,Name,Backend,Capabilities,Model}; AllSwarmRoles = developer, frontend_dev, backend_dev, qa_engineer, researcher. internal/runner/swarm_roles.go:50",
-      "tags": [
-        "go",
-        "roles",
-        "capabilities"
-      ],
-      "slot": 32
-    },
-    {
-      "id": "runner_mjs",
-      "label": "act-runner.mjs (coordination loop)",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "Main loop: register to poll getTask to executeTask to poll inbox to sleep POLL_INTERVAL. Node.js, no npm deps beyond built-ins. runner/act-runner.mjs:806",
-      "tags": [
-        "node",
-        "poll-loop",
-        "swarm-agent"
-      ],
-      "slot": 16
-    },
-    {
-      "id": "runner_register",
-      "label": "register() + 409 self-heal",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "POST /api/agents/register with projectName. On HTTP 409 (stale): DELETE /api/agents/<id> then retry once. runner/act-runner.mjs:129",
-      "tags": [
-        "node",
-        "registration",
-        "self-heal"
-      ],
-      "slot": 17
-    },
-    {
-      "id": "runner_live",
-      "label": "liveProcesses singleton",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "Map keyed by agentId; at task pickup if AGENT_ID already live, skip \u2014 one in-flight task per agent ID; cleared in finally. runner/act-runner.mjs:94",
-      "tags": [
-        "node",
-        "singleton",
-        "no-clone"
-      ],
-      "slot": 18
-    },
-    {
-      "id": "runner_backend",
-      "label": "runAgent backend switch",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "BACKEND==='claude-code' ? runAgentClaudeCode (claude --print --dangerously-skip-permissions) : runAgentActAgent (act-agent --agent --role --prompt). Default 'act-agent'. NO antigravity branch. runner/act-runner.mjs:227-231",
-      "tags": [
-        "node",
-        "backend-select"
-      ],
-      "slot": 19
-    },
-    {
-      "id": "runner_claudecode",
-      "label": "runAgentClaudeCode (+EOF stdin, retry)",
-      "categoryId": "runner",
-      "columnId": "execute",
-      "detail": "execFile claude with input:'' (EOF) to avoid 3s stdin-wait hang; one-shot retry on no-output failure. runner/act-runner.mjs:281",
-      "tags": [
-        "node",
-        "claude-code",
-        "retry"
-      ],
-      "slot": 20
-    },
-    {
-      "id": "runner_brief",
-      "label": "fetchAgentBrief (AGENTS.md inject)",
-      "categoryId": "runner",
-      "columnId": "intake",
-      "detail": "GET /api/projects/<p>/briefs/<agent>. Short-circuits for claude-code backend when on-disk CLAUDE.md/AGENTS.md exists (claude auto-discovers it). runner/act-runner.mjs:536",
-      "tags": [
-        "node",
-        "brief",
-        "context"
-      ],
-      "slot": 14
-    },
-    {
-      "id": "runner_pvm",
-      "label": "complexity-triggered PVM inject",
-      "categoryId": "runner",
-      "columnId": "coord",
-      "detail": "scoreComplexity (len+caps+keywords); >4 threshold to fetchPVMContext GET /api/pvm/search injected into prompt. runner/act-runner.mjs:339",
-      "tags": [
-        "node",
-        "pvm",
-        "heuristic"
-      ],
-      "slot": 15
-    },
-    {
-      "id": "runner_complete",
-      "label": "reportComplete to submit-for-validation",
-      "categoryId": "runner",
-      "columnId": "validate",
-      "detail": "POST /api/tasks/<id>/complete then (on success) POST /api/tasks/<id>/submit-for-validation. This chain feeds Assurance+QA; failure skips validation. runner/act-runner.mjs:181-194",
-      "tags": [
-        "node",
-        "validation-pipeline"
-      ],
-      "slot": 8
-    },
-    {
-      "id": "runner_session_end",
-      "label": "sendSessionEnded lifecycle",
-      "categoryId": "runner",
-      "columnId": "infra",
-      "detail": "Main loop finally POST /api/messages 'session ended for task <id> (exit code N)'. runner/act-runner.mjs:217",
-      "tags": [
-        "node",
-        "lifecycle"
-      ],
-      "slot": 33
-    },
-    {
-      "id": "agy_runner_shim",
-      "label": "agy-acp.mjs (runner copy)",
-      "categoryId": "acp",
-      "columnId": "execute",
-      "detail": "(uncommitted, in flight) runner/agy-acp.mjs + agy-acp.mjs \u2014 JSON-RPC ACP server shim driving `agy --print`; INTERNAL_MARKER stored as system prompt, not forwarded. This is a Tier-1 ACP shim, NOT a Tier-2 runner backend. Untracked in git status. runner/agy-acp.mjs",
-      "tags": [
-        "node",
-        "acp",
-        "antigravity",
-        "uncommitted"
-      ],
-      "slot": 21
-    },
-    {
-      "id": "cli_main",
-      "label": "act-cli.ts dispatch (main)",
-      "categoryId": "cli",
-      "columnId": "infra",
-      "detail": "Reads command=args[0], subcommand=args[1]; if/else-if chain over `command === ...` branches dispatches to cmd* handlers. Replaces MCP (~47K token saving). cli/act-cli.ts:1052",
-      "tags": [
-        "typescript",
-        "dispatch"
-      ],
-      "slot": 34
-    },
-    {
-      "id": "cli_context",
-      "label": "context",
-      "categoryId": "cli",
-      "columnId": "infra",
-      "detail": "cmdContext \u2014 brief+task+parallel agents+locks+messages in one Promise.all; self-bootstrap for swarm agents on spawn. cli/act-cli.ts:27",
-      "tags": [
-        "typescript",
-        "bootstrap"
-      ],
-      "slot": 35
-    },
-    {
-      "id": "cli_register",
-      "label": "register",
-      "categoryId": "cli",
-      "columnId": "infra",
-      "detail": "cmdRegister; writes ~/.act/sessions/<sessionId> identity file for the stop hook. cli/act-cli.ts:651",
-      "tags": [
-        "typescript"
-      ],
-      "slot": 36
-    },
-    {
-      "id": "cli_task",
-      "label": "task complete/progress/retry/abandon/submit-for-validation",
-      "categoryId": "cli",
-      "columnId": "validate",
-      "detail": "Five `task <sub>` handlers; submit-for-validation routes completed work to Assurance. cli/act-cli.ts:166,190,346,755,777",
-      "tags": [
-        "typescript",
-        "task-lifecycle"
-      ],
-      "slot": 9
-    },
-    {
-      "id": "cli_pvm",
-      "label": "pvm search / reindex",
-      "categoryId": "cli",
-      "columnId": "coord",
-      "detail": "cmdPvmSearch (GET /api/pvm/search, project-scoped unless --global) + cmdPvmReindex (POST /api/pvm/reindex). cli/act-cli.ts:687,707",
-      "tags": [
-        "typescript",
-        "pvm"
-      ],
-      "slot": 16
-    },
-    {
-      "id": "cli_codebase",
-      "label": "codebase onboard",
-      "categoryId": "cli",
-      "columnId": "intake",
-      "detail": "cmdCodebaseOnboard \u2014 deterministic AGENTS.md scaffold from manifests/configs/git (extractScaffold). No LLM, no server. Brownfield onboarding entry point. cli/act-cli.ts:978",
-      "tags": [
-        "typescript",
-        "brownfield",
-        "deterministic"
-      ],
-      "slot": 15
-    },
-    {
-      "id": "cli_swarm",
-      "label": "swarm list/set/status/restart",
-      "categoryId": "cli",
-      "columnId": "entry",
-      "detail": "cmdSwarm \u2014 reads/writes agents.<role>.backend in ~/.act.json (atomic tmp+rename). VALID_BACKENDS=['act-agent','claude-code','antigravity']. cli/act-cli.ts:554,552",
-      "tags": [
-        "typescript",
-        "swarm",
-        "config"
-      ],
-      "slot": 3
-    },
-    {
-      "id": "cli_help",
-      "label": "act-cli help command table",
-      "categoryId": "cli",
-      "columnId": "infra",
-      "detail": "commands Record lists ~20 entries \u2014 OMITS swarm though it is a live dispatch branch. cli/act-cli.ts:1000-1023",
-      "tags": [
-        "typescript",
-        "help",
-        "drift"
-      ],
-      "slot": 37
-    },
-    {
-      "id": "provider_factory",
-      "label": "provider.NewProvider switch",
-      "categoryId": "provider",
-      "columnId": "execute",
-      "detail": "Switch on ModelProvider; pickBase() applies per-provider default base URL overridable via providers.<name>.baseURL. internal/llm/provider/provider.go:103",
-      "tags": [
-        "go",
-        "provider-switch"
-      ],
-      "slot": 22
-    },
-    {
-      "id": "provider_anthropic",
-      "label": "anthropic (native client)",
-      "categoryId": "provider",
-      "columnId": "execute",
-      "detail": "ProviderAnthropic to newAnthropicClient (only non-OpenAI-compat native path besides gemini/bedrock/azure/vertex). internal/llm/provider/provider.go:104",
-      "tags": [
-        "go"
-      ],
-      "slot": 23
-    },
-    {
-      "id": "provider_openai_compat",
-      "label": "OpenAI-compatible (openai/groq/openrouter/xai/local)",
-      "categoryId": "provider",
-      "columnId": "execute",
-      "detail": "All route to newOpenAIClient with per-provider base URL (groq, openrouter+Referer/Title, xai, local LOCAL_ENDPOINT). internal/llm/provider/provider.go:109,155,167,175",
-      "tags": [
-        "go",
-        "openai-compat"
-      ],
-      "slot": 24
-    },
-    {
-      "id": "provider_nvidia",
-      "label": "nvidia (NIM, NEW)",
-      "categoryId": "provider",
-      "columnId": "execute",
-      "detail": "ProviderNVIDIA to newOpenAIClient base https://integrate.api.nvidia.com/v1 (free hosted Kimi/Llama). Const at models.go:37. internal/llm/provider/provider.go:135-139",
-      "tags": [
-        "go",
-        "nvidia",
-        "new"
-      ],
-      "slot": 25
-    },
-    {
-      "id": "provider_cache",
-      "label": "globalResponseCache (send path)",
-      "categoryId": "provider",
-      "columnId": "infra",
-      "detail": "SendMessages keys on model+system+messages+tools; cache hit elides the network call (catches Assurance re-scoring, Observer re-fires). Streaming bypasses it. internal/llm/provider/provider.go:219",
-      "tags": [
-        "go",
-        "cache"
-      ],
-      "slot": 38
-    },
-    {
-      "id": "models_registry",
-      "label": "models.ModelProvider constants",
-      "categoryId": "provider",
-      "columnId": "infra",
-      "detail": "anthropic,openai,gemini,groq,nvidia,openrouter,xai,azure,vertexai,bedrock,local,__mock + synthetic ProviderACP. No model registry: user writes the upstream model string verbatim. internal/llm/models/models.go:32",
-      "tags": [
-        "go",
-        "no-registry"
-      ],
-      "slot": 39
-    },
-    {
-      "id": "act_client",
-      "label": "act.Client (native HTTP)",
-      "categoryId": "client",
-      "columnId": "infra",
-      "detail": "Go HTTP client to the ACT server (15s timeout). Replaced the old npx-tsx shell-out. Used by Tier-1 in-process agents + orchestrator. internal/act/client.go:20,28",
-      "tags": [
-        "go",
-        "http-client"
-      ],
-      "slot": 40
-    },
-    {
-      "id": "act_client_task",
-      "label": "Client task ops",
-      "categoryId": "client",
-      "columnId": "dispatch",
-      "detail": "CreateTask, ReportComplete:151, SubmitForValidation:212, SetTaskDependencies (two-pass), RetryTask, AbandonTask, SubmitVerdict:572, SubmitSynthesis:593. internal/act/client.go",
-      "tags": [
-        "go",
-        "orchestrator-api"
-      ],
-      "slot": 15
-    },
-    {
-      "id": "act_client_project",
-      "label": "Client GetProject/CreateProject (intake)",
-      "categoryId": "client",
-      "columnId": "intake",
-      "detail": "GetProject:522 (404 to false, drives intake-mode detection), CreateProject:552 (POSTed after PROJECT_BRIEF). internal/act/client.go:522,552",
-      "tags": [
-        "go",
-        "intake"
-      ],
-      "slot": 16
-    },
-    {
-      "id": "root_router",
-      "label": "cmd/root.go binary router",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "Pre-cobra os.Args routing: reset / prompt-section / CLI subcommands handled before cobra; else rootCmd.Execute (RunE). cmd/root.go:660",
-      "tags": [
-        "go",
-        "router"
-      ],
-      "slot": 41
-    },
-    {
-      "id": "root_modes",
-      "label": "RunE mode dispatch",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "--agent to RunAgent headless; -p to RunNonInteractive; no args to runTUI. CLI subcommand caught early. cmd/root.go:53",
-      "tags": [
-        "go",
-        "modes"
-      ],
-      "slot": 42
-    },
-    {
-      "id": "root_ensure_server",
-      "label": "EnsureServerRunning",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "Calls actserver.EnsureServerRunning('') at TUI startup (non-fatal) and before routing a CLI subcommand. cmd/root.go:123",
-      "tags": [
-        "go",
-        "server-autostart"
-      ],
-      "slot": 43
-    },
-    {
-      "id": "root_cli_route",
-      "label": "routeToCLI / findCLIScript",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "Prefers local node_modules/.bin/tsx then npx; findCLIScript resolves act-cli.ts via ~/.act/config.json actRoot to binary walk to cwd. cmd/root.go:550",
-      "tags": [
-        "go",
-        "cli-routing"
-      ],
-      "slot": 44
-    },
-    {
-      "id": "root_prompt_section",
-      "label": "prompt-section (native pre-cobra)",
-      "categoryId": "server-launch",
-      "columnId": "plan",
-      "detail": "runPromptSection prints a Planner reference section from prompt.SectionRegistry; the ACP equivalent of in-process expand_prompt_section, handled BEFORE cobra/CLI routing. cmd/root.go:468,689",
-      "tags": [
-        "go",
-        "acp",
-        "prompt"
-      ],
-      "slot": 15
+      "id": "chronlog",
+      "label": "ChronLog",
+      "group": "store",
+      "detail": ""
     },
     {
-      "id": "launcher",
-      "label": "server.EnsureServerRunning (launcher)",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "PID-file + health-check guarded auto-start of `npx tsx server/src/index.ts`; sweeps stale tsx watch processes. internal/server/launcher.go:30",
-      "tags": [
-        "go",
-        "server",
-        "pid-file"
-      ],
-      "slot": 45
+      "id": "pvm",
+      "label": "PVM (vectors)",
+      "group": "store",
+      "detail": ""
     },
     {
-      "id": "launcher_find",
-      "label": "findServerScript",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "Resolves server entry via ~/.act/config.json actRoot to binary walk to cwd fallback. Mirrors findCLIScript. internal/server/launcher.go:196",
-      "tags": [
-        "go",
-        "resolution"
-      ],
-      "slot": 46
+      "id": "task_store",
+      "label": "Task store",
+      "group": "store",
+      "detail": ""
     },
     {
-      "id": "install_sh",
-      "label": "install.sh (bootstrap)",
-      "categoryId": "server-launch",
-      "columnId": "infra",
-      "detail": "Builds the act-agent Go binary; symlinks ONLY 'act-agent' into PATH and REMOVES any old 'act' symlink; does NOT create act-tier1-<role> symlinks. install.sh:46,182-184",
-      "tags": [
-        "sh",
-        "install",
-        "symlink"
-      ],
-      "slot": 47
+      "id": "brief_store",
+      "label": "Project/Brief store",
+      "group": "store",
+      "detail": ""
     }
   ],
   "flows": [
     {
-      "id": "flow_a2a_push",
-      "label": "A2A task push",
-      "summary": "A2A REST push pre-assigns a task to a target agent and emits task_assigned.",
+      "id": "greenfield_intake",
+      "label": "Greenfield INTAKE \u2192 project creation \u2192 BUILD",
+      "summary": "Human types into the TUI; the Planner is the only agent that responds and runs a conversational 5-question intake (prompt-only). On explicit confirmation it emits a PROJECT_BRIEF: text marker in its own turn; the orchestrator's messageOwnershipLoop scans the finished Planner message, parses the JSON, and POSTs it to the ACT server which stores the project record. The orchestrator then clears intakeMode and fires a BUILD-mode trigger turn back at the Planner. Edges are code-enforced except the 5Q conversation and the 'Ready to start?' hard-stop, which live only in planner.go prompt text.",
       "steps": [
         {
-          "from": "ep_a2a_task_push",
-          "to": "svc_task_coordinator",
-          "label": "createTask pre-assigned",
+          "from": "human",
+          "to": "planner",
+          "label": "human text \u2192 runAgentTurn(planner)",
           "status": "ok",
-          "detail": "taskCoordinator.createTask with assignedAgent. server/src/index.ts:221, services/TaskCoordinator.ts:81"
+          "detail": "HandleHumanInput routes every human message to a Planner turn via runAgentTurn(ctx, sessionID, \"planner\", text, true) at orchestrator.go:242."
         },
         {
-          "from": "ep_a2a_task_push",
-          "to": "srv_socketio",
-          "label": "emit task_assigned",
-          "status": "ok",
-          "detail": "io.emit('task_assigned'). server/src/index.ts:221-248"
-        }
-      ]
-    },
-    {
-      "id": "flow_register",
-      "label": "Agent registration (REST) + 409 self-heal",
-      "summary": "REST registration rejects live-online ID collisions, merges perf counters, retries pending tasks.",
-      "steps": [
-        {
-          "from": "ep_agents_register",
-          "to": "svc_agent_registry",
-          "label": "409 if live-online ID collision",
-          "status": "ok",
-          "detail": "existing.status==='online' to 409. server/src/index.ts:265-289"
-        },
-        {
-          "from": "ep_agents_register",
-          "to": "svc_chronlog",
-          "label": "append agent_registered",
-          "status": "ok",
-          "detail": "chronologicalLog.append type agent_registered. server/src/index.ts:265-310"
-        },
-        {
-          "from": "ep_agents_register",
-          "to": "svc_task_coordinator",
-          "label": "retryPendingTasks",
-          "status": "ok",
-          "detail": "await taskCoordinator.retryPendingTasks(). server/src/index.ts:265-310, services/TaskCoordinator.ts:304"
-        }
-      ]
-    },
-    {
-      "id": "flow_dispatch",
-      "label": "Task create to assignment",
-      "summary": "POST /api/tasks guards empty title/desc, creates the task, assigns the optimal capable agent, emits.",
-      "steps": [
-        {
-          "from": "ep_tasks_create",
-          "to": "ep_tasks_create",
-          "label": "fail-closed empty title/description guard",
-          "status": "ok",
-          "detail": "rejects empty title/description with code empty_title/empty_description. server/src/index.ts:502-531"
-        },
-        {
-          "from": "ep_tasks_create",
-          "to": "svc_task_coordinator",
-          "label": "createTask + append task_created",
-          "status": "ok",
-          "detail": "taskCoordinator.createTask + append type task_created. server/src/index.ts:502-533"
-        },
-        {
-          "from": "svc_task_coordinator",
-          "to": "svc_agent_registry",
-          "label": "assignOptimalAgent to capability scorer",
-          "status": "ok",
-          "detail": "assignOptimalAgent calls getOptimalAgent (0.6 cap +0.3 perf +0.1 workload). services/TaskCoordinator.ts:129, services/AgentRegistry.ts:144"
-        },
-        {
-          "from": "svc_task_coordinator",
-          "to": "svc_pvm_indexer",
-          "label": "PVM similarity fallback (cap-specified, no match)",
-          "status": "ok",
-          "detail": "pickAgentFromPVM to pvmIndexer.search, accepted only on project+capability overlap. services/TaskCoordinator.ts:137-149"
-        }
-      ]
-    },
-    {
-      "id": "flow_runner_poll",
-      "label": "Runner poll (assigned + heartbeat + idle sweep)",
-      "summary": "GET /api/tasks/assigned refreshes liveness, sweeps idle pending tasks, returns the active task.",
-      "steps": [
-        {
-          "from": "ep_tasks_assigned",
-          "to": "svc_agent_registry",
-          "label": "refresh lastSeen (busy/online)",
-          "status": "ok",
-          "detail": "updateAgentStatus busy when active, online when idle. server/src/index.ts:590-618"
-        },
-        {
-          "from": "ep_tasks_assigned",
-          "to": "svc_task_coordinator",
-          "label": "idle sweep assignOptimalAgent over pending",
-          "status": "ok",
-          "detail": "for pending tasks in project to assignOptimalAgent. server/src/index.ts:590-624"
-        }
-      ]
-    },
-    {
-      "id": "flow_complete",
-      "label": "Task complete to release locks to emit",
-      "summary": "Completion updates status, auto-releases the task's file locks, emits task_completed/task_failed.",
-      "steps": [
-        {
-          "from": "ep_tasks_complete",
-          "to": "svc_task_coordinator",
-          "label": "updateTaskProgress completed/failed",
-          "status": "ok",
-          "detail": "status completed (progress 100) or failed. server/src/index.ts:708-717"
-        },
-        {
-          "from": "ep_tasks_complete",
-          "to": "store_file_locks",
-          "label": "auto-release locks held by task",
-          "status": "ok",
-          "detail": "delete fileLocks where lock.taskId===taskId, grouped by project. server/src/index.ts:708-739"
-        },
-        {
-          "from": "ep_tasks_complete",
-          "to": "srv_socketio",
-          "label": "emit task_completed / task_failed",
-          "status": "ok",
-          "detail": "distinct io.emit per outcome + ChronLog append. server/src/index.ts:708-763"
-        }
-      ]
-    },
-    {
-      "id": "flow_validation_server",
-      "label": "Validation pipeline (server: submit to verdict to QA)",
-      "summary": "Submit-for-validation surfaces to Assurance; verdict trusts caller (no server gate); validated tasks surface to QA; synthesis stamps a marker, not a deliverable.",
-      "steps": [
-        {
-          "from": "ep_tasks_submit_val",
-          "to": "svc_task_coordinator",
-          "label": "completed|in_progress to submitted_for_validation",
-          "status": "ok",
-          "detail": "guard + updateTaskProgress submitted_for_validation. server/src/index.ts:838-864"
-        },
-        {
-          "from": "ep_tasks_pending_val",
-          "to": "svc_spil_parser",
-          "label": "enrich with extractSuccessCriteria",
-          "status": "ok",
-          "detail": "successCriteria: extractSuccessCriteria(t.description). server/src/index.ts:632-640, services/SPILParser.ts:123"
-        },
-        {
-          "from": "ep_tasks_verdict",
-          "to": "svc_task_coordinator",
-          "label": "pass to validated / fail to assigned (rework)",
-          "status": "ok",
-          "detail": "passed branch validated, else assigned + validationAttempts. server/src/index.ts:875-922"
-        },
-        {
-          "from": "ep_tasks_verdict",
-          "to": "ep_tasks_verdict",
-          "label": "95% gate is NOT enforced server-side",
+          "from": "planner",
+          "to": "human",
+          "label": "5-question INTAKE, one topic per turn",
           "status": "prompt-only",
-          "detail": "server destructures and trusts caller-supplied passed/score verbatim (server/src/index.ts:878,885). The 95% threshold lives in the Assurance prompt; e2e-api.sh:122 posts passed:true score:95 with criteriaResults:[] directly."
+          "detail": "The 5-thing conversational intake (description/techStack/constraints/successCriteria/agentsInvolved, one topic per turn, no form-dump) exists only as instruction text in basePlannerPrompt at planner.go:37-41."
         },
         {
-          "from": "ep_tasks_validated",
-          "to": "ep_tasks_synthesis",
-          "label": "validated to QA queue to synthesis",
-          "status": "ok",
-          "detail": "GET /api/tasks/validated returns validated && !synthesizedAt; QA posts synthesis. server/src/index.ts:652,934-942"
-        },
-        {
-          "from": "ep_tasks_synthesis",
-          "to": "ep_tasks_synthesis",
-          "label": "full deliverable persistence",
-          "status": "gap-found",
-          "detail": "synthesis kind=complete only stamps metadata.synthesizedAt + logs a summary STRING (server/src/index.ts:942-957); the assembled deliverable artifact is NOT stored server-side. Boundary marker + summary work; full-deliverable persistence does not exist."
-        }
-      ]
-    },
-    {
-      "id": "flow_messaging",
-      "label": "Agent messaging (classify / rate-limit / route)",
-      "summary": "EventHub rate-limits per agent, classifies the message, appends with the real type, routes, buffers to same-project inboxes.",
-      "steps": [
-        {
-          "from": "ep_messages_post",
-          "to": "svc_event_hub",
-          "label": "handleAgentMessage",
-          "status": "ok",
-          "detail": "eventHub.handleAgentMessage. server/src/index.ts:980-992, services/EventHub.ts:237"
-        },
-        {
-          "from": "svc_event_hub",
-          "to": "svc_event_hub",
-          "label": "rate limit 3/30s + classify",
-          "status": "ok",
-          "detail": "checkRateLimit RATE_LIMIT_MAX 3 / 30000ms; classifyMessage priority order. services/EventHub.ts:33-34,153-202"
-        },
-        {
-          "from": "svc_event_hub",
-          "to": "srv_socketio",
-          "label": "route to target / responder / broadcast",
-          "status": "ok",
-          "detail": "io.to(socketId).emit or io.emit per class. services/EventHub.ts:254-290"
-        },
-        {
-          "from": "ep_messages_post",
-          "to": "store_agent_inboxes",
-          "label": "buffer for same-project agents (TTL 10m)",
-          "status": "ok",
-          "detail": "bufferMessageForAgent on mention/broadcast. server/src/index.ts:980-1015"
-        }
-      ]
-    },
-    {
-      "id": "flow_file_lock",
-      "label": "File locking (claim / conflict / release)",
-      "summary": "Claims conflict-check against cross-agent locks, append to ChronLog for replay, release deletes own locks.",
-      "steps": [
-        {
-          "from": "ep_files_claim",
-          "to": "store_file_locks",
-          "label": "409 on cross-agent lock conflict",
-          "status": "ok",
-          "detail": "conflicts on existing lock w/ different agent to 409. server/src/index.ts:1072-1093"
-        },
-        {
-          "from": "ep_files_claim",
-          "to": "svc_chronlog",
-          "label": "append file_claim (replay-restored)",
-          "status": "ok",
-          "detail": "append type file_claim. server/src/index.ts:1072-1109"
-        },
-        {
-          "from": "ep_files_release",
-          "to": "store_file_locks",
-          "label": "release own locks + append file_release",
-          "status": "ok",
-          "detail": "delete own locks + append. server/src/index.ts:1115-1139"
-        }
-      ]
-    },
-    {
-      "id": "flow_pvm",
-      "label": "PVM indexing + search + analytics",
-      "summary": "ChronLog events get indexed into the active local store; search is cosine over real embeddings; analytics are outcome-derived (real).",
-      "steps": [
-        {
-          "from": "svc_chronlog",
-          "to": "svc_pvm_indexer",
-          "label": "background indexNewEvents (10s loop)",
-          "status": "ok",
-          "detail": "startIndexing(10000) to indexNewEvents query+batchStore. server/src/index.ts:1596, services/PVMIndexer.ts:100"
-        },
-        {
-          "from": "svc_pvm_indexer",
-          "to": "svc_local_vector",
-          "label": "scope/project tag to batchStore",
-          "status": "ok",
-          "detail": "classifyScope + extractProjectName + buildEmbeddingText. services/PVMIndexer.ts:177"
-        },
-        {
-          "from": "ep_pvm_search",
-          "to": "svc_local_vector",
-          "label": "real all-MiniLM-L6-v2 cosine search",
-          "status": "ok",
-          "detail": "pvmIndexer.search to vectorStore.search cosine; realEmbed via @xenova/transformers. server/src/index.ts:1178, services/LocalEmbeddingVectorStore.ts:151"
-        },
-        {
-          "from": "ep_pvm_profile",
-          "to": "svc_local_vector",
-          "label": "getAgentProfile \u2014 REAL outcome-derived metrics",
-          "status": "ok",
-          "detail": "joins task_assigned/completed/validated by taskId; ZERO Math.random in this file. server/src/index.ts:1225, services/LocalEmbeddingVectorStore.ts:273"
-        }
-      ]
-    },
-    {
-      "id": "flow_replay",
-      "label": "Event-sourcing replay (startup)",
-      "summary": "Startup restores all in-memory state from the append-only ChronLog, then starts indexing, guarded by a PID file.",
-      "steps": [
-        {
-          "from": "lifecycle_startup",
-          "to": "svc_chronlog",
-          "label": "initialize + restoreFromLog",
-          "status": "ok",
-          "detail": "chronologicalLog.initialize().then(restoreFromLog). server/src/index.ts:1582, services/ChronologicalLog.ts:472"
-        },
-        {
-          "from": "svc_chronlog",
-          "to": "svc_task_coordinator",
-          "label": "restoreTasks / restoreAgents",
-          "status": "ok",
-          "detail": "per-type case rebuilds in-memory state; dev_reset voids prior events. server/src/index.ts:1586-1590, services/ChronologicalLog.ts:500"
-        },
-        {
-          "from": "lifecycle_startup",
-          "to": "data_pid_file",
-          "label": "PID guard: exit if live duplicate",
-          "status": "ok",
-          "detail": "process.kill(otherPid,0) to exit(1) if alive. server/src/index.ts:1603"
-        }
-      ]
-    },
-    {
-      "id": "flow_socket_vestigial",
-      "label": "Socket.io path (REST is live; dashboard handlers vestigial)",
-      "summary": "Socket registration/create/message handlers exist, but the dashboard pull handlers have no shipped consumer; the orchestrator drives REST /api/log.",
-      "steps": [
-        {
-          "from": "sock_register_agent",
-          "to": "svc_agent_registry",
-          "label": "socket registration",
-          "status": "ok",
-          "detail": "registerAgent w/ socketId. server/src/index.ts:1305"
-        },
-        {
-          "from": "sock_create_task",
-          "to": "svc_task_coordinator",
-          "label": "create+assign via socket",
-          "status": "ok",
-          "detail": "createTask + assignOptimalAgent. server/src/index.ts:1363"
-        },
-        {
-          "from": "sock_dashboard_queries",
-          "to": "srv_socketio",
-          "label": "dashboard pull handlers (no live consumer)",
-          "status": "gap-found",
-          "detail": "get_project_status/get_agent_registry/get_tasks exist (server/src/index.ts:1498-1525) for a Socket.io dashboard. The shipped ACT TUI/Runner/CLI clients drive the REST surface (orchestrator polls /api/log at index.ts:1277). Code present, dashboard path effectively vestigial."
-        }
-      ]
-    },
-    {
-      "id": "flow_auth",
-      "label": "Trust boundary (no auth)",
-      "summary": "No authentication/authorization middleware exists on any route.",
-      "steps": [
-        {
-          "from": "srv_express_app",
-          "to": "srv_express_app",
-          "label": "no auth middleware on any route",
-          "status": "gap-found",
-          "detail": "Only cors()/express.static/express.json \u2014 no JWT/bearer/api-key/authorize middleware anywhere in index.ts (grep jwt|bearer|authorization|api[_-]?key|authenticate returns nothing). Every endpoint is open on the bound port. server/src/index.ts:28-30"
-        }
-      ]
-    },
-    {
-      "id": "flow_human_to_planner",
-      "label": "Human to Planner turn",
-      "summary": "TUI human message routed exclusively to the Planner with autoroute budget reset and resume-context injection.",
-      "steps": [
-        {
-          "from": "orch_handleHuman",
-          "to": "orch_slidingWindow",
-          "label": "clear recentAutoRoutes + Observer hash",
-          "status": "ok",
-          "detail": "recentAutoRoutes=nil + lastObserverPromptHash empty on every human input. act-agent/internal/app/orchestrator.go:227-229"
-        },
-        {
-          "from": "orch_handleHuman",
-          "to": "orch_renderBriefCtx",
-          "label": "prepend resumeContext (first turn only)",
-          "status": "ok",
-          "detail": "if firstPlannerTurn && resumeContext != empty to prepend, clear flag. act-agent/internal/app/orchestrator.go:236-239"
-        },
-        {
-          "from": "orch_handleHuman",
-          "to": "orch_runTurn",
-          "label": "runAgentTurn planner fromHuman=true",
-          "status": "ok",
-          "detail": "o.runAgentTurn(ctx, sessionID, 'planner', text, true). act-agent/internal/app/orchestrator.go:242"
-        },
-        {
-          "from": "orch_runTurn",
-          "to": "orch_internalMarker",
-          "label": "fromHuman gate (NO marker on human turn)",
-          "status": "ok",
-          "detail": "if !fromHuman { content = InternalPromptMarker + content } \u2014 human turns stay visible. act-agent/internal/app/orchestrator.go:584-586"
-        },
-        {
-          "from": "orch_runTurn",
-          "to": "orch_turnTimeout",
-          "label": "5-min turn ctx",
-          "status": "ok",
-          "detail": "context.WithTimeout(ctx, agentTurnTimeout=5min); cancel+system msg on expiry. act-agent/internal/app/orchestrator.go:598,671"
-        }
-      ]
-    },
-    {
-      "id": "flow_intake_greenfield",
-      "label": "Greenfield INTAKE to PROJECT_BRIEF to POST",
-      "summary": "404 on project lookup runs the Planner's prompt-driven 5-question intake; PROJECT_BRIEF parsed in a later turn; POST creates the project.",
-      "steps": [
-        {
-          "from": "orch_detectState",
-          "to": "orch_struct",
-          "label": "404 to intakeMode=true",
-          "status": "ok",
-          "detail": "intakeMode = !found; greenfield branch (no existing code). act-agent/internal/app/orchestrator.go:266,324"
-        },
-        {
-          "from": "orch_struct",
-          "to": "orch_handleHuman",
-          "label": "5-question conversation",
+          "from": "planner",
+          "to": "human",
+          "label": "summarize \u2192 'Ready to start?' \u2192 STOP",
           "status": "prompt-only",
-          "detail": "Intake instructions live in the Planner static prompt (internal/llm/prompt/planner.go); the orchestrator only watches output \u2014 no per-turn injection. act-agent/internal/app/orchestrator.go:573-575 comment confirms this."
+          "detail": "The hard-stop rule \u2014 summarize, ask 'Ready to start?', end the turn, and emit PROJECT_BRIEF only in the NEXT turn after explicit confirmation \u2014 is prompt text at planner.go:45; nothing in code enforces the turn separation."
         },
         {
-          "from": "orch_msgOwnership",
-          "to": "orch_handleBrief",
-          "label": "intakeMode to handleProjectBrief",
+          "from": "planner",
+          "to": "tui",
+          "label": "emit 'PROJECT_BRIEF: {json}' marker in reply text",
           "status": "ok",
-          "detail": "if intake { go handleProjectBrief; continue } \u2014 CREATE_TASK ignored during intake. act-agent/internal/app/orchestrator.go:1207-1213"
+          "detail": "On confirmation the Planner writes the literal PROJECT_BRIEF: line (planner.go:47-48); the orchestrator's messageOwnershipLoop detects the finished Planner message and, while intakeMode is true, dispatches handleProjectBrief at orchestrator.go:1210-1212."
         },
         {
-          "from": "orch_handleBrief",
-          "to": "orch_parseBrief",
-          "label": "parse PROJECT_BRIEF JSON",
+          "from": "tui",
+          "to": "tui",
+          "label": "parseProjectBrief() extracts + parses JSON",
           "status": "ok",
-          "detail": "parseProjectBrief: marker-anchored brace-balanced extract. act-agent/internal/app/orchestrator.go:1544,3054-3073"
+          "detail": "handleProjectBrief calls parseProjectBrief(content) (orchestrator.go:1544); parseProjectBrief keys on the PROJECT_BRIEF: marker, falling back to any JSON containing successCriteria, at orchestrator.go:3050-3056."
         },
         {
-          "from": "orch_handleBrief",
-          "to": "orch_detectState",
-          "label": "POST CreateProject + clear intakeMode + fire BUILD",
+          "from": "tui",
+          "to": "act_server",
+          "label": "POST /api/projects (CreateProject)",
           "status": "ok",
-          "detail": "client.CreateProject; intakeMode=false; go fireWhenPlannerIdle(buildPrompt). act-agent/internal/app/orchestrator.go:1578,1610,1636"
+          "detail": "handleProjectBrief calls client.CreateProject(...) at orchestrator.go:1578, which POSTs to /api/projects (client.go:552-562); the server builds a ProjectRecord and stores it in the projects map at index.ts:383-407."
+        },
+        {
+          "from": "act_server",
+          "to": "brief_store",
+          "label": "projects.set(name, project) + chronlog project_created",
+          "status": "ok",
+          "detail": "POST /api/projects writes projects.set(name, project) (index.ts:399) and appends a project_created event to the ChronologicalLog (index.ts:400-406)."
+        },
+        {
+          "from": "tui",
+          "to": "planner",
+          "label": "clear intakeMode \u2192 BUILD-mode trigger turn",
+          "status": "ok",
+          "detail": "After a successful POST the orchestrator sets intakeMode=false (orchestrator.go:1610) and fires fireWhenPlannerIdle with a renderBriefContext(\"build\", ...) prompt that switches the Planner to BUILD mode (orchestrator.go:1628-1636)."
         }
       ]
     },
     {
-      "id": "flow_intake_brownfield",
-      "label": "Brownfield INTAKE (analyze to 2 questions)",
-      "summary": "Existing code + no server record analyzes the repo, seeds a Planner 2-question intake, folds analysis into AGENTS.md.",
+      "id": "brownfield_intake",
+      "label": "Brownfield INTAKE \u2192 2-question variant \u2192 project creation",
+      "summary": "When detectProjectState finds no server project record but the directory has existing code, the orchestrator flips a brownfield flag, runs a deterministic scaffold + researcher enrichment to produce a codebase analysis, stashes it, and seeds the Planner with a 'CODEBASE ANALYSIS' intake turn. The Planner runs a 2-question variant (prompt-only) instead of the 5Q form, then follows the same PROJECT_BRIEF \u2192 POST /api/projects path; the stashed analysis is folded into AGENTS.md as a '## Codebase analysis' section. Detection, analysis pipeline, the CODEBASE ANALYSIS label, the POST, and the AGENTS.md fold are code-enforced; the 2-question conversation is prompt-only.",
       "steps": [
         {
-          "from": "orch_detectState",
-          "to": "orch_hasCode",
-          "label": "no record + hasExistingCode",
+          "from": "human",
+          "to": "act_server",
+          "label": "detectProjectState \u2192 GET /api/projects/:name = 404 + existing code",
           "status": "ok",
-          "detail": "if hasExistingCode(projectDir) { brownfield=true }. act-agent/internal/app/orchestrator.go:317-322"
+          "detail": "detectProjectState calls client.GetProject(name) (orchestrator.go:260); on not-found it checks hasExistingCode(projectDir) and sets o.brownfield=true at orchestrator.go:317-320. GET /api/projects/:name returns 404 for an unknown project at index.ts:414-416."
         },
         {
-          "from": "orch_start",
-          "to": "orch_brownfieldOnboard",
-          "label": "go runBrownfieldOnboard",
+          "from": "tui",
+          "to": "tui",
+          "label": "deterministicScaffold + researcher enrichment \u2192 analysis",
           "status": "ok",
-          "detail": "if brown { go o.runBrownfieldOnboard(ctx) }. act-agent/internal/app/orchestrator.go:193-198"
+          "detail": "runBrownfieldOnboard builds the analysis via deterministicScaffold (orchestrator.go:355, runs `act codebase onboard` at :401) then runResearcherEnrichment (orchestrator.go:363), stashing the result in o.codebaseAnalysis at orchestrator.go:379-381."
         },
         {
-          "from": "orch_brownfieldOnboard",
-          "to": "orch_scaffold",
-          "label": "deterministic scaffold (20s)",
+          "from": "tui",
+          "to": "planner",
+          "label": "seed 'CODEBASE ANALYSIS' intake turn (fireWhenPlannerIdle)",
           "status": "ok",
-          "detail": "self `codebase onboard --dir`. act-agent/internal/app/orchestrator.go:355,392-408"
+          "detail": "renderBrownfieldIntake emits a turn carrying the literal CODEBASE ANALYSIS block (orchestrator.go:530-539) and fireWhenPlannerIdle delivers it to the Planner at orchestrator.go:387."
         },
         {
-          "from": "orch_brownfieldOnboard",
-          "to": "orch_enrich",
-          "label": "researcher enrichment (backend-aware, degrades)",
-          "status": "ok",
-          "detail": "runResearcherEnrichment; claude-code subprocess vs in-process; falls back to scaffold. act-agent/internal/app/orchestrator.go:361-369,415-430"
-        },
-        {
-          "from": "orch_brownfieldOnboard",
-          "to": "orch_renderBrownfieldIntake",
-          "label": "seed Planner (2 questions, hard-stop)",
+          "from": "planner",
+          "to": "human",
+          "label": "2-question variant (build-next? + don't-touch?)",
           "status": "prompt-only",
-          "detail": "Question text + 'Do NOT emit PROJECT_BRIEF in that same message' hard-stop is prompt instruction the Planner LLM must obey; orchestrator only injects the [SYSTEM] turn. act-agent/internal/app/orchestrator.go:530-541"
+          "detail": "The brownfield branch \u2014 skip the 5Q form, present analysis, ask only (1) what to build/change next and (2) what agents must NOT touch \u2014 is prompt text keyed on the 'CODEBASE ANALYSIS' block at planner.go:43; same 'Ready to start?' hard stop applies."
         },
         {
-          "from": "orch_handleBrief",
-          "to": "orch_renderAgentsMd",
-          "label": "fold analysis into CodebaseNotes",
+          "from": "planner",
+          "to": "tui",
+          "label": "emit 'PROJECT_BRIEF: {json}' (techStack from analysis)",
           "status": "ok",
-          "detail": "brief.CodebaseNotes = o.codebaseAnalysis to '## Codebase analysis' section. act-agent/internal/app/orchestrator.go:1569; agents_md.go:31-33"
+          "detail": "Confirmation routes through the same intakeMode path: messageOwnershipLoop \u2192 handleProjectBrief at orchestrator.go:1210-1212; the brownfield branch keeps intakeMode true so the brief uses the shared handler (orchestrator.go:383-384)."
+        },
+        {
+          "from": "tui",
+          "to": "act_server",
+          "label": "POST /api/projects (CreateProject)",
+          "status": "ok",
+          "detail": "handleProjectBrief calls client.CreateProject (orchestrator.go:1578 \u2192 client.go:552) hitting POST /api/projects which stores the ProjectRecord (index.ts:383-407) \u2014 identical to greenfield."
+        },
+        {
+          "from": "tui",
+          "to": "brief_store",
+          "label": "fold analysis into AGENTS.md '## Codebase analysis'",
+          "status": "ok",
+          "detail": "Before POSTing, handleProjectBrief sets brief.CodebaseNotes = o.codebaseAnalysis (orchestrator.go:1569); writeAgentsMd renders it as a '## Codebase analysis' section when non-empty at agents_md.go:31-32."
         }
       ]
     },
     {
-      "id": "flow_brief_to_agentsmd",
-      "label": "Brief to AGENTS.md to Tier-1 rebind",
-      "summary": "Accepted brief materializes AGENTS.md+CLAUDE.md (unfenced) and rebinds Tier-1 prompts \u2014 but rebind is skipped on write failure and unrecovered if a role is busy.",
+      "id": "decompose_dispatch",
+      "label": "Decompose \u2192 CREATE_TASK dispatch \u2192 lazy swarm spawn",
+      "summary": "In BUILD mode the Planner decomposes the brief into 3-8 tasks and emits CREATE_TASK: text markers. The orchestrator's messageOwnershipLoop parses + content-hash-dedups them, lazily spawns the Tier-2 swarm (one Node act-runner.mjs per requested role) on the first batch, then POSTs each task to /api/tasks where the server creates it and runs assignOptimalAgent for capability-based routing. Two-pass dependency resolution PATCHes title-string deps to server IDs. Decomposition rules are prompt-only; parsing, dedup, spawn, POST, assignment, and dep-resolution are code-enforced.",
       "steps": [
         {
-          "from": "orch_handleBrief",
-          "to": "orch_writeAgentsMd",
-          "label": "write AGENTS.md + CLAUDE.md",
-          "status": "ok",
-          "detail": "writeAgentsMd(dir,name,brief). act-agent/internal/app/orchestrator.go:1589; agents_md.go:75-98"
-        },
-        {
-          "from": "orch_renderAgentsMd",
-          "to": "orch_writeAgentsMd",
-          "label": "interpolate brief fields (unfenced)",
-          "status": "gap-found",
-          "detail": "renderAgentsMd fmt.Sprintf's raw brief fields (Description/TechStack/Constraints/CodebaseNotes) into AGENTS.md with NO escaping/fencing \u2014 auto-loaded into every Tier-1 + Tier-2 prompt and mirrored to CLAUDE.md. agents_md.go:34-61 (raw %s); preserve at agents_md.go:110-111. Write path works; injection-safety half does not."
-        },
-        {
-          "from": "orch_writeAgentsMd",
-          "to": "orch_rebind",
-          "label": "InvalidateContextCache + rebind 4 Tier-1 roles",
-          "status": "ok",
-          "detail": "On successful write (else branch): prompt.InvalidateContextCache + RebindSystemPrompt per role. act-agent/internal/app/orchestrator.go:1591-1607"
-        },
-        {
-          "from": "orch_writeAgentsMd",
-          "to": "orch_rebind",
-          "label": "write-failure SKIPS rebind",
-          "status": "gap-found",
-          "detail": "The InvalidateContextCache+RebindSystemPrompt block is INSIDE the else of `if err := writeAgentsMd(...); err != nil`. On write failure only a Warn logs (orchestrator.go:1590) and rebind never runs \u2014 Tier-1 agents keep their startup prompt with NO project context for the rest of the session, silently. act-agent/internal/app/orchestrator.go:1589-1607"
-        },
-        {
-          "from": "orch_rebind",
-          "to": "orch_histThread",
-          "label": "rebind refuses if busy (no retry)",
-          "status": "gap-found",
-          "detail": "RebindSystemPrompt returns an error when the agent is busy/mid-turn. The caller only Warn-logs that error (orchestrator.go:1603-1605) and never retries \u2014 a role busy at brief-accept time permanently misses the rebind that session. Rebind-when-idle works; the busy/failed case is unrecovered. act-agent/internal/app/orchestrator.go:1603-1605; acp/agent.go:489"
-        }
-      ]
-    },
-    {
-      "id": "flow_create_task_dispatch",
-      "label": "CREATE_TASK to dispatch",
-      "summary": "Planner CREATE_TASK directives parsed, deduped (msg.ID + 60s content hash), swarm spawned lazily, tasks created with 2-pass dependency resolution.",
-      "steps": [
-        {
-          "from": "orch_msgOwnership",
-          "to": "orch_dispatchedGuard",
-          "label": "once-only per msg.ID",
-          "status": "ok",
-          "detail": "if dispatchedMsgs[msg.ID] {continue}; set true. act-agent/internal/app/orchestrator.go:1179-1185"
-        },
-        {
-          "from": "orch_msgOwnership",
-          "to": "orch_handleTaskDirectives",
-          "label": "planner+!intake to handlePlannerTaskDirectives",
-          "status": "ok",
-          "detail": "go handlePlannerTaskDirectives. act-agent/internal/app/orchestrator.go:1214"
-        },
-        {
-          "from": "orch_handleTaskDirectives",
-          "to": "orch_parseCreateTask",
-          "label": "parse markers + tasks-block",
-          "status": "ok",
-          "detail": "parseCreateTaskDirectives: per-marker balanced braces + {tasks:[]} fallback. act-agent/internal/app/orchestrator.go:1671-1672,2988-3048"
-        },
-        {
-          "from": "orch_handleTaskDirectives",
-          "to": "orch_batchHash",
-          "label": "60s content-hash dedup",
-          "status": "ok",
-          "detail": "taskBatchHash + checkAndRecordDispatchHash; drop re-emitted batch. act-agent/internal/app/orchestrator.go:1696-1713,1829-1868"
-        },
-        {
-          "from": "orch_handleTaskDirectives",
-          "to": "orch_lazySpawn",
-          "label": "first batch to spawn swarm (filtered)",
-          "status": "ok",
-          "detail": "if SwarmSpecs>0 && !runnerSpawner.IsRunning() to StartSwarm(filterSwarmSpecsByProject). act-agent/internal/app/orchestrator.go:1730-1740,1926-1964"
-        },
-        {
-          "from": "orch_handleTaskDirectives",
-          "to": "orch_depResolve",
-          "label": "2-pass create + dep PATCH",
-          "status": "ok",
-          "detail": "Pass1 CreateTask(empty deps)+titleToID; Pass2 SetTaskDependencies(title to ID). act-agent/internal/app/orchestrator.go:1742-1820"
-        }
-      ]
-    },
-    {
-      "id": "flow_observer",
-      "label": "Observer monitoring loop",
-      "summary": "120s anomaly scan over a parallel server snapshot; no-op gate suppresses repeats; tier1 watchdog re-triggers stuck Assurance/QA; Observer addresses @planner.",
-      "steps": [
-        {
-          "from": "orch_observerLoop",
-          "to": "orch_observerCheck",
-          "label": "120s ticker",
-          "status": "ok",
-          "detail": "observerInterval=120s. act-agent/internal/app/orchestrator.go:1977,2013"
-        },
-        {
-          "from": "orch_observerCheck",
-          "to": "orch_buildSnapshot",
-          "label": "skip if any busy; parallel server snapshot",
-          "status": "ok",
-          "detail": "if IsAnyBusy return; buildStatusSnapshot 4 goroutines tasks/agents/locks/log. act-agent/internal/app/orchestrator.go:2043-2054,2209-2260"
-        },
-        {
-          "from": "orch_observerCheck",
-          "to": "orch_tier1Watchdog",
-          "label": "watchdog re-triggers stuck Tier-1",
-          "status": "ok",
-          "detail": "if tier1Watchdog returns true, skip Observer LLM this cycle. act-agent/internal/app/orchestrator.go:2070-2072,2146-2205"
-        },
-        {
-          "from": "orch_observerCheck",
-          "to": "orch_detectAnomalies",
-          "label": "7-rule anomaly detection",
-          "status": "ok",
-          "detail": "detectAnomalies; empty to reset gate + 4th-cycle health ping. act-agent/internal/app/orchestrator.go:2074-2096,2285-2502"
-        },
-        {
-          "from": "orch_observerCheck",
-          "to": "orch_anomalySig",
-          "label": "no-op gate (signature unchanged to skip)",
-          "status": "ok",
-          "detail": "sha256(anomalySignature); skip if == lastObserverPromptHash. act-agent/internal/app/orchestrator.go:2112-2128"
-        },
-        {
-          "from": "orch_observerCheck",
-          "to": "orch_buildObserverPrompt",
-          "label": "Observer addresses @planner, no decisions",
+          "from": "planner",
+          "to": "planner",
+          "label": "decompose brief into 3-8 tasks (@task/@success_criteria)",
           "status": "prompt-only",
-          "detail": "'Write a SHORT message to the Planner... Do NOT make decisions yourself' \u2014 behavior is prompt-instruction; code only injects the text. act-agent/internal/app/orchestrator.go:2538-2549"
+          "detail": "Step 2 of basePlannerPrompt instructs decomposition into 3-8 tasks each using only @task and @success_criteria SPIL sections, with role/capability matching rules, at planner.go:85-96."
         },
         {
-          "from": "orch_msgOwnership",
-          "to": "orch_autoRouteV",
-          "label": "Observer output to autoroute(Anomaly)",
+          "from": "planner",
+          "to": "tui",
+          "label": "emit 'CREATE_TASK: {json}' markers in reply text",
           "status": "ok",
-          "detail": "observer role to variantAnomaly autoRoutePlannerV. act-agent/internal/app/orchestrator.go:1216-1251"
+          "detail": "The Planner writes CREATE_TASK: lines as plain reply text (planner.go:95-96); when not in intake mode messageOwnershipLoop dispatches handlePlannerTaskDirectives at orchestrator.go:1214."
+        },
+        {
+          "from": "tui",
+          "to": "tui",
+          "label": "parseCreateTaskDirectives + content-hash dedup",
+          "status": "ok",
+          "detail": "handlePlannerTaskDirectives calls parseCreateTaskDirectives (orchestrator.go:1672; brace-counting parser at :2988) then taskBatchHash + checkAndRecordDispatchHash to drop duplicate re-emitted batches at orchestrator.go:1696-1713."
+        },
+        {
+          "from": "tui",
+          "to": "runner",
+          "label": "lazy StartSwarm on first batch (spawn node act-runner.mjs/role)",
+          "status": "ok",
+          "detail": "On the first batch, if the runner isn't already running, the orchestrator filters specs by the project's agentsInvolved and calls runnerSpawner.StartSwarm (orchestrator.go:1730-1739); StartSwarm spawns one `node act-runner.mjs --agent-id \u2026 --role \u2026` subprocess per spec (spawner.go:58-92, exec.Command at :123)."
+        },
+        {
+          "from": "tui",
+          "to": "act_server",
+          "label": "POST /api/tasks per task (CreateTask)",
+          "status": "ok",
+          "detail": "For each parsed task the orchestrator calls client.CreateTask (orchestrator.go:1783) \u2192 POST /api/tasks (client.go:341-350); the server fail-closes on empty title/description then taskCoordinator.createTask(req.body) at index.ts:516-532."
+        },
+        {
+          "from": "act_server",
+          "to": "task_store",
+          "label": "createTask + assignOptimalAgent (capability routing)",
+          "status": "ok",
+          "detail": "POST /api/tasks stores the task and, when no agent is pre-assigned, calls taskCoordinator.assignOptimalAgent(task.id) to capability-match it to a registered runner, emitting task_assigned, at index.ts:532-560."
+        },
+        {
+          "from": "tui",
+          "to": "act_server",
+          "label": "Pass 2: PATCH /api/tasks/:id/dependencies (title\u2192ID)",
+          "status": "ok",
+          "detail": "Because the Planner can only name deps by title, a second pass resolves sibling titles to server-assigned IDs and calls client.SetTaskDependencies (orchestrator.go:1799-1813) \u2192 PATCH /api/tasks/:id/dependencies (client.go:375-383)."
         }
       ]
     },
     {
-      "id": "flow_observer_orphan",
-      "label": "Orphaned-pending detection (3-way)",
-      "summary": "Ready pending tasks aged past threshold classified by capable-agent availability into wedged / unresponsive / unservable.",
+      "id": "swarm_execute",
+      "label": "Swarm task execution (spawn \u2192 bootstrap \u2192 complete \u2192 submit-for-validation)",
+      "summary": "Runner is spawned by the orchestrator on the first CREATE_TASK batch (one Node process per swarm role). Each runner self-registers, polls /api/tasks/assigned, and on a hit spawns the swarm agent (act-agent headless or claude-code). Self-bootstrap is NOT via `act context`: the runner fetches the brief over HTTP and injects it into the prompt directly. The swarm agent does the work, then the RUNNER (not the agent) calls /complete and /submit-for-validation over HTTP \u2014 the in-prompt `act task complete` text is prompt-only redundancy.",
       "steps": [
         {
-          "from": "orch_detectAnomalies",
-          "to": "orch_detectAnomalies",
-          "label": "deps-satisfied + aged > pendingStuckMinutes(2)",
+          "from": "tui",
+          "to": "runner",
+          "label": "spawn one Node process per swarm role (StartSwarm)",
           "status": "ok",
-          "detail": "skip if age<=2 or !depsSatisfied. act-agent/internal/app/orchestrator.go:1985,2438"
+          "detail": "Orchestrator.handlePlannerTaskDirectives calls o.runnerSpawner.StartSwarm(specs) on the CREATE_TASK batch (internal/app/orchestrator.go:1737); Spawner.startOneLocked runs exec.Command(nodeBin, scriptPath, --agent-id, --name, --role, --backend) (internal/runner/spawner.go:113-122).",
+          "detail_extra": ""
         },
         {
-          "from": "orch_detectAnomalies",
-          "to": "orch_detectAnomalies",
-          "label": "online capable to assignment_wedged",
+          "from": "runner",
+          "to": "act_server",
+          "label": "POST /api/agents/register (self-register, 409 self-heal)",
           "status": "ok",
-          "detail": "onlineCapable to CategoryAssignmentWedged. act-agent/internal/app/orchestrator.go:2463-2468"
+          "detail": "runner register() posts /api/agents/register, deregisters+retries on HTTP 409 stale registration (act-agent/runner/act-runner.mjs:129-154); server handler at server/src/index.ts:265.",
+          "detail_extra": ""
         },
         {
-          "from": "orch_detectAnomalies",
-          "to": "orch_detectAnomalies",
-          "label": "no capable agent to unservable_task",
+          "from": "runner",
+          "to": "act_server",
+          "label": "poll GET /api/tasks/assigned?agent_id&project (5s loop)",
           "status": "ok",
-          "detail": "default to CategoryUnservableTask (Planner must spawn role). act-agent/internal/app/orchestrator.go:2484"
-        }
-      ]
-    },
-    {
-      "id": "flow_validation_orch",
-      "label": "Validation to Assurance verdict (fail-closed)",
-      "summary": "Pending-validation tasks routed one-at-a-time to Assurance; verdict parsed at the 95% gate with a fail-closed empty-criteria backstop (Fix 23).",
-      "steps": [
-        {
-          "from": "orch_validationLoop",
-          "to": "orch_checkValidation",
-          "label": "10s ticker + seen/attempt gating (>3 escalate)",
-          "status": "ok",
-          "detail": "validationPollPeriod=10s; alreadySeen + incAttempt; >maxValidationAttempts(3) to escalate(SystemEscalation). act-agent/internal/app/orchestrator.go:1991,2590-2606"
+          "detail": "runner getTask() GETs /api/tasks/assigned scoped to agent_id+project in the coordination loop (act-agent/runner/act-runner.mjs:162-169, loop at 808-810); server route server/src/index.ts:590.",
+          "detail_extra": ""
         },
         {
-          "from": "orch_checkValidation",
-          "to": "orch_routeToAssurance",
-          "label": "route one task to Assurance",
+          "from": "runner",
+          "to": "swarm_developer",
+          "label": "spawn act-agent --agent --role --prompt (or claude-code)",
           "status": "ok",
-          "detail": "routeToAssurance; break (one at a time). act-agent/internal/app/orchestrator.go:2608-2609"
+          "detail": "runAgentActAgent execFile(AGENT_CLI, [--agent, AGENT_ID, --role, AGENT_ROLE, --prompt, prompt]) (act-agent/runner/act-runner.mjs:235-240); runAgent picks claude-code vs act-agent by BACKEND (227-232). Recipient role is whichever of developer/frontend/backend/qa/researcher this runner was spawned as.",
+          "detail_extra": ""
         },
         {
-          "from": "orch_routeToAssurance",
-          "to": "orch_buildValidationPrompt",
-          "label": "per-criterion view/grep verification prompt",
-          "status": "ok",
-          "detail": "buildValidationPrompt: per-criterion tool protocol, report=locator-not-evidence. act-agent/internal/app/orchestrator.go:2618,3141-3171"
+          "from": "runner",
+          "to": "swarm_developer",
+          "label": "inject AGENTS.md brief into prompt (NOT `act context`)",
+          "status": "gap-found",
+          "detail": "CLAUDE.md claims swarm self-bootstrap via `act-agent context <id>`, but the runner never calls `act context` (no such call in act-runner.mjs). Instead fetchAgentBrief() GETs /api/projects/:name/briefs/:agentId and buildTaskPrompt prepends it as `## Project Brief` (act-agent/runner/act-runner.mjs:543-545, 557, 614). Equivalent outcome, different mechanism than documented.",
+          "detail_extra": ""
         },
         {
-          "from": "orch_routeToAssurance",
-          "to": "orch_parseVerdict",
-          "label": "parse last Assurance message",
-          "status": "ok",
-          "detail": "reads last assurance-owned msg to parseValidationVerdict. act-agent/internal/app/orchestrator.go:2628-2651"
-        },
-        {
-          "from": "orch_parseVerdict",
-          "to": "orch_parseVerdict",
-          "label": "passThreshold=95 gate + FAIL-CLOSED empty criteria",
-          "status": "ok",
-          "detail": "Passed = OverallScore>=passThreshold(95) && !emptyCriteria; empty-criteria 100% becomes FAIL with re-emit gaps (Fix 23 / Round-6 #1). act-agent/internal/app/orchestrator.go:3094-3122"
-        },
-        {
-          "from": "orch_routeToAssurance",
-          "to": "orch_checkValidation",
-          "label": "SubmitVerdict to markSeen only on accept",
-          "status": "ok",
-          "detail": "markSeen after SubmitVerdict succeeds; parse/HTTP failure leaves task retryable. act-agent/internal/app/orchestrator.go:2662-2670"
-        }
-      ]
-    },
-    {
-      "id": "flow_qa_synthesis",
-      "label": "QA synthesis + clarification routing",
-      "summary": "Validated tasks routed to QA; synthesizedAt drains the queue; NEED_CLARIFICATION to a swarm agent routes to its inbox, not the Planner.",
-      "steps": [
-        {
-          "from": "orch_qaLoop",
-          "to": "orch_checkValidated",
-          "label": "10s ticker + seen/attempt gating (>3 escalate SystemNoTask)",
-          "status": "ok",
-          "detail": "validationPollPeriod shared; >maxSynthesisAttempts(3) to escalate(variantSystemNoTask). act-agent/internal/app/orchestrator.go:2682,2717-2730"
-        },
-        {
-          "from": "orch_checkValidated",
-          "to": "orch_routeToQA",
-          "label": "route one validated task",
-          "status": "ok",
-          "detail": "routeToQA; break. act-agent/internal/app/orchestrator.go:2732-2734"
-        },
-        {
-          "from": "orch_routeToQA",
-          "to": "orch_buildSynthesisPrompt",
-          "label": "build synthesis prompt from metadata",
-          "status": "ok",
-          "detail": "ValidatedOutput from metadata.result + metadata.validationScore. act-agent/internal/app/orchestrator.go:2748-2778,3173-3185"
-        },
-        {
-          "from": "orch_routeToQA",
-          "to": "orch_parseSynthesis",
-          "label": "parse SYNTHESIS_COMPLETE / NEED_CLARIFICATION",
-          "status": "ok",
-          "detail": "parseSynthesisResponse to complete/need_clarification/in_progress. act-agent/internal/app/orchestrator.go:2798-2804,3128-3137"
-        },
-        {
-          "from": "orch_taskSynthesized",
-          "to": "orch_tier1Watchdog",
-          "label": "synthesizedAt drains queue",
-          "status": "ok",
-          "detail": "metadata.synthesizedAt excludes already-shipped from QA poll AND watchdog (status stays 'validated'). act-agent/internal/app/orchestrator.go:1017-1023,2158-2166"
-        },
-        {
-          "from": "orch_msgOwnership",
-          "to": "orch_qaClarification",
-          "label": "NEED_CLARIFICATION:@swarm to agent inbox, suppress Planner",
-          "status": "ok",
-          "detail": "maybeRouteQAClarification forwards to addressee, returns true to skip autoroute; Planner-addressed falls through. act-agent/internal/app/orchestrator.go:1226-1230,2840-2866"
-        }
-      ]
-    },
-    {
-      "id": "flow_autoroute",
-      "label": "Tier-1 to Planner autoroute (5 variants)",
-      "summary": "Non-Planner Tier-1 messages forwarded into Planner turns with variant-shaped prompts, capped by a wall-clock sliding window cleared on human input.",
-      "steps": [
-        {
-          "from": "orch_autoRouteV",
-          "to": "orch_slidingWindow",
-          "label": "prune + cap 5/10min",
-          "status": "ok",
-          "detail": "pruneAutoRoutes; drop if len>=autoTurnCap(5) within autoRouteWindow(10min). act-agent/internal/app/orchestrator.go:1319-1331"
-        },
-        {
-          "from": "orch_autoRouteV",
-          "to": "orch_autoRouteVariants",
-          "label": "render variant prompt",
-          "status": "ok",
-          "detail": "renderAutoRoutePrompt switch over 5 variants. act-agent/internal/app/orchestrator.go:1345,1356-1413"
-        },
-        {
-          "from": "orch_autoRouteVariants",
-          "to": "orch_runTurn",
-          "label": "variant shapes Planner affordances",
+          "from": "swarm_developer",
+          "to": "act_server",
+          "label": "prompt-instructed `act files claim` / `act task complete`",
           "status": "prompt-only",
-          "detail": "Each variant body (PASS=stay silent, SystemEscalation=retry/abandon menu, etc.) is prompt text the Planner LLM must follow; code only selects+injects. act-agent/internal/app/orchestrator.go:1356-1413"
+          "detail": "buildTaskPrompt's Workflow text tells the LLM to run `act files claim`, `act task complete`, `act files release` (act-agent/runner/act-runner.mjs:699-706). These are instructions in prompt text \u2014 the swarm agent may or may not execute them; the authoritative completion is the runner's own HTTP call below.",
+          "detail_extra": ""
         },
         {
-          "from": "orch_handleHuman",
-          "to": "orch_slidingWindow",
-          "label": "human input clears window (asymmetric)",
+          "from": "runner",
+          "to": "act_server",
+          "label": "POST /api/tasks/:id/complete (code-enforced, on process exit)",
           "status": "ok",
-          "detail": "recentAutoRoutes=nil on HandleHumanInput \u2014 Planner replies don't autoroute. act-agent/internal/app/orchestrator.go:228"
+          "detail": "reportComplete() posts /api/tasks/${taskId}/complete with agentId/success/result regardless of whether the agent self-reported (act-agent/runner/act-runner.mjs:181-186); server route server/src/index.ts:708.",
+          "detail_extra": ""
+        },
+        {
+          "from": "runner",
+          "to": "act_server",
+          "label": "POST /api/tasks/:id/submit-for-validation (on success)",
+          "status": "ok",
+          "detail": "reportComplete() then posts /api/tasks/${taskId}/submit-for-validation when success is true, feeding the Assurance/QA pipeline (act-agent/runner/act-runner.mjs:191-200); server route server/src/index.ts:838.",
+          "detail_extra": ""
         }
       ]
     },
     {
-      "id": "flow_coord_events",
-      "label": "Coordination events to chat",
-      "summary": "3s poll of /api/log surfaces lifecycle events as chat lines; bursts collapse to a summary; task failures autoroute to the Planner.",
+      "id": "file_locking",
+      "label": "File locking (claim / release)",
+      "summary": "File locking is prompt-only on the swarm side: the runner tells the swarm agent to run `act files claim`/`release`, and the act-agent CLI implements those as POST /api/files/claim and /release. There is no runner-side enforcement that the agent actually claims before editing \u2014 claiming depends on the LLM following the workflow text.",
       "steps": [
         {
-          "from": "orch_coordEventLoop",
-          "to": "orch_pollCoordEvents",
-          "label": "3s ticker",
-          "status": "ok",
-          "detail": "coordinationEventInterval=3s; seed lastCoordEventAt=now. act-agent/internal/app/orchestrator.go:686,696-719"
+          "from": "swarm_developer",
+          "to": "act_server",
+          "label": "prompt-instructed `act files claim <paths>` \u2192 POST /api/files/claim",
+          "status": "prompt-only",
+          "detail": "The claim step exists only as Workflow prompt text the LLM is asked to run (act-agent/runner/act-runner.mjs:699). If the agent runs it, cli/act-cli.ts dispatches `files claim` \u2192 cmdFilesClaim \u2192 client POST /api/files/claim (cli/act-cli.ts:1191; client internal/act/client.go:166-173; server route server/src/index.ts:1072).",
+          "detail_extra": ""
         },
         {
-          "from": "orch_pollCoordEvents",
-          "to": "orch_formatCoordEvent",
-          "label": "emit per-event chat line",
-          "status": "ok",
-          "detail": "non-batch: formatCoordEvent to emitSystemMessage chronological. act-agent/internal/app/orchestrator.go:778-782,851-891"
-        },
-        {
-          "from": "orch_pollCoordEvents",
-          "to": "orch_emitSystem",
-          "label": "batch mode >8 events to summary",
-          "status": "ok",
-          "detail": "batchMode = newEventCount > coordEventFloodThreshold(8); single summary line. act-agent/internal/app/orchestrator.go:765,826-834"
-        },
-        {
-          "from": "orch_pollCoordEvents",
-          "to": "orch_autoRouteV",
-          "label": "task_failed to autoroute(SystemEscalation)",
-          "status": "ok",
-          "detail": "non-batch each failure autoroutes; batch collapses to one. act-agent/internal/app/orchestrator.go:790-824"
+          "from": "swarm_developer",
+          "to": "act_server",
+          "label": "prompt-instructed `act files release <paths>` \u2192 POST /api/files/release",
+          "status": "prompt-only",
+          "detail": "Release is likewise prompt text, with an auto-release-on-complete fallback noted in the prompt (act-agent/runner/act-runner.mjs:706). CLI branch `files release` \u2192 client POST /api/files/release (cli/act-cli.ts:1205; internal/act/client.go:182-188; server route server/src/index.ts:1115).",
+          "detail_extra": ""
         }
       ]
     },
     {
-      "id": "flow_notebooks_visibility",
-      "label": "Per-agent notebooks + internal-prompt hiding",
-      "summary": "Each in-process Tier-1 role stamps its role-name threadID; HistoryMode scopes what it sees; injected turns carry the marker and stay hidden from the human.",
+      "id": "tier1_backend_dispatch",
+      "label": "Tier 1 backend dispatch (in-process goroutine vs ACP host)",
+      "summary": "Each Tier-1 role (planner/observer/assurance/qa) is wired once at app.New() by a single switch on agents.<role>.backend in ~/.act.json. Empty/act-agent \u2192 in-process agent.NewAgent goroutine sharing the TUI session. External hosts (claude-code, antigravity/agy; codex/opencode stubbed) \u2192 acp.NewACPAgent, which spawns the external CLI over ACP via exec.Command. The /backend slash command flips the config.",
       "steps": [
         {
-          "from": "orch_app",
-          "to": "orch_histThread",
-          "label": "Planner to HistoryThread, others HistoryNone",
+          "from": "tui",
+          "to": "planner",
+          "label": "default branch \u2192 agent.NewAgent (in-process goroutine)",
           "status": "ok",
-          "detail": "histMode=HistoryThread for planner; HistoryNone otherwise; role passed as threadID. act-agent/internal/app/app.go:128-137"
+          "detail": "app.New() switch default case builds Tier1ToolsForRole + agent.NewAgent with HistoryThread for planner, HistoryNone for observer/assurance/qa (internal/app/app.go:104,110-137). These run in-process; HandleHumanInput \u2192 runAgentTurn \u2192 agentSvc.Run (orchestrator.go:242, 601).",
+          "detail_extra": ""
         },
         {
-          "from": "orch_histThread",
-          "to": "orch_runTurn",
-          "label": "scopedHistory filters by threadID",
+          "from": "tui",
+          "to": "acp_host",
+          "label": "case claude-code/antigravity/agy/codex/opencode \u2192 acp.NewACPAgent",
           "status": "ok",
-          "detail": "HistoryThread to only msgs where ThreadID==threadID; HistoryNone to current prompt only. act-agent/internal/llm/agent/agent.go:155-162"
+          "detail": "Same app.New() switch: backendChoice from cfg.Agents[agentName].Backend; case for external hosts calls acp.NewACPAgent(role, backendChoice, withShim, ...) (internal/app/app.go:90-110). ACP layer spawns the host via exec.Command \u2014 claudeCodeDefaults() or antigravityCLIDefaults(); codex/opencode return unimplemented (internal/acp/agent.go:547-557,561).",
+          "detail_extra": ""
         },
         {
-          "from": "orch_runTurn",
-          "to": "orch_internalMarker",
-          "label": "mark injected turns",
+          "from": "acp_host",
+          "to": "planner",
+          "label": "external CLI drives the role's turns over ACP (Run)",
           "status": "ok",
-          "detail": "!fromHuman to InternalPromptMarker prefix. act-agent/internal/app/orchestrator.go:584-586"
-        },
-        {
-          "from": "orch_internalMarker",
-          "to": "orch_emitSystem",
-          "label": "chat list hides marked user msgs",
-          "status": "ok",
-          "detail": "list.go skips msgs with marker prefix; LLM still sees full content. act-agent/internal/tui/components/chat/list.go:308-313"
+          "detail": "ACPAgent.Run satisfies the same agent.Service contract as the in-process path, so orchestrator routing is backend-agnostic; per-role CLI allowlist enforced via the tier1 shim path (internal/acp/agent.go:182-186; withTier1ShimPath in app.go:108). Any Tier-1 role (planner/observer/assurance/qa) can be the dispatched role.",
+          "detail_extra": ""
         }
       ]
     },
     {
-      "id": "flow_tier1_backend_dispatch",
-      "label": "Tier-1 role to backend selection",
-      "summary": "app.New() resolves each Tier-1 role's backend from ~/.act.json and wires either an ACP subprocess or an in-process LLM agent; antigravity/agy are live but uncommitted.",
+      "id": "intake_dispatch",
+      "label": "Human \u2192 Planner \u2192 Server \u2192 Runner (intake + task dispatch framing)",
+      "summary": "Frames the swarm flow: human input goes ONLY to the Planner; the Planner emits PROJECT_BRIEF (intake) and CREATE_TASK (build) markers that the orchestrator parses and turns into REST calls (CreateProject, CreateTask). Other Tier-1 agents reach the Planner via InternalPromptMarker autoroute, never the human directly.",
       "steps": [
         {
-          "from": "app_tier1_switch",
-          "to": "agent_config_for_role",
-          "label": "resolve config key (developer fallback for MODEL only)",
+          "from": "human",
+          "to": "planner",
+          "label": "HandleHumanInput \u2192 runAgentTurn(planner, fromHuman=true)",
           "status": "ok",
-          "detail": "backendChoice = cfg.Agents[agentName].Backend; AgentConfigForRole falls back to developer for MODEL/BACKEND, never for prompt identity. act-agent/internal/app/app.go:90-97; config.go:170-176"
+          "detail": "TUI's only human entry point routes to the Planner and clears the autoroute sliding window (internal/app/orchestrator.go:224-242). Planner is the sole role that sees human turns.",
+          "detail_extra": ""
         },
         {
-          "from": "app_tier1_switch",
-          "to": "acp_agent",
-          "label": "external host to ACP",
+          "from": "planner",
+          "to": "act_server",
+          "label": "PROJECT_BRIEF: marker \u2192 client.CreateProject \u2192 POST /api/projects",
           "status": "ok",
-          "detail": "case claude-code/antigravity/agy/codex/opencode to acp.NewACPAgent(role, backendChoice, withShim, ...). act-agent/internal/app/app.go:104-110"
+          "detail": "handleProjectBrief parses the PROJECT_BRIEF: JSON and calls client.CreateProject(...) (orchestrator.go:1542-1578); client POSTs /api/projects; server route server/src/index.ts:383. Marker is emitted only in a separate turn after human confirmation (prompt rule at orchestrator.go:537).",
+          "detail_extra": ""
         },
         {
-          "from": "app_tier1_switch",
-          "to": "orch_antigravity_uncommitted",
-          "label": "antigravity/agy to ACP (uncommitted, in flight)",
-          "status": "gap-found",
-          "detail": "UNCOMMITTED working-tree code: app.go:104 switch includes 'antigravity','agy'; acp/agent.go:549-554 buildCommand routes them to antigravityCLIDefaults to spawn `node agy-acp.mjs` (acp/antigravity_cli.go:18-19). The agy-acp.mjs shim is ?? untracked. Live in the working tree, on no committed branch \u2014 switch+spawn wired, shim file present but unversioned. act-agent/internal/app/app.go:104; internal/acp/agent.go:549-554"
+          "from": "planner",
+          "to": "act_server",
+          "label": "CREATE_TASK: marker \u2192 client.CreateTask \u2192 POST /api/tasks",
+          "status": "ok",
+          "detail": "parseCreateTaskDirectives extracts balanced-brace CREATE_TASK JSON (orchestrator.go:2988-3052), handlePlannerTaskDirectives calls client.CreateTask per task (orchestrator.go:1783; client internal/act/client.go:341-350; server route server/src/index.ts:502).",
+          "detail_extra": ""
         },
         {
-          "from": "app_tier1_switch",
-          "to": "tier1_tools_for_role",
-          "label": "empty backend to in-process LLM",
+          "from": "observer",
+          "to": "planner",
+          "label": "Tier-1 \u2192 Planner via InternalPromptMarker autoroute (\u22645/10min)",
           "status": "ok",
-          "detail": "default branch builds roleTools = agent.Tier1ToolsForRole(role,...) + histMode + agent.NewAgent. act-agent/internal/app/app.go:111-137"
-        },
-        {
-          "from": "app_tier1_switch",
-          "to": "with_tier1_shim_path",
-          "label": "enrich ACP PATH with install dir",
-          "status": "ok",
-          "detail": "withShim = withTier1ShimPath(role, acpCfg) prepends os.Executable dir. act-agent/internal/app/app.go:109,206-238"
+          "detail": "Observer/Assurance/QA outputs trigger autoRoutePlannerV; non-human prompts get InternalPromptMarker prepended so the TUI hides them (orchestrator.go:580-585,682). Observer itself runs a 120s anomaly loop (observerLoop, orchestrator.go:171,185); Assurance verdict via SubmitVerdict and QA via SubmitSynthesis after their own turns (routeToAssurance orchestrator.go:2660; routeToQA orchestrator.go:2806).",
+          "detail_extra": ""
         }
       ]
     },
     {
-      "id": "flow_acp_turn",
-      "label": "ACP backend turn lifecycle",
-      "summary": "ACPAgent spawns the host, opens a per-session ACP session, primes it once with the role prompt as a user message, then sends content-only prompts and streams chunks back.",
+      "id": "validation",
+      "label": "Validation (Assurance scoring)",
+      "summary": "Orchestrator polls the server for tasks awaiting validation every 10s, runs an Assurance turn that scores each @success_criteria with view/grep evidence, parses the JSON verdict (95% gate, fail-closed on empty criteria), and POSTs the verdict back to the server which moves the task to 'validated' (pass) or 'assigned' (fail).",
       "steps": [
         {
-          "from": "acp_agent",
-          "to": "acp_buildcommand",
-          "label": "spawn subprocess (host to argv)",
+          "from": "act_server",
+          "to": "assurance",
+          "label": "GET /api/tasks/pending-validation (10s poll)",
           "status": "ok",
-          "detail": "cmd,err := buildCommand(role, host, cfg). act-agent/internal/acp/agent.go:103,535"
+          "detail": "validationPollLoop ticks every validationPollPeriod=10s (orchestrator.go:1991,2560) and checkPendingValidation calls client.GetPendingValidation -> GET /api/tasks/pending-validation?project= (client.go:466-471; server index.ts:632), then routeToAssurance runs the Assurance turn (orchestrator.go:2608,2613)."
         },
         {
-          "from": "acp_buildcommand",
-          "to": "acp_claudecode_defaults",
-          "label": "claude-code to npx argv",
+          "from": "assurance",
+          "to": "assurance",
+          "label": "score @success_criteria via view/grep (95% gate, fail-closed)",
           "status": "ok",
-          "detail": "case 'claude-code','' to claudeCodeDefaults(). act-agent/internal/acp/agent.go:547-548; claude_code.go:22"
+          "detail": "buildValidationPrompt instructs per-criterion view/grep verification and 'Pass = score >= 95' (orchestrator.go:3147-3169); parseValidationVerdict enforces passThreshold=95 AND fails closed when criteriaResults is empty (orchestrator.go:3094-3110)."
         },
         {
-          "from": "acp_buildcommand",
-          "to": "acp_antigravity_defaults",
-          "label": "antigravity/agy to node agy-acp.mjs (uncommitted)",
-          "status": "gap-found",
-          "detail": "case 'antigravity','agy' to antigravityCLIDefaults(env) to ('node', [agyShimPath]). UNCOMMITTED: antigravity_cli.go is ?? untracked and agy-acp.mjs is ?? untracked. Wired in the working tree, absent from a fresh HEAD clone. act-agent/internal/acp/agent.go:549-554; antigravity_cli.go:18-19,31"
+          "from": "assurance",
+          "to": "act_server",
+          "label": "POST /api/tasks/:id/validation-verdict",
+          "status": "ok",
+          "detail": "routeToAssurance parses the Assurance reply and calls client.SubmitVerdict (orchestrator.go:2643,2662), which POSTs /api/tasks/:taskId/validation-verdict (client.go:572-581); the handler sets status 'validated' on pass or back to 'assigned' on fail and appends task_validated/task_validation_failed to ChronLog (index.ts:875-927)."
         },
         {
-          "from": "acp_agent",
-          "to": "acp_client",
-          "label": "initialize handshake",
+          "from": "act_server",
+          "to": "human",
+          "label": "validation event surfaced in chat (coord poll 3s)",
           "status": "ok",
-          "detail": "NewNewlineTransport + client.Initialize(). act-agent/internal/acp/agent.go:147"
-        },
-        {
-          "from": "acp_agent",
-          "to": "acp_priming_injector",
-          "label": "prime session once (user message)",
-          "status": "ok",
-          "detail": "ensureACPSession fires primingFor() as the first user message; StopReason logged. act-agent/internal/acp/agent.go:329-374"
-        },
-        {
-          "from": "acp_priming_injector",
-          "to": "make_priming_injector",
-          "label": "build priming text (role prompt + shim note)",
-          "status": "ok",
-          "detail": "makePrimingInjector to prompt.GetAgentPrompt(role, ProviderACP) wrapped by wrapPriming. act-agent/internal/app/app.go:249,277"
-        },
-        {
-          "from": "acp_runturn",
-          "to": "acp_client",
-          "label": "session/prompt content-only",
-          "status": "ok",
-          "detail": "a.client.Prompt(ctx, acpSessionID, content) \u2014 no transcript replay; ThreadID=a.role stamped on display msgs. act-agent/internal/acp/agent.go:219"
+          "detail": "coordinationEventLoop polls /api/log every coordinationEventInterval=3s (orchestrator.go:686) and renders task_validated/task_validation_failed as system chat lines '\u2705 validation passed' / '\u274c validation failed' (orchestrator.go:865-868)."
         }
       ]
     },
     {
-      "id": "flow_acp_shim_cli",
-      "label": "ACP agent to act-tier1-<role> shim to act CLI",
-      "summary": "An ACP-backed agent invokes its role shim over Bash; the shim re-enforces the per-role allowlist and execs the real binary. The whole shim path is unbootstrapped by the installer.",
+      "id": "synthesis_delivery",
+      "label": "Synthesis & delivery (QA -> Planner -> human)",
+      "summary": "Orchestrator polls the server for validated tasks, runs a QA/Synthesizer turn that assembles the deliverable and emits SYNTHESIS_COMPLETE or NEED_CLARIFICATION, POSTs the outcome to the server (stamping metadata.synthesizedAt on complete), and the QA report auto-routes into a Planner turn whose output reaches the human via the chat.",
       "steps": [
         {
-          "from": "make_priming_injector",
-          "to": "tier1_shim_bin",
-          "label": "advertise shim in priming",
+          "from": "act_server",
+          "to": "qa",
+          "label": "GET /api/tasks/validated (10s poll)",
           "status": "ok",
-          "detail": "renderShimNote lists tools.AllowedFor(role); advertises act-tier1-<role> on PATH. act-agent/internal/app/app.go:286-295"
+          "detail": "qaPollLoop ticks every 10s (orchestrator.go:2682); checkValidatedTasks calls client.GetValidatedTasks -> GET /api/tasks/validated?project= (client.go:477-482; server filters out tasks with metadata.synthesizedAt, index.ts:652-658), then routeToQA runs the QA turn (orchestrator.go:2733,2738)."
         },
         {
-          "from": "tier1_shim_bin",
-          "to": "role_subcommands",
-          "label": "enforce allowlist",
+          "from": "qa",
+          "to": "qa",
+          "label": "assemble deliverable -> SYNTHESIS_COMPLETE / NEED_CLARIFICATION",
           "status": "ok",
-          "detail": "tools.IsAllowed(role, subcommand, args...); whitelist act_cli_whitelist.go:99. act-agent/cmd/act-tier1-shim/main.go:68"
+          "detail": "buildSynthesisPrompt asks QA to integrate the validated output (orchestrator.go:3173-3177); parseSynthesisResponse extracts kind from the SYNTHESIS_COMPLETE: marker or the NEED_CLARIFICATION: @agent regex, else 'in_progress' (orchestrator.go:3128-3137); markers are the prompt contract in qa_synthesizer.go:46-51."
         },
         {
-          "from": "tier1_shim_bin",
-          "to": "tier1_shim_bin",
-          "label": "reject banned metachars",
+          "from": "qa",
+          "to": "act_server",
+          "label": "POST /api/tasks/:id/synthesis (kind=complete|need_clarification)",
           "status": "ok",
-          "detail": "bannedSubstrings list \u2014 manual mirror of act_cli.go. act-agent/cmd/act-tier1-shim/main.go:54,78-86"
+          "detail": "routeToQA calls client.SubmitSynthesis (orchestrator.go:2805) -> POST /api/tasks/:taskId/synthesis (client.go:593); on kind='complete' the server stamps task.metadata.synthesizedAt and appends synthesis_complete to ChronLog, on need_clarification appends synthesis_needs_clarification (index.ts:934-975)."
         },
         {
-          "from": "tier1_shim_bin",
-          "to": "root_prompt_section",
-          "label": "exec real binary (prompt-section handled natively)",
+          "from": "qa",
+          "to": "planner",
+          "label": "QA output autoroute -> Planner turn (InternalPromptMarker, !fromHuman)",
           "status": "ok",
-          "detail": "runAct execs exec.Command('act', full...); `act prompt-section <name>` resolves to cmd/root.go:689 runPromptSection (pre-cobra, NOT act-cli.ts). act-agent/cmd/act-tier1-shim/main.go:132-134; cmd/root.go:468,689"
+          "detail": "messageOwnershipLoop routes a qa_synthesizer message via autoRoutePlannerV unless it is a NEED_CLARIFICATION addressed to a non-Planner (then maybeRouteQAClarification forwards to that agent's inbox and skips Planner) (orchestrator.go:1216-1251,2840+); the Planner turn is fired with fromHuman=false so the prompt is prefixed with InternalPromptMarker (orchestrator.go:584-585)."
         },
         {
-          "from": "tier1_shim_bin",
-          "to": "install_sh",
-          "label": "shim path unbootstrapped on clean install",
-          "status": "gap-found",
-          "detail": "runAct execs exec.Command('act',...) and relies on act-tier1-<role> symlinks on PATH, but install.sh creates ONLY an 'act-agent' symlink and deliberately REMOVES old 'act' symlinks (install.sh:46,182-184), and never creates act-tier1-<role> symlinks at all (grep 'act-tier1' install.sh = nothing). After a standard install ACP-backed Tier-1 agents resolve neither 'act' nor their role shims \u2014 the whole shim CLI surface is dead. The in-process path (native act_cli + expand_prompt_section) works fully. DEMOTES inventory FT1-1: prompt-section itself is NOT a dead path (cmd/root.go:689). install.sh:46,182-184; cmd/act-tier1-shim/main.go:134"
+          "from": "planner",
+          "to": "human",
+          "label": "Planner reply rendered in chat",
+          "status": "ok",
+          "detail": "The autorouted Planner turn runs via fireWhenPlannerIdle -> runAgentTurn (orchestrator.go:1350); the Planner is the only role that addresses the human and its reply renders without the InternalPromptMarker (orchestrator.go:577-585). Note: synthesis_complete also surfaces directly as a '\ud83c\udf81 synthesized' system line via the coord poll (orchestrator.go:869-872), so the human sees the delivery on two surfaces."
         }
       ]
     },
     {
-      "id": "flow_tier1_tools",
-      "label": "Per-role tool subset (KI-02, no bash)",
-      "summary": "Each in-process Tier-1 role gets a narrow tool slice; no role gets raw bash; act_cli + expand_prompt_section replace it for the Planner.",
+      "id": "autoroute",
+      "label": "Autoroute (Tier-1 output -> Planner)",
+      "summary": "Any non-Planner Tier-1 message (Observer/Assurance/QA) is wrapped with the InternalPromptMarker and fired as a Planner turn (fromHuman=false), variant-selected by trigger, and rate-limited by a sliding window of at most 5 fires per 10 minutes that is cleared on every human input.",
       "steps": [
         {
-          "from": "tier1_tools_for_role",
-          "to": "act_cli_tool",
-          "label": "all roles get act_cli (whitelist-gated)",
+          "from": "observer",
+          "to": "planner",
+          "label": "Observer/Assurance/QA message -> autoRoutePlannerV (variant-selected)",
           "status": "ok",
-          "detail": "NewActCLITool per role; IsAllowed(role, subcommand, args...) gates every call. act-agent/internal/llm/agent/tools.go:83,93,102; internal/llm/tools/act_cli.go:175"
+          "detail": "messageOwnershipLoop's role switch handles observer/assurance/qa/qa_synthesizer and calls autoRoutePlannerV; for assurance it picks variantPassVerdict/variantFailVerdict via parseValidationVerdict, else variantAnomaly (orchestrator.go:1216-1251). Planner replies are NOT auto-routed, breaking the loop (comment orchestrator.go:1234-1235)."
         },
         {
-          "from": "tier1_tools_for_role",
-          "to": "expand_prompt_tool",
-          "label": "planner gets expand_prompt_section",
+          "from": "planner",
+          "to": "planner",
+          "label": "wrap prompt: InternalPromptMarker + fromHuman=false",
           "status": "ok",
-          "detail": "PlannerTools includes NewExpandPromptSectionTool() \u2014 planner only. act-agent/internal/llm/agent/tools.go:84"
+          "detail": "autoRoutePlannerV builds the per-variant prompt (renderAutoRoutePrompt, orchestrator.go:1345,1356) and fires runAgentTurn with fromHuman=false, which prepends InternalPromptMarker so the injected prompt is hidden but the Planner's reply shows (orchestrator.go:565,584-585,682)."
         },
         {
-          "from": "expand_prompt_tool",
-          "to": "section_registry",
-          "label": "serve registered section",
+          "from": "planner",
+          "to": "planner",
+          "label": "sliding-window cap: <=5 fires / 10min, cleared on human input",
           "status": "ok",
-          "detail": "Run() calls prompt.GetSection(params.Section); registry maps names to PlannerSection*(). act-agent/internal/llm/tools/expand_prompt_section.go:83; internal/llm/prompt/sections.go:14"
-        },
-        {
-          "from": "section_registry",
-          "to": "planner_sections",
-          "label": "resolve section content",
-          "status": "ok",
-          "detail": "sections.go maps evidence_routing/success_criteria/validation/examples to PlannerSection*() fns. act-agent/internal/llm/prompt/sections.go:14"
-        },
-        {
-          "from": "tier1_tools_for_role",
-          "to": "developer_tools",
-          "label": "non-Tier-1 fall to full roster (bash)",
-          "status": "ok",
-          "detail": "default to DeveloperTools (bash + edit + ... + MCP). act-agent/internal/llm/agent/tools.go:124"
+          "detail": "autoRoutePlannerV prunes recentAutoRoutes to autoRouteWindow=10min and drops the fire when len >= autoTurnCap=5, logging autoroute_planner_dropped (orchestrator.go:1316-1331,1421,1427); HandleHumanInput resets o.recentAutoRoutes=nil (orchestrator.go:228)."
         }
       ]
     },
     {
-      "id": "flow_tier1_prompt",
-      "label": "Role to system prompt (provider-aware)",
-      "summary": "GetAgentPrompt routes role to prompt fn; PlannerPrompt forks its CLI fragment on the synthetic ACP provider; config keys on the true role, never the developer fallback.",
+      "id": "observer_watchdog",
+      "label": "Observer watchdog \u2192 anomaly \u2192 autoroute \u2192 Planner",
+      "summary": "Observer polls the ACT server every 120s via its own act.Client, builds a status snapshot from four REST list endpoints, runs detectAnomalies, gates on a stable anomaly-set signature, runs an Observer LLM turn, and that turn's output is auto-routed into a Planner turn through the agent-message handler. The poll/gate/autoroute plumbing is all code-enforced; the actual anomaly detection rules are a Go port of observer.go's prompt rules (real code), and whether the Observer's narrative classifies an anomaly correctly is LLM-driven.",
       "steps": [
         {
-          "from": "prompt_dispatcher",
-          "to": "planner_prompt",
-          "label": "RolePlanner to PlannerPrompt",
+          "from": "observer",
+          "to": "act_server",
+          "label": "120s ticker \u2192 buildStatusSnapshot (GET /api/tasks,/api/agents,file-locks,/api/log)",
           "status": "ok",
-          "detail": "case config.RolePlanner: PlannerPrompt(provider). act-agent/internal/llm/prompt/prompt.go:18-23"
+          "detail": "observerLoop's time.NewTicker(observerInterval=120s) calls runObserverCheck, which constructs act.NewClient(\"observer\",...) and calls buildStatusSnapshot \u2014 four parallel client calls ListTasks/ListAgents/GetFileLocks/GetLog(20) \u2014 at act-agent/internal/app/orchestrator.go:2013, :2049-2054, :2217-2220 (observerInterval at :1977)."
         },
         {
-          "from": "planner_prompt",
-          "to": "provider_acp_const",
-          "label": "branch on ProviderACP",
+          "from": "observer",
+          "to": "observer",
+          "label": "detectAnomalies(snapshot) + signature no-op gate (sha256 of category+task+agent)",
           "status": "ok",
-          "detail": "if provider == models.ProviderACP { cli = actCLICommandsACP('planner') }. act-agent/internal/llm/prompt/planner.go:23"
+          "detail": "detectAnomalies(snapshot) runs the 6 detection rules and the result set is hashed via anomalySignature; if the hash equals o.lastObserverPromptHash the cycle returns silently (skip), preventing repeat escalation, at act-agent/internal/app/orchestrator.go:2074, :2112-2128, anomalySignature at :1004; all-clear path emits a health ping every observerHealthEvery=4 cycles at :2086-2094."
         },
         {
-          "from": "planner_prompt",
-          "to": "actcli_fragment",
-          "label": "pick CLI fragment (in-process vs ACP)",
-          "status": "ok",
-          "detail": "common.go:72 (in-process do-NOT-shell-out) / common.go:146 (ACP shim-via-Bash). act-agent/internal/llm/prompt/common.go:72,146"
+          "from": "observer",
+          "to": "act_server",
+          "label": "runAgentTurn(\"observer\", prompt) \u2014 Observer LLM turn on the anomaly set",
+          "status": "prompt-only",
+          "detail": "On a changed anomaly set the orchestrator calls runAgentTurn(ctx, sid, \"observer\", buildObserverPrompt(...)) at act-agent/internal/app/orchestrator.go:2101, :2138; whether the LLM produces a faithful anomaly report (vs hallucinating/missing one) is model behavior, not code-enforced \u2014 the snapshot data and rules feeding it are real."
         },
         {
-          "from": "prompt_dispatcher",
-          "to": "agent_config_for_role",
-          "label": "config keys on role NOT prompt",
+          "from": "observer",
+          "to": "planner",
+          "label": "Observer output \u2192 autoRoutePlannerV(role=observer, variantAnomaly) \u2192 Planner turn",
           "status": "ok",
-          "detail": "AgentConfigForRole is model/backend only; prompt always keyed on true role. act-agent/internal/config/config.go:170"
+          "detail": "The agent-message handler matches role \"observer\" and calls go o.autoRoutePlannerV(ctx, role, content, variantAnomaly) at act-agent/internal/app/orchestrator.go:1215, :1251; the chain is one-way (Planner replies are not re-routed) and is rate-limited by a sliding window \u2014 recentAutoRoutes pruned to autoRouteWindow, dropped past autoTurnCap \u2014 at :1318-1331."
         }
       ]
     },
     {
-      "id": "flow_tier1_config",
-      "label": "~/.act.json backend vs provider+model resolution",
-      "summary": "Backend selects host; empty backend = in-process LLM needing provider+model. validateAgent skips model checks for external backends; codex/opencode are accepted-but-unimplemented stubs.",
+      "id": "pvm_memory",
+      "label": "Coordination events \u2192 ChronLog \u2192 PVM index \u2192 PVM search \u2192 Planner (decompose)",
+      "summary": "Every coordination action appends a JSONL event to ChronologicalLog; PVMIndexer polls the log every 10s and batch-stores new events into the vector store; GET /api/pvm/search runs a semantic query against that store. The Planner reaches this evidence via the act_cli pvm search subcommand (real CLI \u2192 real endpoint), but the decision to search during decomposition is prompt-instructed, not code-forced. (Note: the Runner ALSO consumes /api/pvm/search to inject patterns into swarm-agent task prompts \u2014 a separate consumer of the same store.)",
       "steps": [
         {
-          "from": "validate_agent",
-          "to": "validate_agent",
-          "label": "external backend skips provider/model",
+          "from": "act_server",
+          "to": "chronlog",
+          "label": "chronologicalLog.append(event) \u2014 append-only JSONL",
           "status": "ok",
-          "detail": "backend claude-code/antigravity/agy skip provider/model+apiKey checks. act-agent/internal/config/config.go:515-521"
+          "detail": "Coordination handlers append events throughout server/src/index.ts (e.g. A2A push :239, complete :732, submit-for-validation :858, verdict :892, synthesis :950); ChronologicalLog writes to jsonlPath './data/coordination-log.jsonl' and its append is documented as 'the ONLY way to add events (append-only)' at server/src/services/ChronologicalLog.ts:44-45, :133-135."
         },
         {
-          "from": "validate_agent",
-          "to": "agent_config_for_role",
-          "label": "empty backend needs provider+model+apiKey",
+          "from": "chronlog",
+          "to": "pvm",
+          "label": "PVMIndexer.indexNewEvents every 10s \u2192 vectorStore.batchStore",
           "status": "ok",
-          "detail": "non-external backend requires provider+model+providerCfg+apiKey. act-agent/internal/config/config.go:522-527"
+          "detail": "pvmIndexer.startIndexing(10000) is called at server/src/index.ts:1596; the setInterval calls indexNewEvents which queries the ChronologicalLog with a since-cursor and batchStores new events into the vector store at server/src/services/PVMIndexer.ts:108-110, :129-151, :211."
         },
         {
-          "from": "acp_buildcommand",
-          "to": "acp_buildcommand",
-          "label": "codex/opencode accepted-but-unimplemented",
-          "status": "gap-found",
-          "detail": "app.go:104 switch and buildCommand accept codex/opencode but buildCommand returns an explicit unimplemented error; validateAgent does NOT skip them so a codex config also fails the provider/model check first. Listed as backends, cannot run \u2014 loud failure, framed as not-yet-implemented. act-agent/internal/acp/agent.go:555-556; internal/config/config.go:518-521"
+          "from": "pvm",
+          "to": "act_server",
+          "label": "GET /api/pvm/search?query&limit&project \u2192 pvmIndexer.search \u2192 vectorStore.search",
+          "status": "ok",
+          "detail": "The endpoint validates query, parses limit/project scope, and returns pvmIndexer.search(query,limit,projectName) results at server/src/index.ts:1178-1192; PVMIndexer.search delegates to vectorStore.search (LocalEmbeddingVectorStore, real all-MiniLM embeddings) at server/src/services/PVMIndexer.ts:318-323."
+        },
+        {
+          "from": "act_server",
+          "to": "planner",
+          "label": "Planner act_cli {subcommand:pvm,args:[search,<q>]} \u2192 cmdPvmSearch \u2192 routing evidence",
+          "status": "prompt-only",
+          "detail": "The act_cli plumbing is real \u2014 cmdPvmSearch fetches /api/pvm/search and prints scored results at act-agent/cli/act-cli.ts:707-744 (dispatch + project scoping) \u2014 but the Planner's use of it 'for routing evidence during decomposition' is instructed in prompt text only (planner.go:111, :122 and the on-demand evidence_routing section planner_section_evidence.go:9-50); the LLM decides whether/when to search, and the Planner toolset gives it act_cli (tools.go:76) so the call is possible, not forced."
         }
       ]
     },
     {
-      "id": "flow_tier1_slash",
-      "label": "/backend (Tier 1) vs /swarm (Tier 2)",
-      "summary": "Two separate slash surfaces: /backend persists a Tier-1 role host (applies next launch, no hot-swap); /swarm restarts a Tier-2 runner live.",
+      "id": "a2a_push",
+      "label": "A2A task push \u2192 ACT server \u2192 targeted swarm role",
+      "summary": "A caller (Planner/external) POSTs a task to a specific agent id; the server creates the task pre-assigned to that agent, marks it assigned, appends a task_assigned ChronLog event, and emits a Socket.io task_assigned. The targeted swarm Runner then picks it up via its poll loop (Socket.io is fire-and-forget; the actual delivery to the swarm agent is the Runner's REST poll + spawn, not the socket event).",
       "steps": [
         {
-          "from": "slash_backend",
-          "to": "app_tier1_switch",
-          "label": "Tier-1 backend applies NEXT launch (no hot-swap)",
-          "status": "gap-found",
-          "detail": "slashBackend writes ~/.act.json and tells the user to restart; unlike /swarm there is NO live rebuild/respawn of the in-memory Tier-1 agent. RebindSystemPrompt (acp/agent.go:489) exists but is for prompt refresh, not backend hot-swap. Persistence works; live application does not. act-agent/internal/app/slash.go:255,289,325"
+          "from": "planner",
+          "to": "act_server",
+          "label": "POST /api/agents/:agentId/tasks {title,description,spil,priority,requiredCapabilities,projectName}",
+          "status": "ok",
+          "detail": "The A2A push handler at server/src/index.ts:221-254 reads the body and creates a task via taskCoordinator.createTask with assignedAgent=agentId (:227-233); section comment 'Planner pushes a task to a specific agent via A2A' at :220. Whether the in-process Planner actually emits this REST call (vs the CREATE_TASK marker path) is not exercised by the orchestrator's parser \u2014 A2A push is the documented external/targeted entry, so the from=planner edge is the intended caller."
         },
         {
-          "from": "slash_swarm",
-          "to": "runner_backend",
-          "label": "Tier-2 restarts runner live",
+          "from": "act_server",
+          "to": "task_store",
+          "label": "createTask(assignedAgent) + updateTaskProgress(status:assigned) + chronologicalLog.append(task_assigned)",
           "status": "ok",
-          "detail": "swarmSetBackend validates via runner.IsValidBackend (act-agent|claude-code) + RestartRole on change. act-agent/internal/app/slash.go:188"
-        }
-      ]
-    },
-    {
-      "id": "flow_swarm_spawn",
-      "label": "Swarm spawn lifecycle",
-      "summary": "Orchestrator lazily spawns one Node runner per role on the first CREATE_TASK; each gets orphan-sweep, its own process group, an isolated log, and a reaper.",
-      "steps": [
-        {
-          "from": "orch_lazySpawn",
-          "to": "spawner",
-          "label": "orchestrator spawns swarm on first CREATE_TASK",
-          "status": "ok",
-          "detail": "o.runnerSpawner.StartSwarm(specs) inside the CREATE_TASK batch path \u2014 lazy. act-agent/internal/app/orchestrator.go:1730-1740; internal/runner/spawner.go:58"
+          "detail": "After createTask the handler calls taskCoordinator.updateTaskProgress(task.id,{status:'assigned'}) and chronologicalLog.append({type:'task_assigned',message:`A2A task push: ${task.id} -> ${agentId}`}) at server/src/index.ts:236, :239-245 \u2014 task state lands in TaskCoordinator and the event lands in ChronLog."
         },
         {
-          "from": "spawner",
-          "to": "spawner_sweep",
-          "label": "kill orphaned runners first",
+          "from": "act_server",
+          "to": "runner",
+          "label": "io.emit('task_assigned',{taskId,agentId,task}) \u2014 Socket.io notify (fire-and-forget)",
           "status": "ok",
-          "detail": "SweepOrphans to `pkill -f act-runner.mjs`. act-agent/internal/runner/spawner.go:243-244"
+          "detail": "The handler emits io.emit('task_assigned',{...}) at server/src/index.ts:248; this is a best-effort push ('if agent is connected, it gets notified immediately', :247) \u2014 it does not by itself deliver work, the Runner's REST poll is the reliable path."
         },
         {
-          "from": "spawner",
-          "to": "spawner_pgid",
-          "label": "own process group per runner",
+          "from": "runner",
+          "to": "swarm_developer",
+          "label": "Runner poll picks assigned task \u2192 fetchPVMContext + buildTaskPrompt \u2192 spawn swarm agent",
           "status": "ok",
-          "detail": "setProcGroup to attr.Setpgid=true. act-agent/internal/runner/spawner_unix.go:10"
-        },
-        {
-          "from": "spawner",
-          "to": "spawner_log",
-          "label": "redirect stdout/stderr to ~/.act/runners/<role>.log",
-          "status": "ok",
-          "detail": "openRunnerLog O_CREATE|O_APPEND. act-agent/internal/runner/spawner.go:141"
-        },
-        {
-          "from": "spawner",
-          "to": "runner_mjs",
-          "label": "exec node act-runner.mjs --backend",
-          "status": "ok",
-          "detail": "exec.Command(nodeBin,args) with --agent-id/--name/--role/--backend. act-agent/internal/runner/spawner.go:58-141"
-        },
-        {
-          "from": "spawner",
-          "to": "spawner_reap",
-          "label": "reaper goroutine on exit",
-          "status": "ok",
-          "detail": "go cmd.Wait(); writes session-end, closes fd, deletes role from s.runners. act-agent/internal/runner/spawner.go:176"
-        }
-      ]
-    },
-    {
-      "id": "flow_runner_loop",
-      "label": "Runner coordination loop",
-      "summary": "The Node runner registers (409 self-heals), claims a singleton, injects brief + complexity-PVM context, runs the agent backend, then completes to submit-for-validation.",
-      "steps": [
-        {
-          "from": "runner_mjs",
-          "to": "runner_register",
-          "label": "register (409 self-heal)",
-          "status": "ok",
-          "detail": "register POSTs /api/agents/register; on 409 DELETEs+retries once. act-agent/runner/act-runner.mjs:129"
-        },
-        {
-          "from": "runner_register",
-          "to": "runner_live",
-          "label": "claim singleton on task pickup",
-          "status": "ok",
-          "detail": "if liveProcesses.has(AGENT_ID) skip; else set, clear in finally. act-agent/runner/act-runner.mjs:94"
-        },
-        {
-          "from": "runner_live",
-          "to": "runner_brief",
-          "label": "inject AGENTS.md brief",
-          "status": "ok",
-          "detail": "fetchAgentBrief GET /api/projects/<p>/briefs/<agent>; claude-code on-disk short-circuit. act-agent/runner/act-runner.mjs:536"
-        },
-        {
-          "from": "runner_brief",
-          "to": "runner_pvm",
-          "label": "complexity>4 to PVM context",
-          "status": "ok",
-          "detail": "scoreComplexity>COMPLEXITY_THRESHOLD(4) to fetchPVMContext GET /api/pvm/search. act-agent/runner/act-runner.mjs:339"
-        },
-        {
-          "from": "runner_pvm",
-          "to": "runner_backend",
-          "label": "runAgent to backend switch",
-          "status": "ok",
-          "detail": "runAgent dispatches claude-code vs act-agent on BACKEND (default act-agent). act-agent/runner/act-runner.mjs:227-231"
-        },
-        {
-          "from": "runner_backend",
-          "to": "runner_complete",
-          "label": "report complete to submit-for-validation",
-          "status": "ok",
-          "detail": "reportComplete to POST complete then POST submit-for-validation (success only). act-agent/runner/act-runner.mjs:181-194"
-        },
-        {
-          "from": "runner_complete",
-          "to": "runner_session_end",
-          "label": "report session ended (exit code)",
-          "status": "ok",
-          "detail": "sendSessionEnded in finally to POST /api/messages. act-agent/runner/act-runner.mjs:217"
-        }
-      ]
-    },
-    {
-      "id": "flow_tier2_backend_gap",
-      "label": "Tier-2 backend selection (gap-bearing)",
-      "summary": "swarm set writes the role backend; the spec carries it to the runner --backend flag; but antigravity is accepted by the CLI and rejected by the Tier-2 path.",
-      "steps": [
-        {
-          "from": "cli_swarm",
-          "to": "spawner_spec",
-          "label": "swarm set writes backend to ~/.act.json",
-          "status": "ok",
-          "detail": "writeAgentBackend sets agents.<role>.backend; orchestrator builds SwarmRoleSpec.Backend from it. act-agent/cli/act-cli.ts:554; internal/runner/swarm_roles.go:50"
-        },
-        {
-          "from": "spawner_spec",
-          "to": "runner_backend",
-          "label": "spec.Backend to --backend flag",
-          "status": "ok",
-          "detail": "spawner appends --backend <backend>; runner reads it. act-agent/internal/runner/spawner.go:58-141; runner/act-runner.mjs:92"
-        },
-        {
-          "from": "cli_swarm",
-          "to": "runner_backend",
-          "label": "antigravity accepted by CLI, rejected by Tier-2",
-          "status": "gap-found",
-          "detail": "cli/act-cli.ts:552 VALID_BACKENDS includes 'antigravity' so `swarm set <role> antigravity` writes it to config; but swarm_roles.go:44-46 IsValidBackend returns true ONLY for act-agent/claude-code and runAgent (act-runner.mjs:227-231) has no antigravity branch. A user can configure a Tier-2 backend that silently never starts. antigravity is real only on the Tier-1 ACP path. act-agent/cli/act-cli.ts:552; internal/runner/swarm_roles.go:44-46"
-        }
-      ]
-    },
-    {
-      "id": "flow_provider_routing",
-      "label": "Provider routing",
-      "summary": "ModelProvider constants drive a switch; anthropic is native, the rest (incl. the new nvidia NIM) route to the OpenAI-compatible client; a response cache fronts the send path.",
-      "steps": [
-        {
-          "from": "models_registry",
-          "to": "provider_factory",
-          "label": "ModelProvider to NewProvider case",
-          "status": "ok",
-          "detail": "constants consumed by the switch. act-agent/internal/llm/models/models.go:32; internal/llm/provider/provider.go:103"
-        },
-        {
-          "from": "provider_factory",
-          "to": "provider_anthropic",
-          "label": "anthropic to native client",
-          "status": "ok",
-          "detail": "case ProviderAnthropic to newAnthropicClient. act-agent/internal/llm/provider/provider.go:104"
-        },
-        {
-          "from": "provider_factory",
-          "to": "provider_nvidia",
-          "label": "nvidia to OpenAI-compat NIM",
-          "status": "ok",
-          "detail": "case ProviderNVIDIA to newOpenAIClient base integrate.api.nvidia.com/v1. act-agent/internal/llm/provider/provider.go:135-139"
-        },
-        {
-          "from": "provider_factory",
-          "to": "provider_openai_compat",
-          "label": "openai/groq/openrouter/xai/local to OpenAI client",
-          "status": "ok",
-          "detail": "all append WithOpenAIBaseURL and return the OpenAI baseProvider. act-agent/internal/llm/provider/provider.go:109,155,167,175"
-        },
-        {
-          "from": "provider_factory",
-          "to": "provider_cache",
-          "label": "send path consults response cache",
-          "status": "ok",
-          "detail": "globalResponseCache.Key + Get/Put in SendMessages; streaming bypasses. act-agent/internal/llm/provider/provider.go:219"
-        }
-      ]
-    },
-    {
-      "id": "flow_binary_bootstrap",
-      "label": "Binary bootstrap + server auto-start",
-      "summary": "The pre-cobra router handles prompt-section + CLI subcommands before cobra; the TUI path ensures the server is running via the PID-guarded launcher.",
-      "steps": [
-        {
-          "from": "root_router",
-          "to": "root_prompt_section",
-          "label": "prompt-section handled pre-cobra",
-          "status": "ok",
-          "detail": "first=='prompt-section' to runPromptSection before cobra parses. act-agent/cmd/root.go:689,468"
-        },
-        {
-          "from": "root_router",
-          "to": "root_cli_route",
-          "label": "CLI subcommand handled pre-cobra",
-          "status": "ok",
-          "detail": "isCLISubcommand(first) to routeToCLI to tsx act-cli.ts. act-agent/cmd/root.go:550,697; cli/act-cli.ts:1052"
-        },
-        {
-          "from": "root_router",
-          "to": "root_modes",
-          "label": "else to cobra RunE (modes)",
-          "status": "ok",
-          "detail": "rootCmd.Execute() to RunE: --agent headless / -p non-interactive / no args TUI. act-agent/cmd/root.go:53"
-        },
-        {
-          "from": "root_modes",
-          "to": "root_ensure_server",
-          "label": "ensure server before TUI",
-          "status": "ok",
-          "detail": "actserver.EnsureServerRunning(''). act-agent/cmd/root.go:123"
-        },
-        {
-          "from": "root_ensure_server",
-          "to": "launcher",
-          "label": "PID-guarded npx tsx auto-start",
-          "status": "ok",
-          "detail": "exec.Command(npx,tsx,serverScript) after PID/health guards; findServerScript resolves the entry. act-agent/internal/server/launcher.go:30,196"
+          "detail": "The targeted Runner (one process per swarm role; developer shown as representative) consumes the assigned task and builds the spawn prompt \u2014 scoreComplexity>COMPLEXITY_THRESHOLD(4) triggers fetchPVMContext(task) (GET /api/pvm/search) and buildTaskPrompt injects it \u2014 at act-agent/runner/act-runner.mjs:361-367, :561-564, :593, :648-656; the actual swarm role spawned depends on which role's Runner owns agentId (re-grep DefaultCapabilities for the live role set)."
         }
       ]
     }

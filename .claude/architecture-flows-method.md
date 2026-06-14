@@ -1,5 +1,21 @@
 # Architecture-flows method
 
+> ## ⛔ THE MODEL: ACTORS ARE NODES, HANDOFFS ARE FLOWS (rewritten 2026-06-12)
+> The diagram exists so a HUMAN can read the flow of logic between the **agents/systems** of ACT.
+> Two earlier rebuilds failed by making **code artifacts** (REST endpoints, functions, CLI commands,
+> in-memory maps) the nodes — a call-graph, not a coordination map: granular, agent-invisible, useless.
+>
+> **Nodes = ACTORS only** (fixed set): `human`; Tier-1 `planner observer assurance qa`; Tier-2
+> `swarm_developer swarm_frontend swarm_backend swarm_qa swarm_researcher`; systems
+> `act_server runner acp_host tui`; stores `chronlog pvm task_store brief_store`. ~14-18 nodes.
+> **Edges = coordination handoffs.** An edge's label is the REAL MECHANISM that carries the handoff
+> (a CLI subcommand, a REST call, a parsed marker like `PROJECT_BRIEF:`/`CREATE_TASK:`, a poll, a spawn).
+> Code artifacts are NEVER nodes — they are edge labels + the `file:line` evidence in `detail`.
+>
+> **Renderer = Cytoscape.js + dagre** (both inlined for the offline rule), `rankDir:LR`, click-a-flow
+> highlights its edges+nodes and dims the rest, zoom/pan/fit built in. Do NOT hand-roll a column grid
+> (that was the spaghetti failure). Node color by group; edge style by status (solid=ok, dashed=else).
+
 How to build a single-file, offline-openable visual map of this codebase (or to update the one that already exists) without bluffing.
 
 The artifacts this method produces are:
