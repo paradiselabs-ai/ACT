@@ -1,643 +1,1821 @@
 {
   "meta": {
-    "version": 8,
+    "version": 9,
+    "model": "subsystem-columns",
     "branch": "feat/remove-nomik",
-    "model": "actor-coordination",
-    "summary": "Actors (agents + systems) are nodes. Click a flow to trace the handoffs \u2014 edge labels are the real mechanism (CLI command / endpoint / marker), cited to file:line."
+    "headCommit": "83a5cac",
+    "generatedAt": "2026-06-17",
+    "summary": "Seven columns, one per subsystem; each node is a real component (friendly name + its file/function). Click a flow to trace the coordination handoffs across columns — edge labels are the actual mechanism cited to file:line. Two config FORKS show as twin paths converging on a shared result; one documented-but-unbuilt capability is a GAP.",
+    "findings": [
+      {
+        "id": "F-deferred-tools",
+        "title": "Deferred tool discovery is documented, not built",
+        "status": "gap-found",
+        "summary": "ARCHITECTURE_PATTERNS.md section 2 specs a Claude-Code-style ToolSearch meta-tool + deferred tool names. Zero implementing code. ACT uses static per-role tool subsets + the act CLI instead.",
+        "evidence": "docs/ARCHITECTURE_PATTERNS.md:26-41; grep ToolSearch over act-agent = 0 hits"
+      },
+      {
+        "id": "F-client-unwired",
+        "title": "9 of 25 native Go client methods are unwired",
+        "status": "gap-found",
+        "summary": "internal/act/client.go mirrors the full server API but task-exec/file-lock/retry/abandon/pvm-search/status methods have zero Go callers; those ops run in the JS runner and TS CLI. Dead code, not broken behavior.",
+        "evidence": "internal/act/client.go:136,151,166,182,212,225,230,420,441; docs/audits/unwired-code-sweep-2026-06-14.md"
+      },
+      {
+        "id": "F-sqlite-stub",
+        "title": "ChronLog SQLite mode silently no-ops",
+        "status": "gap-found",
+        "summary": "storageType 'sqlite' routes flush to an empty stub = data loss; dormant because default is jsonl.",
+        "evidence": "server/src/services/ChronologicalLog.ts:242 (empty), :188-193 (dispatch)"
+      },
+      {
+        "id": "F-file-lock-prompt-only",
+        "title": "File locking is prompt-only",
+        "status": "prompt-only",
+        "summary": "claim/release endpoints + Go client methods exist, but no agent calls claim before editing; enforcement is prompt-instructed only (the pre/post tool-hook enabler is unbuilt).",
+        "evidence": "internal/act/client.go ClaimFiles/ReleaseFiles unwired; server/src/index.ts:1072,1115"
+      },
+      {
+        "id": "F-qa-marker-only",
+        "title": "QA synthesis persists a marker, not the deliverable",
+        "status": "gap-found",
+        "summary": "Synthesis stamps synthesizedAt + summary; the full assembled deliverable is never persisted.",
+        "evidence": "server/src/index.ts synthesis handler ~:934"
+      },
+      {
+        "id": "F-socketio-vestigial",
+        "title": "Socket.io dashboard handlers vestigial",
+        "status": "gap-found",
+        "summary": "Socket handlers exist with no client consumer; clients use REST /api/log.",
+        "evidence": "server/src/index.ts:1300+ socket handlers; clients poll GET /api/log"
+      },
+      {
+        "id": "F-no-auth",
+        "title": "No auth on the coordination server",
+        "status": "gap-found",
+        "summary": "Every REST/socket endpoint trusts the caller; no token/identity check. Localhost-only trust boundary.",
+        "evidence": "server/src/index.ts route handlers (no auth middleware)"
+      },
+      {
+        "id": "F-qdrant-excluded",
+        "title": "Persistent vector store build-excluded (intentional)",
+        "status": "gap-found",
+        "summary": "Qdrant adapter exists but is excluded from the build; runtime uses in-memory local embeddings rebuilt from JSONL each boot. Deliberate (ops burden).",
+        "evidence": "server/tsconfig.json exclude; server/src/services/index.ts:11-12"
+      }
+    ]
   },
-  "nodes": [
+  "subsystems": [
+    {
+      "id": "prompts",
+      "label": "PROMPTS",
+      "color": "#b48ead"
+    },
+    {
+      "id": "server",
+      "label": "SERVER (TS)",
+      "color": "#7bd389"
+    },
+    {
+      "id": "orchestrator",
+      "label": "ORCHESTRATOR · Go TUI brain",
+      "color": "#c97bd3"
+    },
+    {
+      "id": "execution",
+      "label": "EXECUTION / BACKEND",
+      "color": "#e0b341"
+    },
+    {
+      "id": "swarm",
+      "label": "RUNNER / SWARM",
+      "color": "#5aa9e6"
+    },
+    {
+      "id": "memory",
+      "label": "MEMORY / PVM",
+      "color": "#56b6a4"
+    },
+    {
+      "id": "external",
+      "label": "EXTERNAL",
+      "color": "#8a909c"
+    }
+  ],
+  "components": [
     {
       "id": "human",
       "label": "Human",
-      "group": "human",
-      "detail": ""
+      "parent": "external",
+      "kind": "engine",
+      "detail": "The only human entry; converses with the Planner in the TUI.",
+      "src": "TUI human input",
+      "hover": "You — the person typing in the terminal. The only human entry point; you talk to the Planner. From a user perspective, this is you giving instructions and reading answers."
     },
     {
-      "id": "planner",
-      "label": "Planner",
-      "group": "tier1",
-      "detail": ""
+      "id": "ext_claude_code",
+      "label": "claude-code CLI",
+      "parent": "external",
+      "kind": "engine",
+      "detail": "External agent CLI driven over ACP as a Tier-1 or Tier-2 backend.",
+      "src": "claude --print (ACP)",
+      "hover": "An optional outside coding assistant (Claude Code's CLI) that a lead agent can run on instead of the built-in model, driven over a small wire protocol. From a user perspective, this is choosing to power an agent with Claude Code rather than the default."
     },
     {
-      "id": "observer",
-      "label": "Observer",
-      "group": "tier1",
-      "detail": ""
+      "id": "ext_antigravity",
+      "label": "antigravity / agy CLI",
+      "parent": "external",
+      "kind": "engine",
+      "detail": "External agent CLI driven over ACP via the agy node bridge (in flight).",
+      "src": "agy-acp.mjs (ACP)",
+      "hover": "An optional outside assistant (the antigravity/agy CLI), wired in the same way as the Claude Code option and still being finished. From a user perspective, this is another swappable engine you can put behind an agent."
     },
     {
-      "id": "assurance",
-      "label": "Assurance",
-      "group": "tier1",
-      "detail": ""
+      "id": "orch_turn_mgr",
+      "label": "Turn manager",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "runAgentTurn drives every Tier-1 turn (5-min timeout); resolves the backend-agnostic agent.Service via getAgent(role) and calls .Run(). orchestrator.go.",
+      "src": "orchestrator.go runAgentTurn",
+      "hover": "Runs a single agent's turn — hands it the prompt, waits for the reply, and cancels it if it runs past 5 minutes (orchestrator.go). From a user perspective, this is what makes an agent actually take its turn and respond."
     },
     {
-      "id": "qa",
-      "label": "QA \u00b7 Synthesizer",
-      "group": "tier1",
-      "detail": ""
+      "id": "orch_intake",
+      "label": "Intake / brownfield",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "detectProjectState (404 vs 200 vs brownfield), runBrownfieldOnboard, handleProjectBrief; greenfield 5-question vs brownfield 2-question, resume fold-in. orchestrator.go.",
+      "src": "orchestrator.go detectProjectState",
+      "hover": "At startup, works out whether this is a brand-new project, a resumed one, or existing code to analyze, and runs the right intro questions (orchestrator.go). From a user perspective, this is the 'getting to know your project' conversation when you begin."
     },
     {
-      "id": "swarm_developer",
-      "label": "Swarm \u00b7 developer",
-      "group": "tier2",
-      "detail": ""
+      "id": "orch_marker_parser",
+      "label": "Marker parser",
+      "parent": "orchestrator",
+      "kind": "parser",
+      "detail": "parseProjectBrief / parseCreateTaskDirectives / parseValidationVerdict / parseSynthesisResponse extract JSON from Planner reply text. orchestrator.go.",
+      "src": "orchestrator.go parse*Directives",
+      "hover": "Reads the Planner's plain replies and pulls out the structured instructions hidden in them — the project brief, the task list, the pass/fail verdicts (orchestrator.go). From a user perspective, this is what turns the Planner's words into real actions."
     },
     {
-      "id": "act_server",
-      "label": "ACT Server",
-      "group": "system",
-      "detail": "Coordination server: tasks, projects, validation, PVM, REST + Socket.io."
+      "id": "orch_dispatch",
+      "label": "Task dispatch (2-pass)",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "handlePlannerTaskDirectives: content-hash dedup, lazy swarm spawn, two-pass create (tasks first, then resolve title-deps to IDs). orchestrator.go.",
+      "src": "orchestrator.go handlePlannerTaskDirectives",
+      "hover": "Takes the Planner's task list, drops duplicates, starts the worker agents, and creates the tasks in the right dependency order (orchestrator.go). From a user perspective, this is the moment your plan becomes assigned work."
     },
     {
-      "id": "runner",
-      "label": "Runner (spawner)",
-      "group": "system",
-      "detail": "Spawns one Node process per swarm role; polls for tasks, reports completion."
+      "id": "orch_msg_ownership",
+      "label": "Message-ownership loop",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "messageOwnershipLoop subscribes to message pub/sub, tags speaker, routes finished Planner msgs to brief/task handlers and Tier-1 reports to autoroute. orchestrator.go.",
+      "src": "orchestrator.go messageOwnershipLoop",
+      "hover": "Watches every finished message, tags who said it, and routes it to the right next step (orchestrator.go). From a user perspective, this is the traffic controller keeping each agent's words attributed and acted on."
     },
     {
-      "id": "acp_host",
-      "label": "ACP host (claude-code / antigravity)",
-      "group": "system",
-      "detail": ""
+      "id": "orch_autoroute",
+      "label": "Autoroute + window",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "autoRoutePlannerV with a sliding window (5 per 10 min), fireWhenPlannerIdle; cleared on human input. orchestrator.go.",
+      "src": "orchestrator.go autoRoutePlannerV",
+      "hover": "When a background agent reports something, this nudges the Planner to respond — with a cap so it can't spiral into a loop (orchestrator.go). From a user perspective, this is what lets the team react on its own without you prompting each step."
     },
     {
-      "id": "tui",
-      "label": "TUI \u00b7 Orchestrator",
-      "group": "system",
-      "detail": "The NesTTY window process; parses Planner markers, runs the coordination loops."
+      "id": "orch_observer_loop",
+      "label": "Observer loop",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "observerLoop (120s): status snapshot, anomaly detection, Tier-1 watchdog; injects only on anomaly. orchestrator.go.",
+      "src": "orchestrator.go observerLoop",
+      "hover": "Every 2 minutes it quietly checks the project's health and only speaks up if something looks stuck or wrong (orchestrator.go). From a user perspective, this is the silent watchdog that flags problems."
     },
     {
-      "id": "chronlog",
+      "id": "orch_validation_router",
+      "label": "Validation router",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "validationPollLoop (10s) -> checkPendingValidation -> routeToAssurance -> parseValidationVerdict (fail-closed) -> SubmitVerdict. orchestrator.go.",
+      "src": "orchestrator.go validationPollLoop",
+      "hover": "Every 10 seconds it picks up finished work and sends it to the Assurance agent to be checked against the success criteria (orchestrator.go). From a user perspective, this is the hand-off to quality control."
+    },
+    {
+      "id": "orch_qa_router",
+      "label": "QA router",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "qaPollLoop (10s) -> checkValidatedTasks -> routeToQA -> parseSynthesisResponse -> SubmitSynthesis; NEED_CLARIFICATION forwarding. orchestrator.go.",
+      "src": "orchestrator.go qaPollLoop",
+      "hover": "Every 10 seconds it takes work that passed checking and sends it to the QA agent to assemble the final result (orchestrator.go). From a user perspective, this is the step that pulls approved pieces into a deliverable."
+    },
+    {
+      "id": "orch_coord_loop",
+      "label": "Coordination-event loop",
+      "parent": "orchestrator",
+      "kind": "engine",
+      "detail": "coordinationEventLoop (3s) -> GetLog(50) -> render events as chat system messages; task_failed escalates to Planner. orchestrator.go.",
+      "src": "orchestrator.go coordinationEventLoop",
+      "hover": "Every 3 seconds it pulls recent coordination events from the server and shows them in the chat as status updates (orchestrator.go). From a user perspective, this is the live activity feed of what the team is doing."
+    },
+    {
+      "id": "prompt_dispatch",
+      "label": "Role-prompt dispatcher",
+      "parent": "prompts",
+      "kind": "engine",
+      "detail": "GetAgentPrompt(role, provider) routes role -> prompt; both backends use it. prompt.go.",
+      "src": "prompt.go GetAgentPrompt",
+      "hover": "Looks up which instruction set (system prompt) each role should get (prompt.go). From a user perspective, this is what gives every agent its job description."
+    },
+    {
+      "id": "prompt_tier1",
+      "label": "Tier-1 role prompts",
+      "parent": "prompts",
+      "kind": "prompt",
+      "detail": "planner / observer / assurance / qa_synthesizer system prompts.",
+      "src": "planner/observer/assurance/qa.go",
+      "hover": "The written instructions for the four lead agents — Planner, Observer, Assurance, QA. From a user perspective, this is the rules and personality each lead agent follows."
+    },
+    {
+      "id": "prompt_swarm",
+      "label": "Swarm role prompts",
+      "parent": "prompts",
+      "kind": "prompt",
+      "detail": "developer / frontend_dev / backend_dev / qa_engineer / researcher system prompts.",
+      "src": "developer/frontend_dev/...go",
+      "hover": "The written instructions for the worker agents (developer, frontend, backend, QA-engineer, researcher). From a user perspective, this is how each specialist worker knows its job."
+    },
+    {
+      "id": "prompt_section_registry",
+      "label": "Section registry",
+      "parent": "prompts",
+      "kind": "engine",
+      "detail": "sectionRegistry maps 4 on-demand section names to providers; GetSection. sections.go.",
+      "src": "sections.go",
+      "hover": "A small library of optional extra instruction blocks the Planner can pull in only when needed (sections.go). From a user perspective, this keeps the Planner lean until it needs more detail."
+    },
+    {
+      "id": "prompt_sections",
+      "label": "On-demand sections",
+      "parent": "prompts",
+      "kind": "prompt",
+      "detail": "evidence_routing / success_criteria / validation / examples expanded only when the Planner asks. planner_section_*.go.",
+      "src": "planner_section_*.go",
+      "hover": "The actual on-demand instruction blocks (evidence, success criteria, validation, examples) the Planner loads when relevant. From a user perspective, this is extra guidance fetched just-in-time."
+    },
+    {
+      "id": "prompt_context",
+      "label": "Context assembly",
+      "parent": "prompts",
+      "kind": "engine",
+      "detail": "getContextFromPaths assembles project context (AGENTS.md etc.) with a SHA-256 cache that keeps the provider prompt-cache breakpoint stable. prompt.go.",
+      "src": "prompt.go getContextFromPaths",
+      "hover": "Gathers the project's context files into the prompt and caches them so repeat turns stay cheap (prompt.go). From a user perspective, this is how agents 'know about your project' each turn."
+    },
+    {
+      "id": "prompt_priming",
+      "label": "Priming / shim-note wrap",
+      "parent": "prompts",
+      "kind": "engine",
+      "detail": "makePrimingInjector/wrapPriming prepend the internal marker + do-not-respond header; renderShimNote injects the per-role allowed-subcommand list. app.go.",
+      "src": "app.go makePrimingInjector",
+      "hover": "For an agent running on an outside CLI, this packages its role instructions plus its allowed commands and sends them as the first message (app.go). From a user perspective, this is what briefs an external engine so it behaves like an ACT agent."
+    },
+    {
+      "id": "exec_backend_switch",
+      "label": "Backend switch",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "App.New per-role switch on agents.<role>.backend: empty/act-agent -> in-process; external host -> ACP. app.go.",
+      "src": "app.go switch backendChoice",
+      "hover": "The fork in the road: for each role it picks the built-in model or an outside CLI, based on your config (app.go). From a user perspective, this is the setting that decides what engine powers each agent."
+    },
+    {
+      "id": "exec_inproc_agent",
+      "label": "In-process agent",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "agent.NewAgent goroutine with scoped history (HistoryThread/None) + per-role tool subset. [Fork A twin] agent.go.",
+      "src": "agent.go NewAgent",
+      "hover": "The built-in path — runs an agent inside the app on the chosen model, with its own memory scope and tool set (agent.go). From a user perspective, this is the default, nothing-extra-to-install way an agent runs."
+    },
+    {
+      "id": "exec_acp_agent",
+      "label": "ACP agent",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "acp.NewACPAgent drives an external CLI over ACP; lazy priming on first session. [Fork A twin] acp/agent.go.",
+      "src": "acp/agent.go NewACPAgent",
+      "hover": "The outside-CLI path — drives an external assistant over a wire protocol as if it were a built-in agent (acp/agent.go). From a user perspective, this is how an agent runs on Claude Code or antigravity instead of the default."
+    },
+    {
+      "id": "exec_agent_service",
+      "label": "agent.Service",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "The shared interface both backends satisfy; stored in app.Agents[role]; the orchestrator calls .Run() back-agnostically. [Fork A convergence] app.go.",
+      "src": "app.go Agents[role] (agent.Service)",
+      "hover": "The shared 'run a turn' contract both engine paths satisfy, so the rest of the app doesn't care which engine is used (app.go). From a user perspective, this is why swapping engines doesn't change how anything else behaves."
+    },
+    {
+      "id": "exec_acp_layer",
+      "label": "ACP protocol layer",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "client / transport / session: newline-framed JSON-RPC to the external CLI host. internal/acp/.",
+      "src": "acp/client.go + transport.go",
+      "hover": "The plumbing that talks to an outside CLI — opening a session, sending prompts, reading replies (internal/acp/). From a user perspective, this is the cable connecting ACT to an external assistant."
+    },
+    {
+      "id": "exec_shim",
+      "label": "Tier-1 CLI shim",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "act-tier1-<role> shim enforces the per-role CLI allowlist for ACP-backed Tier-1. cmd/act-tier1-shim/.",
+      "src": "cmd/act-tier1-shim",
+      "hover": "A gatekeeper that limits which ACT commands an outside-CLI agent is allowed to run (act-tier1-shim). From a user perspective, this stops an external engine from doing more than its role should."
+    },
+    {
+      "id": "exec_tool_subsets",
+      "label": "Per-role tool subsets",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "Tier1ToolsForRole statically partitions tools per role (what ACT does instead of deferred discovery). agent/tools.go.",
+      "src": "agent/tools.go Tier1ToolsForRole",
+      "hover": "Decides which tools each role may use, kept deliberately small to save tokens (tools.go). From a user perspective, this is why each agent only has the tools it needs."
+    },
+    {
+      "id": "exec_providers",
+      "label": "LLM providers",
+      "parent": "execution",
+      "kind": "engine",
+      "detail": "Provider clients (Anthropic/OpenAI/Gemini/Groq/NVIDIA/OpenRouter/local...). internal/llm/provider/.",
+      "src": "internal/llm/provider/",
+      "hover": "The connectors to the real model services — Anthropic, OpenAI, Groq, NVIDIA, local, and more (internal/llm/provider/). From a user perspective, this is the list of AI brains you can plug in."
+    },
+    {
+      "id": "swarm_spawner",
+      "label": "Spawner",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "StartSwarm/startOneLocked: sweep orphans, find script + node, one process per role with its own group + log. spawner.go.",
+      "src": "spawner.go StartSwarm",
+      "hover": "Launches one worker process per role and supervises them (spawner.go). From a user perspective, this is what brings your team of worker agents online."
+    },
+    {
+      "id": "swarm_poll",
+      "label": "Runner poll loop",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "main loop polls GET /api/tasks/assigned, executes, sleeps. act-runner.mjs.",
+      "src": "act-runner.mjs getTask",
+      "hover": "Each worker repeatedly asks the server 'any task for me?' and runs whatever it's given (act-runner.mjs). From a user perspective, this is a worker waiting for and picking up jobs."
+    },
+    {
+      "id": "swarm_register",
+      "label": "Register + self-heal",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "POST /api/agents/register on startup; 409 -> delete + retry. act-runner.mjs.",
+      "src": "act-runner.mjs register()",
+      "hover": "When a worker starts it signs in with the server, clearing any stale copy of itself first (act-runner.mjs). From a user perspective, this is a worker clocking in."
+    },
+    {
+      "id": "swarm_backend_switch",
+      "label": "runAgent switch",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "runAgent() branches on BACKEND. [Fork B fan-out] act-runner.mjs.",
+      "src": "act-runner.mjs runAgent()",
+      "hover": "The worker's fork: run its task with the built-in binary or with Claude Code (act-runner.mjs). From a user perspective, this is the per-worker engine choice."
+    },
+    {
+      "id": "swarm_actagent",
+      "label": "act-agent path",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "runAgentActAgent: execFile the act-agent binary headless, parse {status,result}. [Fork B twin] act-runner.mjs.",
+      "src": "act-runner.mjs runAgentActAgent",
+      "hover": "The default worker path — runs the task with the built-in ACT binary and reads back the result (act-runner.mjs). From a user perspective, this is a worker doing the job with the built-in engine."
+    },
+    {
+      "id": "swarm_claudecode",
+      "label": "claude-code path",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "runAgentClaudeCode: claude --print --dangerously-skip-permissions. [Fork B twin] act-runner.mjs.",
+      "src": "act-runner.mjs runAgentClaudeCode",
+      "hover": "The alternate worker path — runs the task with Claude Code (act-runner.mjs). From a user perspective, this is a worker doing the job with Claude Code."
+    },
+    {
+      "id": "swarm_prompt_build",
+      "label": "Prompt build + brief",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "buildTaskPrompt assembles brief + parallel + PVM + inbox + gap context; fetchAgentBrief diverges (claude-code on-disk short-circuit vs HTTP inject). act-runner.mjs.",
+      "src": "act-runner.mjs buildTaskPrompt",
+      "hover": "Builds the worker's full task prompt — the brief, related past work, teammates' context, its inbox — before it starts (act-runner.mjs). From a user perspective, this is what gives a worker everything it needs to begin."
+    },
+    {
+      "id": "swarm_completion",
+      "label": "Completion report",
+      "parent": "swarm",
+      "kind": "engine",
+      "detail": "reportComplete consumes the uniform {success,output,error,code} from either backend -> POST complete + submit-for-validation. [Fork B convergence] act-runner.mjs.",
+      "src": "act-runner.mjs reportComplete",
+      "hover": "Takes whatever either engine returned, reports the task complete, and submits it for checking (act-runner.mjs). From a user perspective, this is a worker turning in finished work."
+    },
+    {
+      "id": "srv_rest",
+      "label": "REST front door",
+      "parent": "server",
+      "kind": "endpoint",
+      "detail": "Express routes for projects/tasks/agents/messages/files/pvm. server/src/index.ts.",
+      "src": "server/src/index.ts",
+      "hover": "The front door of the coordination server — all the web endpoints the app and workers call (server/src/index.ts). From a user perspective, this is the switchboard everything talks through."
+    },
+    {
+      "id": "srv_task_coordinator",
+      "label": "Task coordinator",
+      "parent": "server",
+      "kind": "engine",
+      "detail": "Task state machine, createTask, assignOptimalAgent, dependency/cycle handling. TaskCoordinator.ts.",
+      "src": "TaskCoordinator.ts",
+      "hover": "Tracks every task's state and assigns each one to the best-matching worker (TaskCoordinator.ts). From a user perspective, this is the project board that knows who's doing what."
+    },
+    {
+      "id": "srv_agent_registry",
+      "label": "Agent registry",
+      "parent": "server",
+      "kind": "store",
+      "detail": "registerAgent, capability matching, health check. AgentRegistry.ts.",
+      "src": "AgentRegistry.ts",
+      "hover": "Keeps the list of which agents are online and what each can do (AgentRegistry.ts). From a user perspective, this is the team roster."
+    },
+    {
+      "id": "srv_project_store",
+      "label": "Project + brief store",
+      "parent": "server",
+      "kind": "store",
+      "detail": "In-memory projects + per-agent briefs; event-sourcing replay rebuilds on boot. index.ts.",
+      "src": "index.ts projects/briefs",
+      "hover": "Holds the project details and each agent's brief in memory, rebuilt from the log on restart (index.ts). From a user perspective, this is where your project's setup lives."
+    },
+    {
+      "id": "srv_file_locks",
+      "label": "File locks",
+      "parent": "server",
+      "kind": "store",
+      "detail": "claim/release/locks; auto-release on completion or agent removal. index.ts.",
+      "src": "index.ts /api/files",
+      "hover": "Lets a worker claim a file so two agents don't edit it at once (index.ts). From a user perspective, this is what stops agents stepping on each other's edits."
+    },
+    {
+      "id": "srv_event_hub",
+      "label": "Event hub",
+      "parent": "server",
+      "kind": "engine",
+      "detail": "EventHub classifies messages, rate-limits, selects responder; Socket.io + A2A push. EventHub.ts / index.ts.",
+      "src": "EventHub.ts",
+      "hover": "Sorts and routes the messages agents send each other, with rate limits (EventHub.ts). From a user perspective, this is the team's messaging system."
+    },
+    {
+      "id": "srv_validation_routes",
+      "label": "Validation / synthesis routes",
+      "parent": "server",
+      "kind": "endpoint",
+      "detail": "submit-for-validation / pending-validation / validated / validation-verdict / synthesis. index.ts.",
+      "src": "index.ts /validation-verdict +synthesis",
+      "hover": "The endpoints for submitting work, recording the pass/fail verdict, and the final assembly (index.ts). From a user perspective, this is the quality-control paper trail."
+    },
+    {
+      "id": "mem_chronlog",
       "label": "ChronLog",
-      "group": "store",
-      "detail": ""
+      "parent": "memory",
+      "kind": "store",
+      "detail": "Append-only event log; two append surfaces (REST handlers + EventHub); buffered flush to JSONL + per-project mirror. ChronologicalLog.ts.",
+      "src": "ChronologicalLog.ts",
+      "hover": "An append-only log of every coordination event, written to disk (ChronologicalLog.ts). From a user perspective, this is the project's permanent activity history."
     },
     {
-      "id": "pvm",
-      "label": "PVM (vectors)",
-      "group": "store",
-      "detail": ""
+      "id": "mem_pvm_indexer",
+      "label": "PVM indexer",
+      "parent": "memory",
+      "kind": "engine",
+      "detail": "indexNewEvents every 10s: dedup, buildEmbeddingText, embed, batchStore. PVMIndexer.ts.",
+      "src": "PVMIndexer.ts",
+      "hover": "Every 10 seconds it turns new log events into searchable memory (PVMIndexer.ts). From a user perspective, this is what lets the team remember and reuse past work."
     },
     {
-      "id": "task_store",
-      "label": "Task store",
-      "group": "store",
-      "detail": ""
+      "id": "mem_vector_store",
+      "label": "Vector store",
+      "parent": "memory",
+      "kind": "store",
+      "detail": "LocalEmbeddingVectorStore: MiniLM embeddings in an in-memory array; silent hash-embed fallback if the model fails to load. LocalEmbeddingVectorStore.ts.",
+      "src": "LocalEmbeddingVectorStore.ts",
+      "hover": "Holds those memories as searchable vectors, kept in memory (LocalEmbeddingVectorStore.ts). From a user perspective, this is the searchable memory bank."
     },
     {
-      "id": "brief_store",
-      "label": "Project/Brief store",
-      "group": "store",
-      "detail": ""
+      "id": "mem_search",
+      "label": "PVM search",
+      "parent": "memory",
+      "kind": "endpoint",
+      "detail": "GET /api/pvm/search; cross-project by default, opt-in project scope. index.ts.",
+      "src": "index.ts /api/pvm/search",
+      "hover": "Lets an agent search past work for relevant context (index.ts /api/pvm/search). From a user perspective, this is an agent asking 'have we done something like this before?'"
+    },
+    {
+      "id": "mem_routing_brief",
+      "label": "PVM routing brief",
+      "parent": "memory",
+      "kind": "endpoint",
+      "detail": "GET /api/pvm/routing-brief -> vectorStore.getRoutingBrief: confidence-labeled coordination evidence (similar past projects by capability overlap, per-role pass rates, role-pair history) computed from real task-outcome events. index.ts:1204 / LocalEmbeddingVectorStore.ts:583.",
+      "src": "index.ts /api/pvm/routing-brief",
+      "hover": "Builds a one-shot evidence block of what worked on past projects — which team mixes and roles passed, what commonly failed (index.ts /api/pvm/routing-brief, getRoutingBrief). From a user perspective, this is the system telling the Planner 'here's what worked before' before it picks the team."
+    },
+    {
+      "id": "mem_analytics",
+      "label": "Analytics / self-improvement",
+      "parent": "memory",
+      "kind": "engine",
+      "detail": "getAgentProfile / getAgentSynergy / compareAgents; SelfImprovementEngine reads real task-outcome events. index.ts / SelfImprovementEngine.ts.",
+      "src": "SelfImprovementEngine.ts",
+      "hover": "Works out each agent's skill profile and team-fit from real outcomes (SelfImprovementEngine.ts). From a user perspective, this is how the system learns which agents are good at what."
     }
   ],
   "flows": [
     {
       "id": "greenfield_intake",
-      "label": "Greenfield INTAKE \u2192 project creation \u2192 BUILD",
-      "summary": "Human types into the TUI; the Planner is the only agent that responds and runs a conversational 5-question intake (prompt-only). On explicit confirmation it emits a PROJECT_BRIEF: text marker in its own turn; the orchestrator's messageOwnershipLoop scans the finished Planner message, parses the JSON, and POSTs it to the ACT server which stores the project record. The orchestrator then clears intakeMode and fires a BUILD-mode trigger turn back at the Planner. Edges are code-enforced except the 5Q conversation and the 'Ready to start?' hard-stop, which live only in planner.go prompt text.",
+      "label": "Greenfield intake: 404 detect -> 5-question intake -> \"Ready to start?\" -> PROJECT_BRIEF -> POST /api/projects -> BUILD",
+      "family": "lifecycle",
+      "summary": "New project (404) triggers the Planner's 5-question intake; on confirmation it emits PROJECT_BRIEF, the orchestrator creates the project and writes AGENTS.md, then fires BUILD mode.",
       "steps": [
         {
-          "from": "human",
-          "to": "planner",
-          "label": "human text \u2192 runAgentTurn(planner)",
-          "status": "ok",
-          "detail": "HandleHumanInput routes every human message to a Planner turn via runAgentTurn(ctx, sessionID, \"planner\", text, true) at orchestrator.go:242."
-        },
-        {
-          "from": "planner",
-          "to": "human",
-          "label": "5-question INTAKE, one topic per turn",
+          "from": "orch_intake",
+          "to": "prompt_tier1",
+          "label": "Start() -> detectProjectState -> GetProject 404 -> intakeMode=true; INTAKE rules baked into Planner system prompt (5-question flow, hard stop on 'Ready to start?')",
           "status": "prompt-only",
-          "detail": "The 5-thing conversational intake (description/techStack/constraints/successCriteria/agentsInvolved, one topic per turn, no form-dump) exists only as instruction text in basePlannerPrompt at planner.go:37-41."
+          "detail": "orchestrator.go:260-266 (o.intakeMode = !found); planner.go:38-45 — prompt instructs the 5-question form + 'Ready to start?' hard stop; model follows the narrative, no code enforces ordering"
         },
         {
-          "from": "planner",
-          "to": "human",
-          "label": "summarize \u2192 'Ready to start?' \u2192 STOP",
-          "status": "prompt-only",
-          "detail": "The hard-stop rule \u2014 summarize, ask 'Ready to start?', end the turn, and emit PROJECT_BRIEF only in the NEXT turn after explicit confirmation \u2014 is prompt text at planner.go:45; nothing in code enforces the turn separation."
-        },
-        {
-          "from": "planner",
-          "to": "tui",
-          "label": "emit 'PROJECT_BRIEF: {json}' marker in reply text",
+          "from": "prompt_tier1",
+          "to": "orch_turn_mgr",
+          "label": "Planner runs intake turns; emits PROJECT_BRIEF only in the turn AFTER human confirmation",
           "status": "ok",
-          "detail": "On confirmation the Planner writes the literal PROJECT_BRIEF: line (planner.go:47-48); the orchestrator's messageOwnershipLoop detects the finished Planner message and, while intakeMode is true, dispatches handleProjectBrief at orchestrator.go:1210-1212."
+          "detail": "planner.go:45-50 — 'STOP and end your turn... ONLY after they reply with explicit confirmation do you emit the brief'"
         },
         {
-          "from": "tui",
-          "to": "tui",
-          "label": "parseProjectBrief() extracts + parses JSON",
+          "from": "orch_turn_mgr",
+          "to": "orch_msg_ownership",
+          "label": "Finished Planner message -> pubsub UpdatedEvent; intakeMode routes to brief handler",
           "status": "ok",
-          "detail": "handleProjectBrief calls parseProjectBrief(content) (orchestrator.go:1544); parseProjectBrief keys on the PROJECT_BRIEF: marker, falling back to any JSON containing successCriteria, at orchestrator.go:3050-3056."
+          "detail": "orchestrator.go:1207-1211 — 'if intake { go o.handleProjectBrief(ctx, content); continue }'"
         },
         {
-          "from": "tui",
-          "to": "act_server",
-          "label": "POST /api/projects (CreateProject)",
+          "from": "orch_msg_ownership",
+          "to": "orch_marker_parser",
+          "label": "parseProjectBrief(content) extracts PROJECT_BRIEF: JSON",
           "status": "ok",
-          "detail": "handleProjectBrief calls client.CreateProject(...) at orchestrator.go:1578, which POSTs to /api/projects (client.go:552-562); the server builds a ProjectRecord and stores it in the projects map at index.ts:383-407."
+          "detail": "orchestrator.go:3054-3073 — finds 'PROJECT_BRIEF:' marker, then extractJSONContaining(tail, '\"description\"')"
         },
         {
-          "from": "act_server",
-          "to": "brief_store",
-          "label": "projects.set(name, project) + chronlog project_created",
+          "from": "orch_marker_parser",
+          "to": "srv_project_store",
+          "label": "client.CreateProject(...) POST /api/projects",
           "status": "ok",
-          "detail": "POST /api/projects writes projects.set(name, project) (index.ts:399) and appends a project_created event to the ChronologicalLog (index.ts:400-406)."
+          "detail": "orchestrator.go:1578 — CreateProject() POSTs to /api/projects (act/client.go:552-568)"
         },
         {
-          "from": "tui",
-          "to": "planner",
-          "label": "clear intakeMode \u2192 BUILD-mode trigger turn",
+          "from": "srv_project_store",
+          "to": "prompt_context",
+          "label": "writeAgentsMd materializes AGENTS.md, then InvalidateContextCache + RebindSystemPrompt on all Tier-1 agents",
           "status": "ok",
-          "detail": "After a successful POST the orchestrator sets intakeMode=false (orchestrator.go:1610) and fires fireWhenPlannerIdle with a renderBriefContext(\"build\", ...) prompt that switches the Planner to BUILD mode (orchestrator.go:1628-1636)."
+          "detail": "orchestrator.go:1589-1606 — writeAgentsMd(dir,name,brief); prompt.InvalidateContextCache(); RebindSystemPrompt() per role"
+        },
+        {
+          "from": "prompt_context",
+          "to": "orch_turn_mgr",
+          "label": "intakeMode=false; fireWhenPlannerIdle kicks Planner into BUILD",
+          "status": "ok",
+          "detail": "orchestrator.go:1610,1636 — o.intakeMode=false; fireWhenPlannerIdle(ctx,sid,buildPrompt,'build_mode_trigger')"
         }
       ]
     },
     {
       "id": "brownfield_intake",
-      "label": "Brownfield INTAKE \u2192 2-question variant \u2192 project creation",
-      "summary": "When detectProjectState finds no server project record but the directory has existing code, the orchestrator flips a brownfield flag, runs a deterministic scaffold + researcher enrichment to produce a codebase analysis, stashes it, and seeds the Planner with a 'CODEBASE ANALYSIS' intake turn. The Planner runs a 2-question variant (prompt-only) instead of the 5Q form, then follows the same PROJECT_BRIEF \u2192 POST /api/projects path; the stashed analysis is folded into AGENTS.md as a '## Codebase analysis' section. Detection, analysis pipeline, the CODEBASE ANALYSIS label, the POST, and the AGENTS.md fold are code-enforced; the 2-question conversation is prompt-only.",
+      "label": "Brownfield intake: 404 + existing code -> onboard scaffold -> researcher enrichment -> 2-question intake -> PROJECT_BRIEF -> POST /api/projects -> POST /api/tasks",
+      "family": "lifecycle",
+      "summary": "When a 404 project has existing code, the orchestrator scaffolds + enriches an analysis, runs the 2-question intake, then on PROJECT_BRIEF creates the project (with codebase notes) and decomposes into tasks.",
       "steps": [
         {
+          "from": "orch_intake",
+          "to": "orch_turn_mgr",
+          "label": "404 + hasExistingCode -> brownfield onboard -> deterministicScaffold -> researcher enrichment -> stash analysis -> renderBrownfieldIntake -> fireWhenPlannerIdle (intakeMode=true, 2-question variant)",
+          "status": "ok",
+          "detail": "orchestrator.go:317-387 — brownfield=true(319); runBrownfieldOnboard(197)->deterministicScaffold(355)->runResearcherEnrichment(363)->codebaseAnalysis(380)->renderBrownfieldIntake(385)->fireWhenPlannerIdle(387)"
+        },
+        {
+          "from": "orch_turn_mgr",
+          "to": "orch_msg_ownership",
+          "label": "Finished Planner msg -> pubsub; intakeMode routes to handleProjectBrief",
+          "status": "ok",
+          "detail": "orchestrator.go:1208 — intakeMode check routes to handleProjectBrief instead of task directives"
+        },
+        {
+          "from": "orch_msg_ownership",
+          "to": "orch_marker_parser",
+          "label": "parseProjectBrief(content); attach stashed codebase analysis to brief",
+          "status": "ok",
+          "detail": "orchestrator.go:1544,1569 — parseProjectBrief; brief.CodebaseNotes = o.codebaseAnalysis (brownfield only)"
+        },
+        {
+          "from": "orch_marker_parser",
+          "to": "srv_project_store",
+          "label": "client.CreateProject(...) POST /api/projects",
+          "status": "ok",
+          "detail": "orchestrator.go:1578 — CreateProject() with brief fields POSTs /api/projects"
+        },
+        {
+          "from": "srv_project_store",
+          "to": "prompt_context",
+          "label": "writeAgentsMd (incl. '## Codebase analysis'); InvalidateContextCache + RebindSystemPrompt",
+          "status": "ok",
+          "detail": "orchestrator.go:1589-1606; agents_md.go:19 renderAgentsMd includes CodebaseNotes section"
+        },
+        {
+          "from": "prompt_context",
+          "to": "orch_turn_mgr",
+          "label": "intakeMode=false; fireWhenPlannerIdle -> Planner BUILD decomposition",
+          "status": "ok",
+          "detail": "orchestrator.go:1610,1636 — buildPrompt = renderBriefContext('build',...); Planner emits CREATE_TASK"
+        },
+        {
+          "from": "orch_turn_mgr",
+          "to": "orch_msg_ownership",
+          "label": "Finished BUILD msg -> scan for CREATE_TASK (not intake)",
+          "status": "ok",
+          "detail": "orchestrator.go:1214 — messageOwnershipLoop scans CREATE_TASK when not intake mode"
+        },
+        {
+          "from": "orch_msg_ownership",
+          "to": "orch_marker_parser",
+          "label": "parseCreateTaskDirectives(content) extracts task batch",
+          "status": "ok",
+          "detail": "orchestrator.go:1672 — parseCreateTaskDirectives finds 'CREATE_TASK:' markers"
+        },
+        {
+          "from": "orch_marker_parser",
+          "to": "orch_dispatch",
+          "label": "taskBatchHash dedup; lazy swarm spawn check; two-pass create",
+          "status": "ok",
+          "detail": "orchestrator.go:1696-1759 — checkAndRecordDispatchHash; lazy StartSwarm; pass1 create / pass2 resolve"
+        },
+        {
+          "from": "orch_dispatch",
+          "to": "swarm_spawner",
+          "label": "StartSwarm(specs) lazy-spawns Tier-2 on first batch",
+          "status": "ok",
+          "detail": "orchestrator.go:1737 — o.runnerSpawner.StartSwarm(specs) filtered by agentsInvolved"
+        },
+        {
+          "from": "orch_dispatch",
+          "to": "srv_task_coordinator",
+          "label": "client.CreateTask POST /api/tasks; SetTaskDependencies PATCH /api/tasks/:id/dependencies",
+          "status": "ok",
+          "detail": "orchestrator.go:1783,1813 — CreateTask returns taskID; SetTaskDependencies(taskID,resolved) for title-deps"
+        }
+      ]
+    },
+    {
+      "id": "resume_context",
+      "label": "Resume context: 200 OK -> build brief block -> inject into first Planner turn",
+      "family": "lifecycle",
+      "summary": "An existing project (200) builds a resume brief from server state + task list, stashes it, and prepends it one-time to the human's first message so the Planner re-enters BUILD directly.",
+      "steps": [
+        {
+          "from": "srv_project_store",
+          "to": "orch_intake",
+          "label": "detectProjectState GET /api/projects 200 -> briefViewFromGetProject + ListTasks -> renderBriefContext('resume') stashed; firstPlannerTurn=true",
+          "status": "ok",
+          "detail": "orchestrator.go:267-291 — found==true; briefViewFromGetProject; ListTasks; renderBriefContext('resume',brief,tasks) under mutex"
+        },
+        {
           "from": "human",
-          "to": "act_server",
-          "label": "detectProjectState \u2192 GET /api/projects/:name = 404 + existing code",
+          "to": "orch_intake",
+          "label": "Human sends first message -> HandleHumanInput",
           "status": "ok",
-          "detail": "detectProjectState calls client.GetProject(name) (orchestrator.go:260); on not-found it checks hasExistingCode(projectDir) and sets o.brownfield=true at orchestrator.go:317-320. GET /api/projects/:name returns 404 for an unknown project at index.ts:414-416."
+          "detail": "orchestrator.go:224 — HandleHumanInput(ctx,sessionID,text) from TUI on first user message"
         },
         {
-          "from": "tui",
-          "to": "tui",
-          "label": "deterministicScaffold + researcher enrichment \u2192 analysis",
+          "from": "orch_intake",
+          "to": "orch_turn_mgr",
+          "label": "Prepend resumeContext one-time (clear firstPlannerTurn); runAgentTurn('planner', injected text)",
           "status": "ok",
-          "detail": "runBrownfieldOnboard builds the analysis via deterministicScaffold (orchestrator.go:355, runs `act codebase onboard` at :401) then runResearcherEnrichment (orchestrator.go:363), stashing the result in o.codebaseAnalysis at orchestrator.go:379-381."
+          "detail": "orchestrator.go:236-242 — text = resumeContext + '\\n\\nUser message: ' + text; firstPlannerTurn=false; runAgentTurn"
         },
         {
-          "from": "tui",
-          "to": "planner",
-          "label": "seed 'CODEBASE ANALYSIS' intake turn (fireWhenPlannerIdle)",
-          "status": "ok",
-          "detail": "renderBrownfieldIntake emits a turn carrying the literal CODEBASE ANALYSIS block (orchestrator.go:530-539) and fireWhenPlannerIdle delivers it to the Planner at orchestrator.go:387."
-        },
-        {
-          "from": "planner",
-          "to": "human",
-          "label": "2-question variant (build-next? + don't-touch?)",
+          "from": "orch_turn_mgr",
+          "to": "exec_inproc_agent",
+          "label": "agent.Run() invokes LLM with resumeContext in user content; Planner enters BUILD (skips INTAKE)",
           "status": "prompt-only",
-          "detail": "The brownfield branch \u2014 skip the 5Q form, present analysis, ask only (1) what to build/change next and (2) what agents must NOT touch \u2014 is prompt text keyed on the 'CODEBASE ANALYSIS' block at planner.go:43; same 'Ready to start?' hard stop applies."
-        },
-        {
-          "from": "planner",
-          "to": "tui",
-          "label": "emit 'PROJECT_BRIEF: {json}' (techStack from analysis)",
-          "status": "ok",
-          "detail": "Confirmation routes through the same intakeMode path: messageOwnershipLoop \u2192 handleProjectBrief at orchestrator.go:1210-1212; the brownfield branch keeps intakeMode true so the brief uses the shared handler (orchestrator.go:383-384)."
-        },
-        {
-          "from": "tui",
-          "to": "act_server",
-          "label": "POST /api/projects (CreateProject)",
-          "status": "ok",
-          "detail": "handleProjectBrief calls client.CreateProject (orchestrator.go:1578 \u2192 client.go:552) hitting POST /api/projects which stores the ProjectRecord (index.ts:383-407) \u2014 identical to greenfield."
-        },
-        {
-          "from": "tui",
-          "to": "brief_store",
-          "label": "fold analysis into AGENTS.md '## Codebase analysis'",
-          "status": "ok",
-          "detail": "Before POSTing, handleProjectBrief sets brief.CodebaseNotes = o.codebaseAnalysis (orchestrator.go:1569); writeAgentsMd renders it as a '## Codebase analysis' section when non-empty at agents_md.go:31-32."
+          "detail": "planner.go:33-52 — Planner sees @brief block in history -> recognizes resume -> BUILD mode directly (model behavior)"
         }
       ]
     },
     {
       "id": "decompose_dispatch",
-      "label": "Decompose \u2192 CREATE_TASK dispatch \u2192 lazy swarm spawn",
-      "summary": "In BUILD mode the Planner decomposes the brief into 3-8 tasks and emits CREATE_TASK: text markers. The orchestrator's messageOwnershipLoop parses + content-hash-dedups them, lazily spawns the Tier-2 swarm (one Node act-runner.mjs per requested role) on the first batch, then POSTs each task to /api/tasks where the server creates it and runs assignOptimalAgent for capability-based routing. Two-pass dependency resolution PATCHes title-string deps to server IDs. Decomposition rules are prompt-only; parsing, dedup, spawn, POST, assignment, and dep-resolution are code-enforced.",
+      "label": "Decompose & dispatch: Planner CREATE_TASK -> dedup -> lazy swarm spawn -> two-pass create + dependency resolve",
+      "family": "lifecycle",
+      "summary": "The message-ownership loop catches a finished Planner message, parses CREATE_TASK directives, content-hash-dedups the batch, lazily spawns the swarm, and creates tasks in two passes (create, then resolve title-deps to IDs).",
       "steps": [
         {
-          "from": "planner",
-          "to": "planner",
-          "label": "decompose brief into 3-8 tasks (@task/@success_criteria)",
-          "status": "prompt-only",
-          "detail": "Step 2 of basePlannerPrompt instructs decomposition into 3-8 tasks each using only @task and @success_criteria SPIL sections, with role/capability matching rules, at planner.go:85-96."
+          "from": "orch_msg_ownership",
+          "to": "orch_marker_parser",
+          "label": "pubsub: finished assistant msg + owner=='planner' (dedup guard) -> handlePlannerTaskDirectives -> parseCreateTaskDirectives(content)",
+          "status": "ok",
+          "detail": "orchestrator.go:1147-1214 (Subscribe; IsFinished+dispatchedMsgs guard; GetOwner=='planner' -> handlePlannerTaskDirectives); parseCreateTaskDirectives(1672)"
         },
         {
-          "from": "planner",
-          "to": "tui",
-          "label": "emit 'CREATE_TASK: {json}' markers in reply text",
+          "from": "orch_marker_parser",
+          "to": "orch_dispatch",
+          "label": "taskBatchHash + checkAndRecordDispatchHash; IsAvailable; lazy spawn check",
           "status": "ok",
-          "detail": "The Planner writes CREATE_TASK: lines as plain reply text (planner.go:95-96); when not in intake mode messageOwnershipLoop dispatches handlePlannerTaskDirectives at orchestrator.go:1214."
+          "detail": "orchestrator.go:1696-1730 — content-hash dedup (60s window); client.IsAvailable(); first batch triggers lazy spawn"
         },
         {
-          "from": "tui",
-          "to": "tui",
-          "label": "parseCreateTaskDirectives + content-hash dedup",
+          "from": "orch_dispatch",
+          "to": "swarm_spawner",
+          "label": "StartSwarm(specs): one Runner subprocess per swarm role",
           "status": "ok",
-          "detail": "handlePlannerTaskDirectives calls parseCreateTaskDirectives (orchestrator.go:1672; brace-counting parser at :2988) then taskBatchHash + checkAndRecordDispatchHash to drop duplicate re-emitted batches at orchestrator.go:1696-1713."
+          "detail": "orchestrator.go:1737 — o.runnerSpawner.StartSwarm(specs)"
         },
         {
-          "from": "tui",
-          "to": "runner",
-          "label": "lazy StartSwarm on first batch (spawn node act-runner.mjs/role)",
+          "from": "orch_dispatch",
+          "to": "srv_task_coordinator",
+          "label": "Pass 1: CreateTask POST /api/tasks (nil deps, collect title->ID); Pass 2: SetTaskDependencies PATCH /api/tasks/:id/dependencies",
           "status": "ok",
-          "detail": "On the first batch, if the runner isn't already running, the orchestrator filters specs by the project's agentsInvolved and calls runnerSpawner.StartSwarm (orchestrator.go:1730-1739); StartSwarm spawns one `node act-runner.mjs --agent-id \u2026 --role \u2026` subprocess per spec (spawner.go:58-92, exec.Command at :123)."
+          "detail": "orchestrator.go:1759-1820 — pass1 CreateTask (act/client.go:350); pass2 resolves title->ID and SetTaskDependencies (act/client.go:383)"
+        }
+      ]
+    },
+    {
+      "id": "swarm_spawn",
+      "label": "Swarm spawn: StartSwarm -> sweep orphans -> per-role node subprocess -> register -> poll loop",
+      "family": "lifecycle",
+      "summary": "StartSwarm sweeps orphans, finds the runner script + node, and launches one process group per role (with a reaper goroutine); each Runner registers and enters its poll loop.",
+      "steps": [
+        {
+          "from": "orch_dispatch",
+          "to": "swarm_spawner",
+          "label": "StartSwarm called from handlePlannerTaskDirectives (lazy spawn)",
+          "status": "ok",
+          "detail": "orchestrator.go:1737 — o.runnerSpawner.StartSwarm(specs)"
         },
         {
-          "from": "tui",
-          "to": "act_server",
-          "label": "POST /api/tasks per task (CreateTask)",
+          "from": "swarm_spawner",
+          "to": "swarm_register",
+          "label": "SweepOrphans -> findRunnerScript -> LookPath(node) -> startOneLocked (validate backend, build args, openRunnerLog, cmd.Start w/ Setpgid, reaper); spawned Runner POST /api/agents/register",
           "status": "ok",
-          "detail": "For each parsed task the orchestrator calls client.CreateTask (orchestrator.go:1783) \u2192 POST /api/tasks (client.go:341-350); the server fail-closes on empty title/description then taskCoordinator.createTask(req.body) at index.ts:516-532."
+          "detail": "spawner.go:66-188 (SweepOrphans 66; findRunnerScript 68; LookPath node 73; startOneLocked 86; cmd.Start 152; reaper 176-188); act-runner.mjs:141 post('/api/agents/register')"
         },
         {
-          "from": "act_server",
-          "to": "task_store",
-          "label": "createTask + assignOptimalAgent (capability routing)",
+          "from": "swarm_register",
+          "to": "swarm_poll",
+          "label": "main(): register() then while-loop getTask() -> executeTask() -> sleep",
           "status": "ok",
-          "detail": "POST /api/tasks stores the task and, when no agent is pre-assigned, calls taskCoordinator.assignOptimalAgent(task.id) to capability-match it to a registered runner, emitting task_assigned, at index.ts:532-560."
+          "detail": "act-runner.mjs:774-858 — main loop polls /api/tasks/assigned, executes, sleeps POLL_INTERVAL"
         },
         {
-          "from": "tui",
-          "to": "act_server",
-          "label": "Pass 2: PATCH /api/tasks/:id/dependencies (title\u2192ID)",
+          "from": "swarm_poll",
+          "to": "srv_task_coordinator",
+          "label": "GET /api/tasks/assigned?agent_id=&project=",
           "status": "ok",
-          "detail": "Because the Planner can only name deps by title, a second pass resolves sibling titles to server-assigned IDs and calls client.SetTaskDependencies (orchestrator.go:1799-1813) \u2192 PATCH /api/tasks/:id/dependencies (client.go:375-383)."
+          "detail": "act-runner.mjs:162-170 -> server/src/index.ts:590 — returns scoped assigned/in_progress task"
+        },
+        {
+          "from": "swarm_poll",
+          "to": "swarm_completion",
+          "label": "executeTask -> on result POST /api/tasks/:id/complete then submit-for-validation",
+          "status": "ok",
+          "detail": "act-runner.mjs:181-196 — reportComplete POSTs complete then /submit-for-validation"
+        },
+        {
+          "from": "swarm_completion",
+          "to": "srv_validation_routes",
+          "label": "submit-for-validation marks status submitted_for_validation",
+          "status": "ok",
+          "detail": "server/src/index.ts:838-870 — updateTaskProgress(taskId,{status:'submitted_for_validation'})"
         }
       ]
     },
     {
       "id": "swarm_execute",
-      "label": "Swarm task execution (spawn \u2192 bootstrap \u2192 complete \u2192 submit-for-validation)",
-      "summary": "Runner is spawned by the orchestrator on the first CREATE_TASK batch (one Node process per swarm role). Each runner self-registers, polls /api/tasks/assigned, and on a hit spawns the swarm agent (act-agent headless or claude-code). Self-bootstrap is NOT via `act context`: the runner fetches the brief over HTTP and injects it into the prompt directly. The swarm agent does the work, then the RUNNER (not the agent) calls /complete and /submit-for-validation over HTTP \u2014 the in-prompt `act task complete` text is prompt-only redundancy.",
+      "label": "Runner execute: poll -> parallel/brief context -> buildTaskPrompt -> runAgent -> complete + submit-for-validation",
+      "family": "lifecycle",
+      "summary": "On an assigned task the Runner fetches the agent brief + parallel-awareness context, builds the task prompt, runs the agent backend, and reports completion + submits for validation. (The old complexity-triggered PVM-search injection was removed in 76ba3d7; past-outcome evidence now reaches the Planner once at decomposition via pvm_routing_brief, not per-task in the Runner.)",
       "steps": [
         {
-          "from": "tui",
-          "to": "runner",
-          "label": "spawn one Node process per swarm role (StartSwarm)",
+          "from": "swarm_poll",
+          "to": "srv_task_coordinator",
+          "label": "GET /api/tasks/assigned poll returns task JSON",
           "status": "ok",
-          "detail": "Orchestrator.handlePlannerTaskDirectives calls o.runnerSpawner.StartSwarm(specs) on the CREATE_TASK batch (internal/app/orchestrator.go:1737); Spawner.startOneLocked runs exec.Command(nodeBin, scriptPath, --agent-id, --name, --role, --backend) (internal/runner/spawner.go:113-122).",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:162-170 -> server/src/index.ts:590-624 — returns {success,task}"
         },
         {
-          "from": "runner",
-          "to": "act_server",
-          "label": "POST /api/agents/register (self-register, 409 self-heal)",
+          "from": "srv_task_coordinator",
+          "to": "swarm_prompt_build",
+          "label": "fetchAgentBrief + fetchParallelContext; proactiveCoordination; buildTaskPrompt",
           "status": "ok",
-          "detail": "runner register() posts /api/agents/register, deregisters+retries on HTTP 409 stale registration (act-agent/runner/act-runner.mjs:129-154); server handler at server/src/index.ts:265.",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:491-524 — fetchAgentBrief(496); fetchParallelContext(499); buildTaskPrompt(524) injects brief/parallel/inbox/gap"
         },
         {
-          "from": "runner",
-          "to": "act_server",
-          "label": "poll GET /api/tasks/assigned?agent_id&project (5s loop)",
+          "from": "swarm_prompt_build",
+          "to": "swarm_backend_switch",
+          "label": "runAgent(prompt) branches on BACKEND",
           "status": "ok",
-          "detail": "runner getTask() GETs /api/tasks/assigned scoped to agent_id+project in the coordination loop (act-agent/runner/act-runner.mjs:162-169, loop at 808-810); server route server/src/index.ts:590.",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:227-231 — runAgent dispatch selects act-agent binary or claude CLI"
         },
         {
-          "from": "runner",
-          "to": "swarm_developer",
-          "label": "spawn act-agent --agent --role --prompt (or claude-code)",
+          "from": "swarm_backend_switch",
+          "to": "swarm_completion",
+          "label": "uniform {success,output,error,code} -> reportComplete (POST complete) then submit-for-validation",
           "status": "ok",
-          "detail": "runAgentActAgent execFile(AGENT_CLI, [--agent, AGENT_ID, --role, AGENT_ROLE, --prompt, prompt]) (act-agent/runner/act-runner.mjs:235-240); runAgent picks claude-code vs act-agent by BACKEND (227-232). Recipient role is whichever of developer/frontend/backend/qa/researcher this runner was spawned as.",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:527-536 — destructure runAgent return; reportComplete(true,output) + submit; else reportComplete(false,error)"
         },
         {
-          "from": "runner",
-          "to": "swarm_developer",
-          "label": "inject AGENTS.md brief into prompt (NOT `act context`)",
-          "status": "gap-found",
-          "detail": "CLAUDE.md claims swarm self-bootstrap via `act-agent context <id>`, but the runner never calls `act context` (no such call in act-runner.mjs). Instead fetchAgentBrief() GETs /api/projects/:name/briefs/:agentId and buildTaskPrompt prepends it as `## Project Brief` (act-agent/runner/act-runner.mjs:543-545, 557, 614). Equivalent outcome, different mechanism than documented.",
-          "detail_extra": ""
-        },
-        {
-          "from": "swarm_developer",
-          "to": "act_server",
-          "label": "prompt-instructed `act files claim` / `act task complete`",
-          "status": "prompt-only",
-          "detail": "buildTaskPrompt's Workflow text tells the LLM to run `act files claim`, `act task complete`, `act files release` (act-agent/runner/act-runner.mjs:699-706). These are instructions in prompt text \u2014 the swarm agent may or may not execute them; the authoritative completion is the runner's own HTTP call below.",
-          "detail_extra": ""
-        },
-        {
-          "from": "runner",
-          "to": "act_server",
-          "label": "POST /api/tasks/:id/complete (code-enforced, on process exit)",
+          "from": "swarm_completion",
+          "to": "srv_task_coordinator",
+          "label": "POST /api/tasks/:id/complete -> updateTaskProgress(completed|failed)",
           "status": "ok",
-          "detail": "reportComplete() posts /api/tasks/${taskId}/complete with agentId/success/result regardless of whether the agent self-reported (act-agent/runner/act-runner.mjs:181-186); server route server/src/index.ts:708.",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:181-203 -> server/src/index.ts:708-771 — marks task completed/failed"
         },
         {
-          "from": "runner",
-          "to": "act_server",
-          "label": "POST /api/tasks/:id/submit-for-validation (on success)",
+          "from": "swarm_completion",
+          "to": "srv_validation_routes",
+          "label": "On success POST /api/tasks/:id/submit-for-validation",
           "status": "ok",
-          "detail": "reportComplete() then posts /api/tasks/${taskId}/submit-for-validation when success is true, feeding the Assurance/QA pipeline (act-agent/runner/act-runner.mjs:191-200); server route server/src/index.ts:838.",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:192-196 -> server/src/index.ts:838-870 — status submitted_for_validation, feeds Assurance"
         }
       ]
     },
     {
-      "id": "file_locking",
-      "label": "File locking (claim / release)",
-      "summary": "File locking is prompt-only on the swarm side: the runner tells the swarm agent to run `act files claim`/`release`, and the act-agent CLI implements those as POST /api/files/claim and /release. There is no runner-side enforcement that the agent actually claims before editing \u2014 claiming depends on the LLM following the workflow text.",
+      "id": "fork_B_tier2_backend",
+      "label": "FORK B: Tier-2 backend (runAgent switch on BACKEND -> act-agent | claude-code -> converge)",
+      "family": "config-fork",
+      "summary": "The Runner's runAgent switch forks to the act-agent binary (headless, JSON {status,result}) or the claude-code CLI (--print); both return a uniform shape that converges at reportComplete + submit-for-validation.",
       "steps": [
         {
-          "from": "swarm_developer",
-          "to": "act_server",
-          "label": "prompt-instructed `act files claim <paths>` \u2192 POST /api/files/claim",
+          "from": "swarm_poll",
+          "to": "srv_task_coordinator",
+          "label": "GET /api/tasks/assigned -> getTasksByAgent",
+          "status": "ok",
+          "detail": "act-runner.mjs:162-170 -> server/src/index.ts:590-625 — fetch assigned/in_progress task"
+        },
+        {
+          "from": "srv_task_coordinator",
+          "to": "swarm_backend_switch",
+          "label": "runAgent(prompt) BACKEND switch",
+          "status": "ok",
+          "detail": "act-runner.mjs:227-232 — if BACKEND===claude-code -> runAgentClaudeCode else runAgentActAgent"
+        },
+        {
+          "from": "swarm_backend_switch",
+          "to": "swarm_actagent",
+          "label": "execFile act-agent binary headless (--agent --role --prompt)",
+          "status": "ok",
+          "detail": "act-runner.mjs:234-279 — runAgentActAgent spawns AGENT_CLI via execFileAsync",
+          "branch": "act-agent"
+        },
+        {
+          "from": "swarm_actagent",
+          "to": "exec_backend_switch",
+          "label": "CLI --agent flag routes to app.RunAgent -> CreateAgentForRole",
+          "status": "ok",
+          "detail": "cmd/root.go:158-164; app.go:446-464 — RunAgent creates role-specific agent or Planner fallback",
+          "branch": "act-agent"
+        },
+        {
+          "from": "exec_backend_switch",
+          "to": "exec_inproc_agent",
+          "label": "agent.Run(ctx,sess.ID,prompt) executes LLM",
+          "status": "ok",
+          "detail": "app.go:491-496 — runAgent.Run() blocks on <-done",
+          "branch": "act-agent"
+        },
+        {
+          "from": "exec_inproc_agent",
+          "to": "swarm_actagent",
+          "label": "agentOutput writes JSON {agent_id,status,result}; runner parses status->success",
+          "status": "ok",
+          "detail": "app.go:525-544 -> act-runner.mjs:244-257 — parse stdout JSON, status determines success",
+          "branch": "act-agent"
+        },
+        {
+          "from": "swarm_actagent",
+          "to": "swarm_completion",
+          "label": "Uniform {success,output,error,code} returned",
+          "status": "ok",
+          "detail": "act-runner.mjs:596 — destructure runAgent return",
+          "branch": "converge"
+        },
+        {
+          "from": "swarm_backend_switch",
+          "to": "swarm_claudecode",
+          "label": "execFile claude --print --dangerously-skip-permissions <prompt>",
+          "status": "ok",
+          "detail": "act-runner.mjs:281-323 — runAgentClaudeCode spawns CLAUDE_PATH via execFileAsync",
+          "branch": "claude-code"
+        },
+        {
+          "from": "swarm_claudecode",
+          "to": "ext_claude_code",
+          "label": "External claude binary processes prompt, writes stdout",
           "status": "prompt-only",
-          "detail": "The claim step exists only as Workflow prompt text the LLM is asked to run (act-agent/runner/act-runner.mjs:699). If the agent runs it, cli/act-cli.ts dispatches `files claim` \u2192 cmdFilesClaim \u2192 client POST /api/files/claim (cli/act-cli.ts:1191; client internal/act/client.go:166-173; server route server/src/index.ts:1072).",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:288-299 — behavior depends on external claude binary (out of ACT territory)",
+          "branch": "claude-code"
         },
         {
-          "from": "swarm_developer",
-          "to": "act_server",
-          "label": "prompt-instructed `act files release <paths>` \u2192 POST /api/files/release",
-          "status": "prompt-only",
-          "detail": "Release is likewise prompt text, with an auto-release-on-complete fallback noted in the prompt (act-agent/runner/act-runner.mjs:706). CLI branch `files release` \u2192 client POST /api/files/release (cli/act-cli.ts:1205; internal/act/client.go:182-188; server route server/src/index.ts:1115).",
-          "detail_extra": ""
-        }
-      ]
-    },
-    {
-      "id": "tier1_backend_dispatch",
-      "label": "Tier 1 backend dispatch (in-process goroutine vs ACP host)",
-      "summary": "Each Tier-1 role (planner/observer/assurance/qa) is wired once at app.New() by a single switch on agents.<role>.backend in ~/.act.json. Empty/act-agent \u2192 in-process agent.NewAgent goroutine sharing the TUI session. External hosts (claude-code, antigravity/agy; codex/opencode stubbed) \u2192 acp.NewACPAgent, which spawns the external CLI over ACP via exec.Command. The /backend slash command flips the config.",
-      "steps": [
-        {
-          "from": "tui",
-          "to": "planner",
-          "label": "default branch \u2192 agent.NewAgent (in-process goroutine)",
+          "from": "ext_claude_code",
+          "to": "swarm_claudecode",
+          "label": "Trim stdout -> {success:true,output,code:0}",
           "status": "ok",
-          "detail": "app.New() switch default case builds Tier1ToolsForRole + agent.NewAgent with HistoryThread for planner, HistoryNone for observer/assurance/qa (internal/app/app.go:104,110-137). These run in-process; HandleHumanInput \u2192 runAgentTurn \u2192 agentSvc.Run (orchestrator.go:242, 601).",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:295-299 — runAgentClaudeCode returns uniform shape",
+          "branch": "claude-code"
         },
         {
-          "from": "tui",
-          "to": "acp_host",
-          "label": "case claude-code/antigravity/agy/codex/opencode \u2192 acp.NewACPAgent",
+          "from": "swarm_claudecode",
+          "to": "swarm_completion",
+          "label": "Uniform {success,output,error,code} returned",
           "status": "ok",
-          "detail": "Same app.New() switch: backendChoice from cfg.Agents[agentName].Backend; case for external hosts calls acp.NewACPAgent(role, backendChoice, withShim, ...) (internal/app/app.go:90-110). ACP layer spawns the host via exec.Command \u2014 claudeCodeDefaults() or antigravityCLIDefaults(); codex/opencode return unimplemented (internal/acp/agent.go:547-557,561).",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:596 — both branches converge at destructure",
+          "branch": "converge"
         },
         {
-          "from": "acp_host",
-          "to": "planner",
-          "label": "external CLI drives the role's turns over ACP (Run)",
+          "from": "swarm_completion",
+          "to": "srv_task_coordinator",
+          "label": "POST /api/tasks/:id/complete -> updateTaskProgress",
           "status": "ok",
-          "detail": "ACPAgent.Run satisfies the same agent.Service contract as the in-process path, so orchestrator routing is backend-agnostic; per-role CLI allowlist enforced via the tier1 shim path (internal/acp/agent.go:182-186; withTier1ShimPath in app.go:108). Any Tier-1 role (planner/observer/assurance/qa) can be the dispatched role.",
-          "detail_extra": ""
-        }
-      ]
-    },
-    {
-      "id": "intake_dispatch",
-      "label": "Human \u2192 Planner \u2192 Server \u2192 Runner (intake + task dispatch framing)",
-      "summary": "Frames the swarm flow: human input goes ONLY to the Planner; the Planner emits PROJECT_BRIEF (intake) and CREATE_TASK (build) markers that the orchestrator parses and turns into REST calls (CreateProject, CreateTask). Other Tier-1 agents reach the Planner via InternalPromptMarker autoroute, never the human directly.",
-      "steps": [
-        {
-          "from": "human",
-          "to": "planner",
-          "label": "HandleHumanInput \u2192 runAgentTurn(planner, fromHuman=true)",
-          "status": "ok",
-          "detail": "TUI's only human entry point routes to the Planner and clears the autoroute sliding window (internal/app/orchestrator.go:224-242). Planner is the sole role that sees human turns.",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:181-203 -> server/src/index.ts:708-771",
+          "branch": "converge"
         },
         {
-          "from": "planner",
-          "to": "act_server",
-          "label": "PROJECT_BRIEF: marker \u2192 client.CreateProject \u2192 POST /api/projects",
+          "from": "srv_task_coordinator",
+          "to": "srv_validation_routes",
+          "label": "On success POST /api/tasks/:id/submit-for-validation",
           "status": "ok",
-          "detail": "handleProjectBrief parses the PROJECT_BRIEF: JSON and calls client.CreateProject(...) (orchestrator.go:1542-1578); client POSTs /api/projects; server route server/src/index.ts:383. Marker is emitted only in a separate turn after human confirmation (prompt rule at orchestrator.go:537).",
-          "detail_extra": ""
-        },
-        {
-          "from": "planner",
-          "to": "act_server",
-          "label": "CREATE_TASK: marker \u2192 client.CreateTask \u2192 POST /api/tasks",
-          "status": "ok",
-          "detail": "parseCreateTaskDirectives extracts balanced-brace CREATE_TASK JSON (orchestrator.go:2988-3052), handlePlannerTaskDirectives calls client.CreateTask per task (orchestrator.go:1783; client internal/act/client.go:341-350; server route server/src/index.ts:502).",
-          "detail_extra": ""
-        },
-        {
-          "from": "observer",
-          "to": "planner",
-          "label": "Tier-1 \u2192 Planner via InternalPromptMarker autoroute (\u22645/10min)",
-          "status": "ok",
-          "detail": "Observer/Assurance/QA outputs trigger autoRoutePlannerV; non-human prompts get InternalPromptMarker prepended so the TUI hides them (orchestrator.go:580-585,682). Observer itself runs a 120s anomaly loop (observerLoop, orchestrator.go:171,185); Assurance verdict via SubmitVerdict and QA via SubmitSynthesis after their own turns (routeToAssurance orchestrator.go:2660; routeToQA orchestrator.go:2806).",
-          "detail_extra": ""
+          "detail": "act-runner.mjs:192-202 -> server/src/index.ts:838-870 — feeds Assurance pipeline",
+          "branch": "converge"
         }
       ]
     },
     {
       "id": "validation",
-      "label": "Validation (Assurance scoring)",
-      "summary": "Orchestrator polls the server for tasks awaiting validation every 10s, runs an Assurance turn that scores each @success_criteria with view/grep evidence, parses the JSON verdict (95% gate, fail-closed on empty criteria), and POSTs the verdict back to the server which moves the task to 'validated' (pass) or 'assigned' (fail).",
+      "label": "Assurance validation: poll pending -> route to Assurance -> parse verdict (fail-closed) -> POST validation-verdict",
+      "family": "lifecycle",
+      "summary": "The validation loop polls submitted tasks, routes one to Assurance with a success-criteria prompt, parses the JSON verdict (fail-closed on empty criteria), and submits it; the server branches validated vs reassign-with-gaps.",
       "steps": [
         {
-          "from": "act_server",
-          "to": "assurance",
-          "label": "GET /api/tasks/pending-validation (10s poll)",
+          "from": "orch_validation_router",
+          "to": "srv_validation_routes",
+          "label": "validationPollLoop (10s) -> checkPendingValidation (attempt cap 3) -> GET /api/tasks/pending-validation (project-scoped)",
           "status": "ok",
-          "detail": "validationPollLoop ticks every validationPollPeriod=10s (orchestrator.go:1991,2560) and checkPendingValidation calls client.GetPendingValidation -> GET /api/tasks/pending-validation?project= (client.go:466-471; server index.ts:632), then routeToAssurance runs the Assurance turn (orchestrator.go:2608,2613)."
+          "detail": "orchestrator.go:2553-2611 (ticker 10s; alreadySeen/incAttempt cap 3; GetPendingValidation client.go:466-472); server/src/index.ts:632-643 getTasksByStatus('submitted_for_validation')"
         },
         {
-          "from": "assurance",
-          "to": "assurance",
-          "label": "score @success_criteria via view/grep (95% gate, fail-closed)",
+          "from": "orch_validation_router",
+          "to": "orch_turn_mgr",
+          "label": "routeToAssurance: buildValidationPrompt -> runAgentTurn('assurance')",
           "status": "ok",
-          "detail": "buildValidationPrompt instructs per-criterion view/grep verification and 'Pass = score >= 95' (orchestrator.go:3147-3169); parseValidationVerdict enforces passThreshold=95 AND fails closed when criteriaResults is empty (orchestrator.go:3094-3110)."
+          "detail": "orchestrator.go:2613-2626 — buildValidationPrompt(t,dir); runAgentTurn(ctx,sid,'assurance',prompt,false)"
         },
         {
-          "from": "assurance",
-          "to": "act_server",
-          "label": "POST /api/tasks/:id/validation-verdict",
+          "from": "orch_turn_mgr",
+          "to": "prompt_tier1",
+          "label": "Assurance system prompt scores @success_criteria (95% gate)",
           "status": "ok",
-          "detail": "routeToAssurance parses the Assurance reply and calls client.SubmitVerdict (orchestrator.go:2643,2662), which POSTs /api/tasks/:taskId/validation-verdict (client.go:572-581); the handler sets status 'validated' on pass or back to 'assigned' on fail and appends task_validated/task_validation_failed to ChronLog (index.ts:875-927)."
+          "detail": "orchestrator.go:585 — InternalPromptMarker prepended; assurance prompt scores criteria"
         },
         {
-          "from": "act_server",
-          "to": "human",
-          "label": "validation event surfaced in chat (coord poll 3s)",
+          "from": "prompt_tier1",
+          "to": "orch_marker_parser",
+          "label": "parseValidationVerdict; fail-closed when len(CriteriaResults)==0",
           "status": "ok",
-          "detail": "coordinationEventLoop polls /api/log every coordinationEventInterval=3s (orchestrator.go:686) and renders task_validated/task_validation_failed as system chat lines '\u2705 validation passed' / '\u274c validation failed' (orchestrator.go:865-868)."
+          "detail": "orchestrator.go:2643,3094-3111 — extractJSONContaining('\"criteriaResults\"'); emptyCriteria forces Passed=false"
+        },
+        {
+          "from": "orch_marker_parser",
+          "to": "srv_validation_routes",
+          "label": "SubmitVerdict POST /api/tasks/:id/validation-verdict; mark seen after accept",
+          "status": "ok",
+          "detail": "orchestrator.go:2662,2669 — SubmitVerdict (client.go:572-587); markSeen after success"
+        },
+        {
+          "from": "srv_validation_routes",
+          "to": "srv_task_coordinator",
+          "label": "Server branches: passed->validated+emit; failed->assigned+gaps+attempt++",
+          "status": "ok",
+          "detail": "server/src/index.ts:875-927 — true sets status='validated'; false sets 'assigned', stores validationGaps"
         }
       ]
     },
     {
       "id": "synthesis_delivery",
-      "label": "Synthesis & delivery (QA -> Planner -> human)",
-      "summary": "Orchestrator polls the server for validated tasks, runs a QA/Synthesizer turn that assembles the deliverable and emits SYNTHESIS_COMPLETE or NEED_CLARIFICATION, POSTs the outcome to the server (stamping metadata.synthesizedAt on complete), and the QA report auto-routes into a Planner turn whose output reaches the human via the chat.",
+      "label": "QA synthesis & delivery: poll validated -> route to QA -> parse SYNTHESIS_COMPLETE -> POST /api/tasks/:id/synthesis (summary only)",
+      "family": "lifecycle",
+      "summary": "The QA loop routes validated tasks to the Synthesizer, but only the one-line summary after SYNTHESIS_COMPLETE is parsed and persisted — the full validated deliverable is never sent to or stored by the server.",
       "steps": [
         {
-          "from": "act_server",
-          "to": "qa",
-          "label": "GET /api/tasks/validated (10s poll)",
+          "from": "orch_qa_router",
+          "to": "orch_turn_mgr",
+          "label": "qaPollLoop (10s) -> checkValidatedTasks -> GetValidatedTasks (GET /api/tasks/validated) -> routeToQA: build ValidatedOutput (Result truncated 4000) + buildSynthesisPrompt -> runAgentTurn('qa_synthesizer')",
           "status": "ok",
-          "detail": "qaPollLoop ticks every 10s (orchestrator.go:2682); checkValidatedTasks calls client.GetValidatedTasks -> GET /api/tasks/validated?project= (client.go:477-482; server filters out tasks with metadata.synthesizedAt, index.ts:652-658), then routeToQA runs the QA turn (orchestrator.go:2733,2738)."
+          "detail": "orchestrator.go:2675-2779 — ticker 10s; GetValidatedTasks; ValidatedOutput (orchestrator_types.go:155-162); buildSynthesisPrompt(3173-3185)"
         },
         {
-          "from": "qa",
-          "to": "qa",
-          "label": "assemble deliverable -> SYNTHESIS_COMPLETE / NEED_CLARIFICATION",
+          "from": "orch_turn_mgr",
+          "to": "prompt_tier1",
+          "label": "QA/Synthesizer prompt assembles deliverable; emits SYNTHESIS_COMPLETE or NEED_CLARIFICATION",
           "status": "ok",
-          "detail": "buildSynthesisPrompt asks QA to integrate the validated output (orchestrator.go:3173-3177); parseSynthesisResponse extracts kind from the SYNTHESIS_COMPLETE: marker or the NEED_CLARIFICATION: @agent regex, else 'in_progress' (orchestrator.go:3128-3137); markers are the prompt contract in qa_synthesizer.go:46-51."
+          "detail": "orchestrator.go:3173-3185 — prompt instructs QA to emit SYNTHESIS_COMPLETE: <summary>"
         },
         {
-          "from": "qa",
-          "to": "act_server",
-          "label": "POST /api/tasks/:id/synthesis (kind=complete|need_clarification)",
-          "status": "ok",
-          "detail": "routeToQA calls client.SubmitSynthesis (orchestrator.go:2805) -> POST /api/tasks/:taskId/synthesis (client.go:593); on kind='complete' the server stamps task.metadata.synthesizedAt and appends synthesis_complete to ChronLog, on need_clarification appends synthesis_needs_clarification (index.ts:934-975)."
+          "from": "prompt_tier1",
+          "to": "orch_marker_parser",
+          "label": "parseSynthesisResponse extracts ONLY the one-line summary — full Result never captured",
+          "status": "gap-found",
+          "detail": "orchestrator.go:3125-3137 — summary = TrimSpace(raw[idx+len('SYNTHESIS_COMPLETE:'):]); ValidatedOutput.Result (avail line 2750) never passed to SubmitSynthesis"
         },
         {
-          "from": "qa",
-          "to": "planner",
-          "label": "QA output autoroute -> Planner turn (InternalPromptMarker, !fromHuman)",
-          "status": "ok",
-          "detail": "messageOwnershipLoop routes a qa_synthesizer message via autoRoutePlannerV unless it is a NEED_CLARIFICATION addressed to a non-Planner (then maybeRouteQAClarification forwards to that agent's inbox and skips Planner) (orchestrator.go:1216-1251,2840+); the Planner turn is fired with fromHuman=false so the prompt is prefixed with InternalPromptMarker (orchestrator.go:584-585)."
-        },
-        {
-          "from": "planner",
-          "to": "human",
-          "label": "Planner reply rendered in chat",
-          "status": "ok",
-          "detail": "The autorouted Planner turn runs via fireWhenPlannerIdle -> runAgentTurn (orchestrator.go:1350); the Planner is the only role that addresses the human and its reply renders without the InternalPromptMarker (orchestrator.go:577-585). Note: synthesis_complete also surfaces directly as a '\ud83c\udf81 synthesized' system line via the coord poll (orchestrator.go:869-872), so the human sees the delivery on two surfaces."
+          "from": "orch_marker_parser",
+          "to": "srv_validation_routes",
+          "label": "SubmitSynthesis POST /api/tasks/:id/synthesis (no result param); server persists summary+synthesizedAt only",
+          "status": "gap-found",
+          "detail": "client.go:593-607 (no result param); server/src/index.ts:934-975 — chronologicalLog.append data:{taskId,summary,synthesizedAt}; full deliverable never persisted"
         }
       ]
     },
     {
-      "id": "autoroute",
-      "label": "Autoroute (Tier-1 output -> Planner)",
-      "summary": "Any non-Planner Tier-1 message (Observer/Assurance/QA) is wrapped with the InternalPromptMarker and fired as a Planner turn (fromHuman=false), variant-selected by trigger, and rate-limited by a sliding window of at most 5 fires per 10 minutes that is cleared on every human input.",
+      "id": "qa_clarification",
+      "label": "QA clarification: NEED_CLARIFICATION -> maybeRouteQAClarification -> forward to target agent (or fall through to Planner)",
+      "family": "coordination",
+      "summary": "When QA emits NEED_CLARIFICATION:@agent, the ownership loop forwards the question verbatim to that agent via /api/messages; if it targets the Planner (or fails) it falls through to autoroute.",
       "steps": [
         {
-          "from": "observer",
-          "to": "planner",
-          "label": "Observer/Assurance/QA message -> autoRoutePlannerV (variant-selected)",
+          "from": "orch_qa_router",
+          "to": "orch_turn_mgr",
+          "label": "qaPollLoop -> routeToQA -> buildSynthesisPrompt -> QA turn",
           "status": "ok",
-          "detail": "messageOwnershipLoop's role switch handles observer/assurance/qa/qa_synthesizer and calls autoRoutePlannerV; for assurance it picks variantPassVerdict/variantFailVerdict via parseValidationVerdict, else variantAnomaly (orchestrator.go:1216-1251). Planner replies are NOT auto-routed, breaking the loop (comment orchestrator.go:1234-1235)."
+          "detail": "orchestrator.go:2690-2778 — checkValidatedTasks -> routeToQA -> buildSynthesisPrompt(3173-3184)"
         },
         {
-          "from": "planner",
-          "to": "planner",
-          "label": "wrap prompt: InternalPromptMarker + fromHuman=false",
+          "from": "orch_turn_mgr",
+          "to": "prompt_tier1",
+          "label": "QA prompt instructs SYNTHESIS_COMPLETE | NEED_CLARIFICATION marker",
           "status": "ok",
-          "detail": "autoRoutePlannerV builds the per-variant prompt (renderAutoRoutePrompt, orchestrator.go:1345,1356) and fires runAgentTurn with fromHuman=false, which prepends InternalPromptMarker so the injected prompt is hidden but the Planner's reply shows (orchestrator.go:565,584-585,682)."
+          "detail": "orchestrator.go:3173-3184 — prompt advertises both markers"
         },
         {
-          "from": "planner",
-          "to": "planner",
-          "label": "sliding-window cap: <=5 fires / 10min, cleared on human input",
+          "from": "prompt_tier1",
+          "to": "orch_msg_ownership",
+          "label": "Finished qa_synthesizer msg -> role check -> maybeRouteQAClarification",
           "status": "ok",
-          "detail": "autoRoutePlannerV prunes recentAutoRoutes to autoRouteWindow=10min and drops the fire when len >= autoTurnCap=5, logging autoroute_planner_dropped (orchestrator.go:1316-1331,1421,1427); HandleHumanInput resets o.recentAutoRoutes=nil (orchestrator.go:228)."
+          "detail": "orchestrator.go:1226-1230 — after role-labeling, qa_synthesizer triggers maybeRouteQAClarification"
+        },
+        {
+          "from": "orch_msg_ownership",
+          "to": "orch_marker_parser",
+          "label": "clarificationRegex parses NEED_CLARIFICATION: @<agent> <question>",
+          "status": "ok",
+          "detail": "orchestrator.go:2824,2841 — clarificationRegex extracts addressee + question"
+        },
+        {
+          "from": "orch_marker_parser",
+          "to": "srv_event_hub",
+          "label": "If addressee != planner: client.SendMessage POST /api/messages; emit system 'QA clarification routed'",
+          "status": "ok",
+          "detail": "orchestrator.go:2852-2862 — SendMessage(content) (client.go:197-209); else returns false -> fall through to autoroute"
+        },
+        {
+          "from": "orch_qa_router",
+          "to": "srv_validation_routes",
+          "label": "routeToQA also SubmitSynthesis POST /api/tasks/:id/synthesis (kind=complete|need_clarification)",
+          "status": "ok",
+          "detail": "orchestrator.go:2805 — SubmitSynthesis (client.go:593-607) after parseSynthesisResponse"
+        }
+      ]
+    },
+    {
+      "id": "pvm_capture",
+      "label": "PVM capture: events -> ChronLog buffer -> flush JSONL (+SQLite stub) -> indexer poll -> embed -> vector points",
+      "family": "memory",
+      "summary": "Coordination events append to the ChronLog buffer (fire-and-forget) and flush to JSONL + per-project mirror; the SQLite branch is an empty stub. The indexer polls, builds embedding text, embeds (real MiniLM or hash fallback), and stores in-memory points.",
+      "steps": [
+        {
+          "from": "srv_rest",
+          "to": "mem_chronlog",
+          "label": "REST handlers append CoordinationMessage to ChronLog buffer (fire-and-forget)",
+          "status": "ok",
+          "detail": "server/src/index.ts:172,239 -> ChronologicalLog.ts:137-143 — async append() enqueued, not awaited by handlers"
+        },
+        {
+          "from": "srv_event_hub",
+          "to": "mem_chronlog",
+          "label": "EventHub.broadcastEvent/handleAgentMessage append classified events",
+          "status": "ok",
+          "detail": "EventHub.ts:247,314 — chronologicalLog.append() (fire-and-forget via .catch)"
+        },
+        {
+          "from": "mem_chronlog",
+          "to": "mem_chronlog",
+          "label": "flushToSQLite() empty TODO stub when storageType sqlite/both (dormant; default jsonl)",
+          "status": "gap-found",
+          "detail": "ChronologicalLog.ts:242 — flushToSQLite(): empty body; no SQLite persistence"
+        },
+        {
+          "from": "mem_chronlog",
+          "to": "mem_pvm_indexer",
+          "label": "buffer>=100 or 5s timer -> flushToJSONL (coordination-log.jsonl + per-project mirror); indexer startIndexing(10s) -> indexNewEvents -> chronologicalLog.query(since)",
+          "status": "ok",
+          "detail": "ChronologicalLog.ts:137-235 (flush 188; flushToJSONL fsync 210-218; mirror 223-235); PVMIndexer.ts:100-151 setInterval(indexNewEvents,10000); query({since,limit:100000})"
+        },
+        {
+          "from": "mem_pvm_indexer",
+          "to": "mem_vector_store",
+          "label": "filter dup coordination events; buildEmbeddingText; classifyScope; extractProjectName -> batchStore -> store -> embed (realEmbed MiniLM or hashEmbed fallback) -> points[]",
+          "status": "ok",
+          "detail": "PVMIndexer.ts:160-201 (dedupe; buildEmbeddingText 66; classifyScope 28; extractProjectName 36); LocalEmbeddingVectorStore.ts:179-194 store StoredPoint; embed(97) realEmbed(151 all-MiniLM-L6-v2)/hashEmbed(160)"
+        }
+      ]
+    },
+    {
+      "id": "pvm_query_planner",
+      "label": "PVM query (Planner): act_cli pvm search -> act-agent subprocess -> GET /api/pvm/search -> cosine rank -> back to Planner",
+      "family": "memory",
+      "summary": "The Planner's act_cli tool runs `act-agent pvm search`, which hits GET /api/pvm/search; the indexer embeds the query and cosine-ranks points, returning formatted results into the Planner turn.",
+      "steps": [
+        {
+          "from": "prompt_sections",
+          "to": "exec_tool_subsets",
+          "label": "Planner emits act_cli tool call (subcommand=pvm, args=[search,query]); whitelist-validated",
+          "status": "ok",
+          "detail": "act_cli.go:160-175 — Run() validates IsAllowed then exec.CommandContext"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "mem_search",
+          "label": "exec act-agent pvm search -> act-cli.ts cmdPvmSearch -> GET /api/pvm/search?query=&limit=&project=",
+          "status": "ok",
+          "detail": "act_cli.go:248-251 -> act-cli.ts:707,724-725 — cmdPvmSearch fetches /api/pvm/search"
+        },
+        {
+          "from": "mem_search",
+          "to": "mem_pvm_indexer",
+          "label": "GET /api/pvm/search handler -> pvmIndexer.search(query,limit,project)",
+          "status": "ok",
+          "detail": "server/src/index.ts:1178-1192 -> PVMIndexer.ts:318-329 — builds searchQuery, delegates to vectorStore.search"
+        },
+        {
+          "from": "mem_pvm_indexer",
+          "to": "mem_vector_store",
+          "label": "vectorStore.search: embed query -> filter by project/scope -> cosine rank -> top-K",
+          "status": "ok",
+          "detail": "LocalEmbeddingVectorStore.ts:202-257 — embed(212); filters(217-240); cosineSimilarity(242-245); slice(253)"
+        },
+        {
+          "from": "mem_vector_store",
+          "to": "mem_search",
+          "label": "HTTP 200 {success,results,scope}",
+          "status": "ok",
+          "detail": "server/src/index.ts:1187 — returns results array + scope"
+        },
+        {
+          "from": "mem_search",
+          "to": "exec_tool_subsets",
+          "label": "cmdPvmSearch formats results to stdout; act_cli returns ToolResponse text to Planner turn",
+          "status": "ok",
+          "detail": "act-cli.ts:730-750 -> act_cli.go:251,294 — CombinedOutput captured, returned as ToolResponse"
+        }
+      ]
+    },
+    {
+      "id": "pvm_routing_brief",
+      "label": "PVM routing brief (Planner): handleProjectBrief -> GET /api/pvm/routing-brief -> getRoutingBrief over past outcomes -> inject into BUILD prompt",
+      "family": "memory",
+      "summary": "At decomposition time the orchestrator fetches confidence-labeled coordination evidence once (similar past projects by capability overlap, per-role + role-pair pass rates from real task-outcome events) and appends it to the Planner's BUILD prompt so the team composition is reasoned from outcomes, not intuition. Replaced the removed per-task Runner PVM-search injection (76ba3d7).",
+      "steps": [
+        {
+          "from": "orch_marker_parser",
+          "to": "mem_routing_brief",
+          "label": "handleProjectBrief: client.RoutingBrief(description, techStack) -> GET /api/pvm/routing-brief (non-fatal on error/empty)",
+          "status": "ok",
+          "detail": "orchestrator.go:1641 -> act-agent/internal/act/client.go:239-247 -> server/src/index.ts:1204-1217"
+        },
+        {
+          "from": "mem_routing_brief",
+          "to": "mem_vector_store",
+          "label": "getRoutingBrief: getProjectOutcomes -> rank similar projects by capability overlap, aggregate per-role + role-pair pass rates with signal labels",
+          "status": "ok",
+          "detail": "server/src/index.ts:1211 -> LocalEmbeddingVectorStore.ts:583-660 (getProjectOutcomes:490; signal:477)"
+        },
+        {
+          "from": "mem_vector_store",
+          "to": "orch_turn_mgr",
+          "label": "evidence appended as '## Routing evidence from past projects' -> fireWhenPlannerIdle starts Planner BUILD turn",
+          "status": "ok",
+          "detail": "orchestrator.go:1644-1648 — buildPrompt += evidence; go fireWhenPlannerIdle(...,buildPrompt,'build_mode_trigger')"
+        }
+      ]
+    },
+    {
+      "id": "pvm_analytics",
+      "label": "PVM analytics: GET /api/pvm/profile|synergy|compare -> vector-store methods read real points[] (lifecycle-event JOIN)",
+      "family": "memory",
+      "summary": "The analytics endpoints call getAgentProfile/getAgentSynergy/compareAgents, which compute from real points[] populated by the indexer from ChronLog — joining task_assigned/completed/validated events by taskId (no placeholders).",
+      "steps": [
+        {
+          "from": "srv_rest",
+          "to": "mem_analytics",
+          "label": "GET /api/pvm/profile|synergy|compare -> vectorStore.getAgentProfile/getAgentSynergy/compareAgents",
+          "status": "ok",
+          "detail": "server/src/index.ts:1225-1271 — three endpoints call vectorStore analytics methods"
+        },
+        {
+          "from": "mem_analytics",
+          "to": "mem_vector_store",
+          "label": "lookupTaskOutcomes walks points[] and JOINs task_assigned/completed/validated by taskId",
+          "status": "ok",
+          "detail": "LocalEmbeddingVectorStore.ts:475-533 — reads points[].message.data lifecycle events by event.data.taskId (real data)"
+        },
+        {
+          "from": "mem_vector_store",
+          "to": "mem_pvm_indexer",
+          "label": "points[] populated by indexer batchStore from ChronLog (not mocked)",
+          "status": "ok",
+          "detail": "PVMIndexer.ts:129-224 — indexNewEvents -> batchStore(coordinationMessages) keeps points[] in sync"
+        },
+        {
+          "from": "mem_pvm_indexer",
+          "to": "mem_chronlog",
+          "label": "chronologicalLog.query({since,limit}) reads JSONL events",
+          "status": "ok",
+          "detail": "PVMIndexer.ts:151 -> ChronologicalLog.ts:300-346 — query filters by since/until/agent/type"
+        },
+        {
+          "from": "mem_analytics",
+          "to": "srv_rest",
+          "label": "Return AgentProfile/synergy/comparison JSON (real-outcome-derived metrics)",
+          "status": "ok",
+          "detail": "server/src/index.ts:1225-1271 — res.json with capabilities/successRate/matchScore from real outcomes"
+        }
+      ]
+    },
+    {
+      "id": "fork_A_tier1_backend",
+      "label": "FORK A: Tier-1 backend (App.New per-role switch -> in-process NewAgent | ACP NewACPAgent -> converge on agent.Service.Run)",
+      "family": "config-fork",
+      "summary": "App.New loops Tier-1 roles and dispatches per-role backend: in-process (NewAgent, scoped history + tool subset) or ACP (NewACPAgent, shim + lazy priming). Both satisfy agent.Service, which the orchestrator drives via Run() back-agnostically.",
+      "steps": [
+        {
+          "from": "exec_backend_switch",
+          "to": "exec_acp_agent",
+          "label": "App.New per-role switch: case external host -> withTier1ShimPath + acp.NewACPAgent(role,host,shim,priming)",
+          "status": "ok",
+          "detail": "app.go:53-110 — loops tier1Roles, reads cfg.Agents[role].Backend; case claude-code/antigravity/agy/codex/opencode -> withTier1ShimPath + NewACPAgent w/ makePrimingInjector(role)",
+          "branch": "acp"
+        },
+        {
+          "from": "exec_acp_agent",
+          "to": "prompt_priming",
+          "label": "makePrimingInjector -> wrapPriming (marker + do-not-respond + base) -> renderShimNote (allowed subcommands)",
+          "status": "ok",
+          "detail": "app.go:260-305 — closure calls GetAgentPrompt; wrapPriming(288-290); renderShimNote reads tools.AllowedFor(role)",
+          "branch": "acp"
+        },
+        {
+          "from": "prompt_priming",
+          "to": "exec_acp_agent",
+          "label": "acp.NewACPAgent spawns ACP subprocess, initialize handshake, stash priming closure",
+          "status": "ok",
+          "detail": "acp/agent.go:95-169 — subprocess spawn + handshake; priming stored for lazy first-session use",
+          "branch": "acp"
+        },
+        {
+          "from": "exec_acp_agent",
+          "to": "exec_agent_service",
+          "label": "app.Agents[role] = ACP agent.Service",
+          "status": "ok",
+          "detail": "app.go:143 — ACP branch produces agent.Service stored in map",
+          "branch": "acp"
+        },
+        {
+          "from": "exec_backend_switch",
+          "to": "exec_tool_subsets",
+          "label": "App.New per-role switch: default (empty/act-agent) -> Tier1ToolsForRole(role) per-role tool subset",
+          "status": "ok",
+          "detail": "app.go:53-119; tools.go:124-144 — default case; planner: act_cli+expand; observer: act_cli; assurance/qa: act_cli+view+grep",
+          "branch": "in-process"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "exec_inproc_agent",
+          "label": "historyMode per role; agent.NewAgent(role, tools, threadID, histMode)",
+          "status": "ok",
+          "detail": "app.go:130-137; agent.go:101-147 — HistoryThread(planner)/HistoryNone(others); NewAgent constructs struct",
+          "branch": "in-process"
+        },
+        {
+          "from": "exec_inproc_agent",
+          "to": "exec_agent_service",
+          "label": "app.Agents[role] = in-process agent.Service",
+          "status": "ok",
+          "detail": "app.go:143 — in-process branch produces agent.Service stored in map",
+          "branch": "in-process"
+        },
+        {
+          "from": "exec_agent_service",
+          "to": "orch_turn_mgr",
+          "label": "orchestrator.getAgent(role) -> agent.Run(ctx,sessionID,content) back-agnostically",
+          "status": "ok",
+          "detail": "orchestrator.go:976-981 — getAgent looks up app.Agents[role]; both Run() satisfy Service identically",
+          "branch": "converge"
+        },
+        {
+          "from": "orch_turn_mgr",
+          "to": "exec_inproc_agent",
+          "label": "in-process Run -> processGeneration -> scopedHistory(historyMode,threadID)",
+          "status": "ok",
+          "detail": "agent.go:155-169,337 — scopedHistory filters per role (None/Thread/Full) before provider call",
+          "branch": "in-process"
+        },
+        {
+          "from": "exec_inproc_agent",
+          "to": "exec_providers",
+          "label": "append scoped history + new prompt -> provider.StreamResponse -> LLM",
+          "status": "ok",
+          "detail": "agent.go:337-388 — eventChan := provider.StreamResponse(ctx,msgHistory,tools); tool loop; done event",
+          "branch": "in-process"
+        },
+        {
+          "from": "orch_turn_mgr",
+          "to": "exec_acp_agent",
+          "label": "ACP Run -> runTurn -> ensureACPSession (lazy, per ACT sessionID)",
+          "status": "ok",
+          "detail": "acp/agent.go:219-375 — runTurn; ensureACPSession creates/reuses ACP session; priming on first new session",
+          "branch": "acp"
+        },
+        {
+          "from": "exec_acp_agent",
+          "to": "exec_acp_layer",
+          "label": "client.Prompt(ctx,acpSessionID,content) over newline-framed JSON-RPC; chunks stream back via NotifSessionUpdate",
+          "status": "ok",
+          "detail": "acp/session.go:70-84; acp/agent.go:379-415 — Call MethodPrompt; agent_message_chunk deltas -> activeChunks -> messages store",
+          "branch": "acp"
+        }
+      ]
+    },
+    {
+      "id": "acp_priming",
+      "label": "ACP lazy priming: stash injector at construct -> first new session -> compose priming (role prompt + shim note) -> client.Prompt one-shot",
+      "family": "config-fork",
+      "summary": "The priming injector closure is stashed at ACP construction and invoked lazily on the first new ACP session, composing the role prompt + ACP CLI guidance + shim note and sending it as a one-shot Prompt before the real turn.",
+      "steps": [
+        {
+          "from": "exec_backend_switch",
+          "to": "exec_acp_agent",
+          "label": "backend switch -> NewACPAgent; stash makePrimingInjector(role) closure (invoked lazily)",
+          "status": "ok",
+          "detail": "app.go:104-110; acp/agent.go:168 — priming injector stored, not called at construction"
+        },
+        {
+          "from": "exec_acp_agent",
+          "to": "prompt_priming",
+          "label": "makePrimingInjector closure -> GetAgentPrompt(role, ProviderACP)",
+          "status": "ok",
+          "detail": "app.go:260-270 — closure fetches role-specific system prompt for ACP provider"
+        },
+        {
+          "from": "prompt_priming",
+          "to": "prompt_dispatch",
+          "label": "GetAgentPrompt dispatches role -> role prompt (ACP CLI guidance via actCLICommandsACP)",
+          "status": "ok",
+          "detail": "prompt.go:18-52; planner.go:16-30 — ProviderACP path uses actCLICommandsACP(role) for shell-escaped CLI"
+        },
+        {
+          "from": "prompt_dispatch",
+          "to": "prompt_tier1",
+          "label": "role prompt assembled (basePlannerPrompt + ACP CLI commands + env)",
+          "status": "ok",
+          "detail": "planner.go:26-30 — returns formatted prompt with coordination constraints + environment info"
+        },
+        {
+          "from": "prompt_tier1",
+          "to": "prompt_priming",
+          "label": "wrapPriming: InternalPromptMarker + do-not-respond header + base + renderShimNote(AllowedFor(role))",
+          "status": "ok",
+          "detail": "app.go:288-306 — wrapPriming(288-290); renderShimNote(297-306) reads tools.AllowedFor(role); whitelist (act_cli_whitelist.go:50-61)"
+        },
+        {
+          "from": "prompt_priming",
+          "to": "exec_acp_agent",
+          "label": "Run -> runTurn -> ensureACPSession; cache miss -> client.NewSession",
+          "status": "ok",
+          "detail": "acp/agent.go:186-375 — runTurn -> ensureACPSession; mu-locked acpSessions cache; NewSession on miss"
+        },
+        {
+          "from": "exec_acp_agent",
+          "to": "exec_acp_layer",
+          "label": "client.NewSession (session/new) -> Call allocates JSON-RPC id -> transport.WriteFrame (newline-delimited)",
+          "status": "ok",
+          "detail": "acp/session.go:40-61; acp/client.go:56-112; acp/transport.go:83-97 — NewSessionResult.SessionID; WriteFrame to subprocess stdin"
+        },
+        {
+          "from": "exec_acp_layer",
+          "to": "prompt_priming",
+          "label": "after NewSession: primingFor() invokes stashed closure once (builds full text)",
+          "status": "ok",
+          "detail": "acp/agent.go:175-180,358-374 — primingFor calls priming(role); non-empty -> client.Prompt(prime)"
+        },
+        {
+          "from": "prompt_priming",
+          "to": "exec_acp_layer",
+          "label": "client.Prompt(ctx,sessionID,primingText) one-shot; log StopReason; cache ACP sessionID",
+          "status": "ok",
+          "detail": "acp/session.go:70-85; acp/agent.go:347-374 — one ContentBlock(text); end_turn happy path; acpSessions[sid] cached"
+        },
+        {
+          "from": "exec_acp_layer",
+          "to": "exec_acp_agent",
+          "label": "runTurn proceeds: create user+assistant msgs, chunk channel, real client.Prompt(userContent)",
+          "status": "ok",
+          "detail": "acp/agent.go:226-324 — messages.Create(threadID=role); activeChunks; client.Prompt(278); AddFinish; AgentEvent published"
+        }
+      ]
+    },
+    {
+      "id": "prompt_section_expansion",
+      "label": "On-demand prompt sections: in-process expand_prompt_section tool | ACP act-tier1 prompt-section -> GetSection -> sectionRegistry",
+      "family": "config-fork",
+      "summary": "Both backends reach the same sectionRegistry: in-process via the expand_prompt_section tool, ACP via the shim-gated `act-tier1-planner prompt-section` CLI; GetSection looks up the 4 on-demand sections.",
+      "steps": [
+        {
+          "from": "prompt_sections",
+          "to": "exec_tool_subsets",
+          "label": "in-process: Planner invokes expand_prompt_section tool (in PlannerTools)",
+          "status": "ok",
+          "detail": "tools.go:84; agent.go:388 — NewExpandPromptSectionTool wired at construction; invoked via provider tool loop",
+          "branch": "in-process"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "prompt_section_registry",
+          "label": "tool.Run -> prompt.GetSection(params.Section)",
+          "status": "ok",
+          "detail": "expand_prompt_section.go:83 — calls prompt.GetSection with user-provided section name",
+          "branch": "in-process"
+        },
+        {
+          "from": "prompt_sections",
+          "to": "exec_tool_subsets",
+          "label": "ACP: Planner bash -> act-tier1-planner prompt-section <name> (shim on PATH)",
+          "status": "ok",
+          "detail": "app.go:109-110 — withTier1ShimPath prepends shim symlinks; bash calls act-tier1-planner",
+          "branch": "acp"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "exec_shim",
+          "label": "shim validates role (argv0) + subcommand whitelist, execs act binary",
+          "status": "ok",
+          "detail": "cmd/act-tier1-shim/main.go:56-142 — roleFromArgv0; RoleSubcommands whitelist; runAct exec [prompt-section,name]",
+          "branch": "acp"
+        },
+        {
+          "from": "exec_shim",
+          "to": "prompt_dispatch",
+          "label": "pre-cobra routing: prompt-section -> runPromptSection(args)",
+          "status": "ok",
+          "detail": "cmd/root.go:689-695,468-484 — os.Args[1]=='prompt-section' -> runPromptSection -> prompt.GetSection(name)",
+          "branch": "acp"
+        },
+        {
+          "from": "prompt_dispatch",
+          "to": "prompt_section_registry",
+          "label": "runPromptSection -> prompt.GetSection(name)",
+          "status": "ok",
+          "detail": "cmd/root.go:468-484 — calls GetSection with section name",
+          "branch": "acp"
+        },
+        {
+          "from": "prompt_section_registry",
+          "to": "prompt_sections",
+          "label": "GetSection looks up sectionRegistry; invokes provider fn (evidence_routing/success_criteria/validation/examples)",
+          "status": "ok",
+          "detail": "sections.go:14-52 — sectionRegistry maps 4 names to PlannerSection* fns; both paths use this single registry",
+          "branch": "converge"
+        }
+      ]
+    },
+    {
+      "id": "gap_deferred_tools",
+      "label": "GAP: deferred tool discovery (ToolSearch meta-tool) — documented, not built",
+      "family": "gap",
+      "summary": "ARCHITECTURE_PATTERNS.md specs a Claude-Code-style ToolSearch meta-tool + deferred tool registry; zero implementing code exists. ACT instead uses static per-role tool subsets + the act CLI.",
+      "steps": [
+        {
+          "from": "prompt_dispatch",
+          "to": "prompt_dispatch",
+          "label": "ToolSearch meta-tool + deferred registry — NOT BUILT",
+          "status": "gap-found",
+          "detail": "Documented in docs/ARCHITECTURE_PATTERNS.md:26-41; zero implementing code; ACT uses static per-role tool subsets + the act CLI instead."
+        }
+      ]
+    },
+    {
+      "id": "tool_subsets",
+      "label": "Static per-role tool subsets: Tier1ToolsForRole dispatch + act_cli IsAllowed whitelist (two enforcement layers)",
+      "family": "lifecycle",
+      "summary": "Tier1ToolsForRole statically partitions tools per role at construction; the act_cli tool's IsAllowed (and the ACP shim) enforce a per-role subcommand whitelist; the selected subset flows to provider.StreamResponse.",
+      "steps": [
+        {
+          "from": "exec_backend_switch",
+          "to": "exec_tool_subsets",
+          "label": "App.New loops tier1Roles; in-process -> Tier1ToolsForRole(role): planner act_cli+expand; observer act_cli; assurance/qa act_cli+view+grep; default (Tier-2) DeveloperTools full roster",
+          "status": "ok",
+          "detail": "app.go:79-119; tools.go:81-143 — Planner/Observer/Assurance/QASynthesizerTools subsets; default DeveloperTools(18-44)"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "exec_shim",
+          "label": "ACP path: withTier1ShimPath -> bash act-tier1-<role> -> shim argv0 role + IsAllowed whitelist",
+          "status": "ok",
+          "detail": "app.go:206-249; cmd/act-tier1-shim/main.go:57-68 — PATH inject; roleFromArgv0; IsAllowed(role,subcommand,args)"
+        },
+        {
+          "from": "exec_shim",
+          "to": "exec_tool_subsets",
+          "label": "IsAllowed checks RoleSubcommands static map (one source of truth) — also gates in-process ActCLITool.Run",
+          "status": "ok",
+          "detail": "act_cli_whitelist.go:20-119 — RoleSubcommands per-role lists; IsAllowed; act_cli.go:160-186 same gate in-process"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "prompt_section_registry",
+          "label": "Planner-only expand_prompt_section enum from prompt.SectionNames()",
+          "status": "ok",
+          "detail": "expand_prompt_section.go:33-60; sections.go:14-19 — Info() uses SectionNames() -> sectionRegistry"
+        },
+        {
+          "from": "exec_tool_subsets",
+          "to": "exec_inproc_agent",
+          "label": "NewAgent stores selected tools field",
+          "status": "ok",
+          "detail": "agent.go:66,101-147 — tools []tools.BaseTool pre-selected subset"
+        },
+        {
+          "from": "exec_inproc_agent",
+          "to": "exec_providers",
+          "label": "agent.Run -> streamAndHandleEvents -> provider.StreamResponse(ctx,history,tools)",
+          "status": "ok",
+          "detail": "agent.go:257-388; provider.go:54-57 — StreamResponse sends role-scoped tools array to LLM"
         }
       ]
     },
     {
       "id": "observer_watchdog",
-      "label": "Observer watchdog \u2192 anomaly \u2192 autoroute \u2192 Planner",
-      "summary": "Observer polls the ACT server every 120s via its own act.Client, builds a status snapshot from four REST list endpoints, runs detectAnomalies, gates on a stable anomaly-set signature, runs an Observer LLM turn, and that turn's output is auto-routed into a Planner turn through the agent-message handler. The poll/gate/autoroute plumbing is all code-enforced; the actual anomaly detection rules are a Go port of observer.go's prompt rules (real code), and whether the Observer's narrative classifies an anomaly correctly is LLM-driven.",
+      "label": "Observer watchdog: 120s cycle -> status snapshot -> Tier-1 watchdog + 7-rule anomaly detection -> inject Observer only on (changed) anomaly",
+      "family": "coordination",
+      "summary": "Every 120s (skipped if any agent busy) the Observer builds a 4-endpoint snapshot, runs the Tier-1 watchdog and 7 anomaly rules, and — only when a stable anomaly signature changes — fires the Observer agent, which autoroutes to the Planner.",
       "steps": [
         {
-          "from": "observer",
-          "to": "act_server",
-          "label": "120s ticker \u2192 buildStatusSnapshot (GET /api/tasks,/api/agents,file-locks,/api/log)",
+          "from": "orch_observer_loop",
+          "to": "srv_rest",
+          "label": "observerLoop 120s ticker -> runObserverCheck (skip if any agent busy) -> buildStatusSnapshot: parallel GET /api/tasks, /api/agents, /api/files/locks, /api/log",
           "status": "ok",
-          "detail": "observerLoop's time.NewTicker(observerInterval=120s) calls runObserverCheck, which constructs act.NewClient(\"observer\",...) and calls buildStatusSnapshot \u2014 four parallel client calls ListTasks/ListAgents/GetFileLocks/GetLog(20) \u2014 at act-agent/internal/app/orchestrator.go:2013, :2049-2054, :2217-2220 (observerInterval at :1977)."
+          "detail": "orchestrator.go:2013-2043 (ticker; IsAnyBusy early-return); 2217-2220 ListTasks/ListAgents/GetFileLocks/GetLog(20) parallel; server index.ts:493,260,1146,1277"
         },
         {
-          "from": "observer",
-          "to": "observer",
-          "label": "detectAnomalies(snapshot) + signature no-op gate (sha256 of category+task+agent)",
+          "from": "orch_observer_loop",
+          "to": "orch_turn_mgr",
+          "label": "tier1Watchdog re-triggers idle Assurance/QA (>5min, non-empty queue); else detectAnomalies (7 rules) + no-op gate -> on changed anomaly buildObserverPrompt -> runAgentTurn('observer') (else 8-min health ping)",
           "status": "ok",
-          "detail": "detectAnomalies(snapshot) runs the 6 detection rules and the result set is hashed via anomalySignature; if the hash equals o.lastObserverPromptHash the cycle returns silently (skip), preventing repeat escalation, at act-agent/internal/app/orchestrator.go:2074, :2112-2128, anomalySignature at :1004; all-clear path emits a health ping every observerHealthEvery=4 cycles at :2086-2094."
+          "detail": "orchestrator.go:2070-2201 — tier1Watchdog (2175-2201); 7 rules(2285-2502); lastObserverPromptHash gate; runAgentTurn(ctx,sid,'observer',false); cycle%4 emitSystemMessage"
         },
         {
-          "from": "observer",
-          "to": "act_server",
-          "label": "runAgentTurn(\"observer\", prompt) \u2014 Observer LLM turn on the anomaly set",
-          "status": "prompt-only",
-          "detail": "On a changed anomaly set the orchestrator calls runAgentTurn(ctx, sid, \"observer\", buildObserverPrompt(...)) at act-agent/internal/app/orchestrator.go:2101, :2138; whether the LLM produces a faithful anomaly report (vs hallucinating/missing one) is model behavior, not code-enforced \u2014 the snapshot data and rules feeding it are real."
+          "from": "orch_turn_mgr",
+          "to": "orch_msg_ownership",
+          "label": "Finished Observer msg -> pubsub UpdatedEvent",
+          "status": "ok",
+          "detail": "orchestrator.go:565-634,1166 — Observer message finalization detected"
         },
         {
-          "from": "observer",
-          "to": "planner",
-          "label": "Observer output \u2192 autoRoutePlannerV(role=observer, variantAnomaly) \u2192 Planner turn",
+          "from": "orch_msg_ownership",
+          "to": "orch_autoroute",
+          "label": "observer role -> autoRoutePlannerV(variantAnomaly): pruneAutoRoutes; cap 5/10min; renderAutoRoutePrompt; fireWhenPlannerIdle",
           "status": "ok",
-          "detail": "The agent-message handler matches role \"observer\" and calls go o.autoRoutePlannerV(ctx, role, content, variantAnomaly) at act-agent/internal/app/orchestrator.go:1215, :1251; the chain is one-way (Planner replies are not re-routed) and is rate-limited by a sliding window \u2014 recentAutoRoutes pruned to autoRouteWindow, dropped past autoTurnCap \u2014 at :1318-1331."
+          "detail": "orchestrator.go:1202-1252,1319-1350 — autoRoutePlannerV; pruneAutoRoutes; autoTurnCap; renderAutoRoutePrompt"
+        },
+        {
+          "from": "orch_autoroute",
+          "to": "orch_turn_mgr",
+          "label": "fireWhenPlannerIdle (poll 200ms, 60s max) -> runAgentTurn('planner')",
+          "status": "ok",
+          "detail": "orchestrator.go:1649-1661 — IsRoleBusy('planner') poll; runAgentTurn(ctx,sid,'planner',prompt,false)"
         }
       ]
     },
     {
-      "id": "pvm_memory",
-      "label": "Coordination events \u2192 ChronLog \u2192 PVM index \u2192 PVM search \u2192 Planner (decompose)",
-      "summary": "Every coordination action appends a JSONL event to ChronologicalLog; PVMIndexer polls the log every 10s and batch-stores new events into the vector store; GET /api/pvm/search runs a semantic query against that store. The Planner reaches this evidence via the act_cli pvm search subcommand (real CLI \u2192 real endpoint), but the decision to search during decomposition is prompt-instructed, not code-forced. (Note: the Runner ALSO consumes /api/pvm/search to inject patterns into swarm-agent task prompts \u2014 a separate consumer of the same store.)",
+      "id": "autoroute",
+      "label": "Autoroute to Planner: Tier-1 report / task_failed -> autoRoutePlannerV (sliding-window cap) -> variant prompt -> fireWhenPlannerIdle",
+      "family": "coordination",
+      "summary": "Finished Observer/Assurance/QA messages and task_failed events route to the Planner via autoRoutePlannerV with a per-variant prompt, capped at 5 per 10-min sliding window and reset on human input (asymmetric — Planner replies don't autoroute).",
       "steps": [
         {
-          "from": "act_server",
-          "to": "chronlog",
-          "label": "chronologicalLog.append(event) \u2014 append-only JSONL",
+          "from": "orch_msg_ownership",
+          "to": "orch_marker_parser",
+          "label": "finished Tier-1 msg (observer/assurance/qa) -> select variant (assurance verdict parsed)",
           "status": "ok",
-          "detail": "Coordination handlers append events throughout server/src/index.ts (e.g. A2A push :239, complete :732, submit-for-validation :858, verdict :892, synthesis :950); ChronologicalLog writes to jsonlPath './data/coordination-log.jsonl' and its append is documented as 'the ONLY way to add events (append-only)' at server/src/services/ChronologicalLog.ts:44-45, :133-135."
+          "detail": "orchestrator.go:1166-1250 — role detect; if assurance parseValidationVerdict; else variantAnomaly"
         },
         {
-          "from": "chronlog",
-          "to": "pvm",
-          "label": "PVMIndexer.indexNewEvents every 10s \u2192 vectorStore.batchStore",
+          "from": "orch_marker_parser",
+          "to": "orch_autoroute",
+          "label": "autoRoutePlannerV(ctx, role, content, variant)",
           "status": "ok",
-          "detail": "pvmIndexer.startIndexing(10000) is called at server/src/index.ts:1596; the setInterval calls indexNewEvents which queries the ChronologicalLog with a since-cursor and batchStores new events into the vector store at server/src/services/PVMIndexer.ts:108-110, :129-151, :211."
+          "detail": "orchestrator.go:1251 — messageOwnershipLoop calls autoRoutePlannerV with verdict variant"
         },
         {
-          "from": "pvm",
-          "to": "act_server",
-          "label": "GET /api/pvm/search?query&limit&project \u2192 pvmIndexer.search \u2192 vectorStore.search",
+          "from": "orch_coord_loop",
+          "to": "orch_autoroute",
+          "label": "coordinationEventLoop: task_failed -> autoRoutePlannerV(variantSystemEscalation)",
           "status": "ok",
-          "detail": "The endpoint validates query, parses limit/project scope, and returns pvmIndexer.search(query,limit,projectName) results at server/src/index.ts:1178-1192; PVMIndexer.search delegates to vectorStore.search (LocalEmbeddingVectorStore, real all-MiniLM embeddings) at server/src/services/PVMIndexer.ts:318-323."
+          "detail": "orchestrator.go:807,820 — task_failed events escalate to Planner"
         },
         {
-          "from": "act_server",
-          "to": "planner",
-          "label": "Planner act_cli {subcommand:pvm,args:[search,<q>]} \u2192 cmdPvmSearch \u2192 routing evidence",
+          "from": "orch_autoroute",
+          "to": "orch_turn_mgr",
+          "label": "pruneAutoRoutes (>10min); if len>=autoTurnCap(5) drop+return; record; renderAutoRoutePrompt(variant) -> fireWhenPlannerIdle -> IsRoleBusy poll -> runAgentTurn('planner')",
+          "status": "ok",
+          "detail": "orchestrator.go:1319-1350,1649-1661 — sliding-window prune/cap/record; renderAutoRoutePrompt per variant; fireWhenPlannerIdle; IsRoleBusy(1116); runAgentTurn('planner')"
+        },
+        {
+          "from": "human",
+          "to": "orch_autoroute",
+          "label": "HandleHumanInput resets sliding window + Observer no-op gate (asymmetric)",
+          "status": "ok",
+          "detail": "orchestrator.go:228-229 — recentAutoRoutes=nil; lastObserverPromptHash=''; Planner replies never autoroute"
+        }
+      ]
+    },
+    {
+      "id": "coordination_event_surface",
+      "label": "Coordination event surface: 3s poll GET /api/log -> dedup -> render system messages (batch flood, escalate task_failed)",
+      "family": "coordination",
+      "summary": "Every 3s the orchestrator polls GET /api/log, dedups by timestamp, and renders new events as muted system messages — batching floods (>8) into one summary and escalating task_failed to the Planner.",
+      "steps": [
+        {
+          "from": "orch_coord_loop",
+          "to": "mem_chronlog",
+          "label": "coordinationEventLoop 3s ticker -> pollCoordinationEvents -> client.GetLog(50) GET /api/log -> chronologicalLog.getRecent",
+          "status": "ok",
+          "detail": "orchestrator.go:699-734; client.go:511-516; server/src/index.ts:1277-1296; ChronologicalLog.ts:260-291 — 3s interval; reads JSONL, last N reversed"
+        },
+        {
+          "from": "orch_coord_loop",
+          "to": "orch_autoroute",
+          "label": "dedup by lastCoordEventAt; batchMode if newEventCount>8; formatCoordEvent; task_failed -> autoRoutePlannerV(variantSystemEscalation) (single fire for batch)",
+          "status": "ok",
+          "detail": "orchestrator.go:765-823 — timestamp dedup; coordEventFloodThreshold=8; formatCoordEvent; non-batch per-event or batch single autoroute on failedTaskCount>0"
+        },
+        {
+          "from": "orch_coord_loop",
+          "to": "orch_msg_ownership",
+          "label": "emitSystemMessage -> Messages.Create(System) -> pubsub CreatedEvent",
+          "status": "ok",
+          "detail": "orchestrator.go:780,963-968; message/message.go:68-83 — System message persisted + published"
+        },
+        {
+          "from": "orch_msg_ownership",
+          "to": "human",
+          "label": "TUI chat list receives CreatedEvent -> renders muted system line",
           "status": "prompt-only",
-          "detail": "The act_cli plumbing is real \u2014 cmdPvmSearch fetches /api/pvm/search and prints scored results at act-agent/cli/act-cli.ts:707-744 (dispatch + project scoping) \u2014 but the Planner's use of it 'for routing evidence during decomposition' is instructed in prompt text only (planner.go:111, :122 and the on-demand evidence_routing section planner_section_evidence.go:9-50); the LLM decides whether/when to search, and the Planner toolset gives it act_cli (tools.go:76) so the call is possible, not forced."
+          "detail": "pubsub subscribers (chat view) update UI; coordination event surfaced to user (TUI render, out of orchestrator)"
+        }
+      ]
+    },
+    {
+      "id": "file_locking",
+      "label": "File locking: prompt-instructed claim -> act files claim/release -> /api/files lock registry (auto-release on complete); enforcement is prompt-only",
+      "family": "coordination",
+      "summary": "Agents are PROMPT-instructed to claim files before editing via `act files claim`, which hits the /api/files lock registry; nothing in the orchestrator enforces claiming — it only monitors locks (stale>15min -> anomaly). Auto-release fires on task complete.",
+      "steps": [
+        {
+          "from": "prompt_swarm",
+          "to": "swarm_actagent",
+          "label": "swarmWorkflow + developer prompt instruct 'claim files before editing' -> agent runs 'act files claim <paths>' (instructed, never enforced by orchestrator)",
+          "status": "prompt-only",
+          "detail": "common.go:132-144; developer.go — 'CLAIM FILES: run act-agent files claim <paths>'; no code calls client.ClaimFiles, orchestrator never pre-checks locks"
+        },
+        {
+          "from": "swarm_actagent",
+          "to": "srv_file_locks",
+          "label": "files claim/release -> cmdFilesClaim/Release -> POST /api/files/claim|release (409 on conflict)",
+          "status": "ok",
+          "detail": "act-cli.ts:1191-1218,255-311; act-client.ts:410-446; server/src/index.ts:1072-1142 — fileLocks Map keyed by project|path"
+        },
+        {
+          "from": "srv_task_coordinator",
+          "to": "srv_file_locks",
+          "label": "auto-release on POST /api/tasks/:id/complete (locks where taskId matches)",
+          "status": "ok",
+          "detail": "server/src/index.ts:708-771 (720-739) — completion auto-releases agent's locks"
+        },
+        {
+          "from": "orch_observer_loop",
+          "to": "srv_file_locks",
+          "label": "buildStatusSnapshot polls GET /api/files/locks for monitoring",
+          "status": "ok",
+          "detail": "client.go:97,498; server/src/index.ts:1146-1153 — GetFileLocks returns lock array (project-scoped)"
+        },
+        {
+          "from": "srv_file_locks",
+          "to": "orch_observer_loop",
+          "label": "detectAnomalies flags stale locks (>15min) -> escalated to Planner",
+          "status": "ok",
+          "detail": "orchestrator.go:615,625-635 — 'Stale file locks' anomaly; tier1Watchdog critical escalation"
         }
       ]
     },
     {
       "id": "a2a_push",
-      "label": "A2A task push \u2192 ACT server \u2192 targeted swarm role",
-      "summary": "A caller (Planner/external) POSTs a task to a specific agent id; the server creates the task pre-assigned to that agent, marks it assigned, appends a task_assigned ChronLog event, and emits a Socket.io task_assigned. The targeted swarm Runner then picks it up via its poll loop (Socket.io is fire-and-forget; the actual delivery to the swarm agent is the Runner's REST poll + spawn, not the socket event).",
+      "label": "A2A task push: generic POST /api/tasks is the live path; per-agent /api/agents/:id/tasks + Agent Cards are unwired external surface",
+      "family": "coordination",
+      "summary": "The Planner dispatches via generic POST /api/tasks (TaskCoordinator.assignOptimalAgent); the A2A per-agent task-push endpoint and Agent Card discovery routes exist but have zero internal callers — external-facing only.",
       "steps": [
         {
-          "from": "planner",
-          "to": "act_server",
-          "label": "POST /api/agents/:agentId/tasks {title,description,spil,priority,requiredCapabilities,projectName}",
+          "from": "orch_msg_ownership",
+          "to": "orch_dispatch",
+          "label": "finished Planner CREATE_TASK msg -> handlePlannerTaskDirectives",
           "status": "ok",
-          "detail": "The A2A push handler at server/src/index.ts:221-254 reads the body and creates a task via taskCoordinator.createTask with assignedAgent=agentId (:227-233); section comment 'Planner pushes a task to a specific agent via A2A' at :220. Whether the in-process Planner actually emits this REST call (vs the CREATE_TASK marker path) is not exercised by the orchestrator's parser \u2014 A2A push is the documented external/targeted entry, so the from=planner edge is the intended caller."
+          "detail": "orchestrator.go:1145-1214 — messageOwnershipLoop scans CREATE_TASK -> handlePlannerTaskDirectives"
         },
         {
-          "from": "act_server",
-          "to": "task_store",
-          "label": "createTask(assignedAgent) + updateTaskProgress(status:assigned) + chronologicalLog.append(task_assigned)",
+          "from": "orch_dispatch",
+          "to": "srv_task_coordinator",
+          "label": "client.CreateTask POST /api/tasks (generic, NOT A2A); SetTaskDependencies PATCH deps",
           "status": "ok",
-          "detail": "After createTask the handler calls taskCoordinator.updateTaskProgress(task.id,{status:'assigned'}) and chronologicalLog.append({type:'task_assigned',message:`A2A task push: ${task.id} -> ${agentId}`}) at server/src/index.ts:236, :239-245 \u2014 task state lands in TaskCoordinator and the event lands in ChronLog."
+          "detail": "orchestrator.go:1783,1813; client.go:350,375-398; server/src/index.ts:502-566 — assignOptimalAgent"
         },
         {
-          "from": "act_server",
-          "to": "runner",
-          "label": "io.emit('task_assigned',{taskId,agentId,task}) \u2014 Socket.io notify (fire-and-forget)",
-          "status": "ok",
-          "detail": "The handler emits io.emit('task_assigned',{...}) at server/src/index.ts:248; this is a best-effort push ('if agent is connected, it gets notified immediately', :247) \u2014 it does not by itself deliver work, the Runner's REST poll is the reliable path."
+          "from": "srv_task_coordinator",
+          "to": "srv_agent_registry",
+          "label": "Agent Card endpoints (/.well-known/agent.json, /api/agents/:id/agent.json) — external discovery, no internal callers",
+          "status": "prompt-only",
+          "detail": "server/src/index.ts:188-218 — defined but no ACT component fetches them (external-facing)"
         },
         {
-          "from": "runner",
-          "to": "swarm_developer",
-          "label": "Runner poll picks assigned task \u2192 fetchPVMContext + buildTaskPrompt \u2192 spawn swarm agent",
+          "from": "srv_agent_registry",
+          "to": "srv_task_coordinator",
+          "label": "POST /api/agents/:id/tasks A2A push endpoint — defined, ZERO callers (gap)",
+          "status": "gap-found",
+          "detail": "server/src/index.ts:221-254 — A2A per-agent task push unreachable from ACT's own logic; live path is generic /api/tasks"
+        }
+      ]
+    },
+    {
+      "id": "message_routing",
+      "label": "Message routing: POST /api/messages -> EventHub classify + rate-limit -> targeted socket emit | inbox buffer | broadcast",
+      "family": "coordination",
+      "summary": "Agent messages POST to /api/messages where EventHub classifies (direct_mention/status/question/...), rate-limits (3/30s), and routes to a targeted socket, an inbox buffer (offline), or a broadcast; all are logged to ChronLog.",
+      "steps": [
+        {
+          "from": "swarm_completion",
+          "to": "srv_event_hub",
+          "label": "agent SendMessage POST /api/messages -> EventHub.handleAgentMessage",
           "status": "ok",
-          "detail": "The targeted Runner (one process per swarm role; developer shown as representative) consumes the assigned task and builds the spawn prompt \u2014 scoreComplexity>COMPLEXITY_THRESHOLD(4) triggers fetchPVMContext(task) (GET /api/pvm/search) and buildTaskPrompt injects it \u2014 at act-agent/runner/act-runner.mjs:361-367, :561-564, :593, :648-656; the actual swarm role spawned depends on which role's Runner owns agentId (re-grep DefaultCapabilities for the live role set)."
+          "detail": "client.go:197-209; server/src/index.ts:980-1021; EventHub.ts:237-294 — sender/projectName/message"
+        },
+        {
+          "from": "srv_event_hub",
+          "to": "srv_agent_registry",
+          "label": "classifyMessage (priority order) + checkRateLimit (3/30s) -> routing switch: direct_mention findAgentByName; question/help selectCoordinationResponder",
+          "status": "ok",
+          "detail": "EventHub.ts:153-289 — direct_mention>status_update>question>help_request>peer_response; rate gate(186-202); capability/availability responder match(207-231)"
+        },
+        {
+          "from": "srv_agent_registry",
+          "to": "srv_event_hub",
+          "label": "targeted: io.to(socketId).emit('agent_message'); offline -> bufferMessageForAgent (10min TTL); else broadcast",
+          "status": "ok",
+          "detail": "EventHub.ts:265-286; server/src/index.ts:367-380,1008-1015 — socket emit / inbox buffer / broadcast fallback"
+        },
+        {
+          "from": "srv_event_hub",
+          "to": "mem_chronlog",
+          "label": "parallel: append {timestamp,agent,message,type} to ChronLog for PVM indexing",
+          "status": "ok",
+          "detail": "EventHub.ts:247-252 — chronologicalLog.append with classification.type"
         }
       ]
     }
