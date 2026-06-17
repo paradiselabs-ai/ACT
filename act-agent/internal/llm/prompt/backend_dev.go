@@ -10,8 +10,8 @@ import (
 func BackendDevPrompt(_ models.ModelProvider) string {
 	envInfo := getEnvironmentInfo()
 	identity := swarmIdentity("Backend Developer", "APIs, databases, server architecture, and backend systems.")
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
-		identity, baseBackendDevPrompt, actCLICommands("backend_dev"),
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
+		identity, baseBackendDevPrompt, ponytailDirective(), actCLICommands("backend_dev"),
 		swarmWorkflow(), coordinationConstraints("backend_dev"), envInfo)
 }
 

@@ -10,8 +10,8 @@ import (
 func DeveloperPrompt(_ models.ModelProvider) string {
 	envInfo := getEnvironmentInfo()
 	identity := swarmIdentity("Developer", "General-purpose full-stack development.")
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
-		identity, baseDeveloperPrompt, actCLICommands("developer"),
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
+		identity, baseDeveloperPrompt, ponytailDirective(), actCLICommands("developer"),
 		swarmWorkflow(), coordinationConstraints("developer"), envInfo)
 }
 

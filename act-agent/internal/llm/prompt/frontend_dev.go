@@ -10,8 +10,8 @@ import (
 func FrontendDevPrompt(_ models.ModelProvider) string {
 	envInfo := getEnvironmentInfo()
 	identity := swarmIdentity("Frontend Developer", "UI/UX implementation, component architecture, and frontend systems.")
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
-		identity, baseFrontendDevPrompt, actCLICommands("frontend_dev"),
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s\n\n%s",
+		identity, baseFrontendDevPrompt, ponytailDirective(), actCLICommands("frontend_dev"),
 		swarmWorkflow(), coordinationConstraints("frontend_dev"), envInfo)
 }
 
