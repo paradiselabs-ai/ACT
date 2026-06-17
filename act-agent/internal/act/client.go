@@ -232,6 +232,23 @@ func (c *Client) PVMSearch(query string) (string, error) {
 	return c.getString(path)
 }
 
+// RoutingBrief fetches confidence-labeled coordination evidence (past swarm
+// compositions, per-role and role-pair track records) for the Planner to reason
+// from when decomposing a project. Returns the pre-formatted text block; empty
+// string when there's no usable history yet (e.g. a first-ever project).
+func (c *Client) RoutingBrief(description, capabilities string) (string, error) {
+	path := fmt.Sprintf("/api/pvm/routing-brief?description=%s&capabilities=%s",
+		url.QueryEscape(description), url.QueryEscape(capabilities))
+	data, err := c.getJSON(path)
+	if err != nil {
+		return "", err
+	}
+	if text, ok := data["text"].(string); ok {
+		return text, nil
+	}
+	return "", nil
+}
+
 // IsAvailable returns true if the ACT server is reachable.
 func (c *Client) IsAvailable() bool {
 	resp, err := c.httpClient.Get(c.ServerURL + "/health")

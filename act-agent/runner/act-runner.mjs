@@ -322,67 +322,6 @@ async function runAgentClaudeCode(prompt, attempt = 1) {
   }
 }
 
-// ─── Wire 2: Complexity-triggered PVM search ─────────────────────────────────
-
-// Keywords that signal a task will benefit from past coordination context
-const COMPLEXITY_KEYWORDS = [
-  'refactor', 'architect', 'implement', 'integrate', 'design', 'migrate',
-  'optimize', 'overhaul', 'rewrite', 'scaffold', 'system', 'pipeline',
-  'coordinate', 'orchestrate', 'framework', 'infrastructure', 'strategy'
-];
-const COMPLEXITY_THRESHOLD = 4; // score must exceed this to trigger PVM search
-
-/**
- * Score task complexity — higher means more likely to benefit from PVM context.
- * Heuristic: description length + capability count + keyword hits.
- */
-function scoreComplexity(task) {
-  let score = 0;
-  const text = `${task.title || ''} ${task.description || ''}`.toLowerCase();
-
-  // Description length: every 100 chars = 1 point (cap at 5)
-  score += Math.min(5, Math.floor(text.length / 100));
-
-  // Each required capability = 1 point (cap at 3)
-  score += Math.min(3, (task.requiredCapabilities || []).length);
-
-  // Each complexity keyword found = 1 point
-  for (const kw of COMPLEXITY_KEYWORDS) {
-    if (text.includes(kw)) score += 1;
-  }
-
-  return score;
-}
-
-/**
- * Fetch semantically similar past coordination patterns from PVM.
- * Returns a formatted string ready for prompt injection, or null if nothing useful.
- */
-async function fetchPVMContext(task) {
-  try {
-    const query = [task.title, task.description].filter(Boolean).join(' ').substring(0, 300);
-    const project = task.projectName || task.metadata?.projectName || null;
-    const params = { query, limit: 5 };
-    if (project) params.project = project;
-    const data = await get('/api/pvm/search', params);
-    const results = data.results || [];
-    if (results.length === 0) return null;
-
-    const formatted = results
-      .map((r, i) => {
-        const msg = r.message || r;
-        return `[${i + 1}] ${msg.agent || 'unknown'} (${msg.type || 'event'}): ${(msg.message || '').substring(0, 300)}`;
-      })
-      .join('\n\n');
-
-    log(`  [PVM] Injecting ${results.length} related pattern(s) into task prompt${project ? ` (scope: ${project})` : ''}.`);
-    return formatted;
-  } catch (err) {
-    log(`  [PVM] Search unavailable (non-fatal): ${err.message}`);
-    return null;
-  }
-}
-
 // ─── Parallel awareness ───────────────────────────────────────────────────────
 
 /**
@@ -556,14 +495,6 @@ async function executeTask(task) {
   const projectName = task.projectName || task.metadata?.projectName || null;
   const agentBrief = await fetchAgentBrief(projectName);
 
-  // Wire 2: inject PVM context for complex tasks
-  let pvmContext = null;
-  const complexity = scoreComplexity(task);
-  if (complexity > COMPLEXITY_THRESHOLD) {
-    log(`  [PVM] Task complexity score ${complexity} > ${COMPLEXITY_THRESHOLD} — searching coordination memory...`);
-    pvmContext = await fetchPVMContext(task);
-  }
-
   // Parallel awareness: identify interface dependencies and reach out proactively
   const parallelContext = await fetchParallelContext();
   if (parallelContext) {
@@ -590,7 +521,7 @@ async function executeTask(task) {
     gapContext = `VALIDATION FEEDBACK (attempt ${task.metadata.validationAttempts || '?'}):\n${task.metadata.validationGaps}`;
   }
 
-  const prompt = buildTaskPrompt(task, pvmContext, parallelContext, agentBrief, inboxContext, gapContext);
+  const prompt = buildTaskPrompt(task, parallelContext, agentBrief, inboxContext, gapContext);
   await reportProgress(task.id, 10, 'Starting task execution');
 
   const { success, output, error, code } = await runAgent(prompt);
@@ -608,7 +539,7 @@ async function executeTask(task) {
   return { exitCode: code ?? (success ? 0 : 1) };
 }
 
-function buildTaskPrompt(task, pvmContext = null, parallelContext = null, agentBrief = null, inboxContext = null, gapContext = null) {
+function buildTaskPrompt(task, parallelContext = null, agentBrief = null, inboxContext = null, gapContext = null) {
   const lines = [];
 
   // AGENT.md brief goes first — establishes agent identity and project context
@@ -645,17 +576,6 @@ function buildTaskPrompt(task, pvmContext = null, parallelContext = null, agentB
     );
   }
 
-  // Wire 2: inject PVM patterns when available (complexity-triggered)
-  if (pvmContext) {
-    lines.push(
-      ``,
-      `## Related Past Work`,
-      `The following coordination patterns from similar past tasks may be relevant.`,
-      `Use them to avoid known pitfalls and build on approaches that worked:`,
-      ``,
-      pvmContext,
-    );
-  }
 
   // Pending messages (gap analysis from Assurance, peer questions)
   if (inboxContext) {
@@ -714,7 +634,7 @@ function buildTaskPrompt(task, pvmContext = null, parallelContext = null, agentB
 
 /** Extract @success_criteria items from SPIL-formatted text */
 function extractSuccessCriteria(text) {
-  const lines = text.split('\\n');
+  const lines = text.split('\n');
   let inCriteria = false;
   const criteria = [];
   for (const line of lines) {

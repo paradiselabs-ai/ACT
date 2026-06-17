@@ -8,44 +8,45 @@ package prompt
 func PlannerSectionEvidenceRouting() string {
 	return `# Evidence-Based Routing (PVM)
 
-PVM (PAIRed Vector Minutes) is the coordination memory. Every task event
-(creation, progress, validation, failure) is embedded and indexed. Use it
-to make routing decisions backed by what has actually worked before, not
-intuition.
+PVM (PAIRed Vector Minutes) is the coordination memory: every task event
+(creation, assignment, validation, failure) is recorded. You use it to pick the
+swarm composition backed by what has actually worked, not intuition.
 
-## When to invoke
+## You are handed the evidence — you don't fetch it
 
-- Before assigning a task whose role isn't obvious — search for who has
-  succeeded on similar work.
-- When two roles could plausibly do the same task — pick the one with
-  the stronger track record on that domain.
-- If you recieve information that a task fails — search for prior failures of the same shape so
-  you can identify the root cause class.
+When a project brief is accepted, the orchestrator injects a
+"## Routing evidence from past projects" block into your first BUILD turn. Every
+line is confidence-labeled. It contains:
+- similar past projects — their swarm composition, pass rate, and kickback count;
+- per-role track records — pass rate per role across all projects;
+- role-pair history — how role combinations (e.g. frontend_dev + backend_dev) fared together.
 
-## How to invoke
+Read it before choosing your role mix. Example lines:
+- "3×developer — 95% pass, 1 kickback (high signal: 41 tasks)" → trust it.
+- "frontend_dev + backend_dev — 55% pass, 4 kickbacks (low signal: 3 tasks)" → weak hint only.
 
-Call the act_cli tool: ` + "`{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`" + `.
-It returns top matches by semantic similarity, each with the agent ID, task
-title, outcome, and timestamp.
+## How to read the signal labels
+
+- high signal (≥10 samples): trust it; let it drive the composition.
+- moderate signal (≥5): a real lean, but keep your own judgment.
+- low signal (<5): a weak hint only. Do NOT override a clear capability-tag
+  match on low-signal evidence — a fresh install shows low signal everywhere,
+  so reason from first principles until history accrues.
+- At comparable pass rates, the composition with fewer kickbacks is the cheaper bet.
+
+## Digging deeper (optional, secondary)
+
+The injected block is your primary evidence. To inspect a SPECIFIC past
+situation (e.g. how auth middleware was wired before), do a raw pattern lookup
+with the act_cli tool: ` + "`{\"subcommand\":\"pvm\",\"args\":[\"search\",\"<query>\"]}`" + `.
+That returns the closest past event snippets by similarity — raw text, NOT
+scored outcomes — so treat it as background reading, not routing proof.
 (ACP backend: ` + "`act-tier1-planner pvm search \"<query>\"`" + ` via Bash — same result.)
-
-## How to read the results
-
-- Look for outcome=completed AND high success_criteria scores together.
-  Either alone is weak signal.
-- Recency matters less than role+domain match. A 2-week-old success on
-  the same domain beats a 1-day-old success on a different one.
-- If every match is for a single agent ID, that's a specialization
-  signal — prefer that agent.
-- If results are mixed (some passes, some fails) on the same role, the
-  task class itself is hard. Add a tighter @success_criteria and
-  consider sequencing it earlier.
 
 ## What NOT to do
 
-- Don't search for every task. Routine work doesn't need evidence.
-- Don't pick a role just because it has the most history — pick the one
-  whose history matches the current task domain.
-- Don't override a clear capability tag match with PVM results unless
-  the PVM evidence is overwhelming.`
+- Don't route on a hunch when the injected evidence is high-signal.
+- Don't treat low-signal lines as proof.
+- Don't override a clear capability-tag match unless high-signal evidence
+  clearly contradicts it.`
 }

@@ -449,6 +449,217 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     return comparisons.sort((a, b) => b.matchScore - a.matchScore);
   }
 
+  // ─── Routing brief ───────────────────────────────────────────────────────
+  // Always-on coordination evidence for the Planner: which swarm COMPOSITIONS
+  // worked on past projects, per-role track records, and role-pair history.
+  // Every fact carries a sample count + signal label (high ≥10 / moderate ≥5 /
+  // low <5 — the same thresholds getAgentProfile uses for evidenceQuality), so
+  // thin data is harmless (labeled low) and rich data is trusted. The Planner
+  // reasons from these facts; we do NOT synthesize prose here.
+
+  private roleOfAgent(agentId: string, capabilities: string[] = []): string {
+    const prefix = (agentId || '').split('-')[0].toLowerCase();
+    const byPrefix: Record<string, string> = {
+      dev: 'developer', developer: 'developer',
+      backend: 'backend_dev', be: 'backend_dev',
+      frontend: 'frontend_dev', fe: 'frontend_dev',
+      qa: 'qa_engineer', researcher: 'researcher',
+    };
+    if (byPrefix[prefix]) return byPrefix[prefix];
+    const caps = capabilities.map(c => String(c).toLowerCase());
+    if (caps.some(c => ['react', 'vue', 'svelte', 'css', 'tailwind', 'html', 'a11y'].includes(c))) return 'frontend_dev';
+    if (caps.some(c => ['api', 'rest', 'db', 'sql', 'postgres', 'auth', 'middleware'].includes(c))) return 'backend_dev';
+    if (caps.some(c => ['documentation', 'analysis', 'research'].includes(c))) return 'researcher';
+    if (caps.some(c => ['testing', 'pytest', 'jest', 'playwright', 'cypress'].includes(c))) return 'qa_engineer';
+    return 'developer';
+  }
+
+  private signal(count: number): 'high' | 'moderate' | 'low' {
+    return count >= 10 ? 'high' : count >= 5 ? 'moderate' : 'low';
+  }
+
+  private projectOf(m: any): string {
+    return m.projectName || m.data?.projectName || m.scope || '__global__';
+  }
+
+  /**
+   * Roll up indexed events by project into {composition, outcomes} views.
+   * Composition (role counts) comes from agent_registered; outcomes from
+   * task_assigned (who) joined to task_validated/failed (pass/fail) by taskId.
+   */
+  getProjectOutcomes(): {
+    project: string;
+    composition: Record<string, number>;
+    capabilities: string[];
+    taskCount: number;
+    passed: number;
+    kickbacks: number;
+    passRate: number;
+    perRole: Record<string, { tasks: number; passed: number }>;
+    topGaps: string[];
+  }[] {
+    const byProject: Map<string, StoredPoint[]> = new Map();
+    for (const p of this.points) {
+      const proj = this.projectOf(p.message as any);
+      let arr = byProject.get(proj);
+      if (!arr) { arr = []; byProject.set(proj, arr); }
+      arr.push(p);
+    }
+
+    const out = [];
+    for (const [project, pts] of byProject.entries()) {
+      const roleOfAgentId: Map<string, string> = new Map();
+      const composition: Record<string, number> = {};
+      const capSet = new Set<string>();
+
+      for (const p of pts) {
+        const m = p.message as any;
+        const data = m.data || {};
+        if (m.type === 'agent_registered') {
+          const aid = data.agentId || data.name || m.agent;
+          const caps: string[] = data.capabilities || [];
+          caps.forEach(c => capSet.add(c));
+          if (aid && !roleOfAgentId.has(aid)) {
+            const role = this.roleOfAgent(aid, caps);
+            roleOfAgentId.set(aid, role);
+            composition[role] = (composition[role] || 0) + 1;
+          }
+        } else if (m.type === 'task_created') {
+          const rc: string[] = data.requiredCapabilities || data.task?.requiredCapabilities || [];
+          rc.forEach(c => capSet.add(c));
+        }
+      }
+
+      const assignedAgent: Map<string, string> = new Map();
+      const validation: Map<string, boolean> = new Map();
+      const gaps: string[] = [];
+      for (const p of pts) {
+        const m = p.message as any;
+        const data = m.data || {};
+        const taskId = data.taskId || data.task?.id || data.id;
+        if (!taskId) continue;
+        if (m.type === 'task_assigned') {
+          assignedAgent.set(taskId, data.assignedAgent || data.agentId || m.agent);
+        } else if (m.type === 'task_validated') {
+          validation.set(taskId, true);
+        } else if (m.type === 'task_validation_failed') {
+          validation.set(taskId, false);
+          if (data.gaps) gaps.push(String(data.gaps).slice(0, 120));
+        }
+      }
+
+      const perRole: Record<string, { tasks: number; passed: number }> = {};
+      let passed = 0, kickbacks = 0, validatedCount = 0;
+      for (const [taskId, didPass] of validation.entries()) {
+        validatedCount++;
+        if (didPass) passed++; else kickbacks++;
+        const aid = assignedAgent.get(taskId);
+        const role = aid ? (roleOfAgentId.get(aid) || this.roleOfAgent(aid)) : 'unknown';
+        (perRole[role] ||= { tasks: 0, passed: 0 }).tasks++;
+        if (didPass) perRole[role].passed++;
+      }
+
+      out.push({
+        project,
+        composition,
+        capabilities: Array.from(capSet),
+        taskCount: validatedCount,
+        passed,
+        kickbacks,
+        passRate: validatedCount > 0 ? passed / validatedCount : 0,
+        perRole,
+        topGaps: gaps.slice(0, 2),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Build the Planner's routing brief for a new project. Picks similar past
+   * projects by capability overlap, plus cross-project per-role track records
+   * and role-pair history. Returns structured data + a ready-to-inject text
+   * block where every line is confidence-labeled.
+   */
+  async getRoutingBrief(description: string, capabilities: string[] = []): Promise<{
+    text: string;
+    similarProjects: any[];
+    perRole: any[];
+    rolePairs: any[];
+  }> {
+    const projects = this.getProjectOutcomes();
+    const reqCaps = new Set(capabilities.map(c => String(c).toLowerCase()));
+
+    // Similar projects: named projects with data, ranked by capability overlap
+    // then task volume. (__global__ is the indexer's catch-all, not a project.)
+    const named = projects.filter(p => p.project !== '__global__' && p.taskCount > 0);
+    const scored = named
+      .map(p => ({ p, overlap: p.capabilities.filter(c => reqCaps.has(String(c).toLowerCase())).length }))
+      .sort((a, b) => (b.overlap - a.overlap) || (b.p.taskCount - a.p.taskCount));
+    const hasOverlap = scored.some(s => s.overlap > 0);
+    const top = (hasOverlap ? scored.filter(s => s.overlap > 0) : scored).slice(0, 5).map(s => s.p);
+
+    // Per-role pass rates across ALL events (named + global)
+    const roleAgg: Record<string, { tasks: number; passed: number }> = {};
+    for (const p of projects) {
+      for (const [role, v] of Object.entries(p.perRole)) {
+        (roleAgg[role] ||= { tasks: 0, passed: 0 }).tasks += v.tasks;
+        roleAgg[role].passed += v.passed;
+      }
+    }
+
+    // Role-pair history: projects where both roles were present together
+    const pairAgg: Record<string, { tasks: number; passed: number; kickbacks: number; projects: number }> = {};
+    for (const p of projects) {
+      const roles = Object.keys(p.composition);
+      for (let i = 0; i < roles.length; i++) {
+        for (let j = i + 1; j < roles.length; j++) {
+          const key = [roles[i], roles[j]].sort().join(' + ');
+          const a = (pairAgg[key] ||= { tasks: 0, passed: 0, kickbacks: 0, projects: 0 });
+          a.tasks += p.taskCount; a.passed += p.passed; a.kickbacks += p.kickbacks; a.projects++;
+        }
+      }
+    }
+
+    const pct = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : 'n/a');
+    const compStr = (c: Record<string, number>) =>
+      Object.entries(c).map(([r, n]) => `${n}×${r}`).join(', ') || 'unknown mix';
+
+    const lines: string[] = [];
+    if (top.length) {
+      lines.push('Similar past projects (by capability overlap):');
+      for (const p of top) {
+        const gap = p.topGaps.length ? `; common failure: "${p.topGaps[0]}"` : '';
+        lines.push(`- "${p.project}" [${compStr(p.composition)}] — ${p.taskCount} tasks, ${pct(p.passed, p.taskCount)} pass, ${p.kickbacks} kickbacks (${this.signal(p.taskCount)} signal: ${p.taskCount} tasks)${gap}`);
+      }
+    }
+    // Drop the 'unknown' bucket: tasks whose worker can't be attributed to a
+    // role (old/messy history) are not actionable for composition decisions.
+    const roleEntries = Object.entries(roleAgg).filter(([role, v]) => v.tasks > 0 && role !== 'unknown').sort((a, b) => b[1].tasks - a[1].tasks);
+    if (roleEntries.length) {
+      lines.push('', 'Per-role track record (all projects):');
+      for (const [role, v] of roleEntries) {
+        lines.push(`- ${role}: ${pct(v.passed, v.tasks)} pass over ${v.tasks} tasks (${this.signal(v.tasks)} signal)`);
+      }
+    }
+    const pairEntries = Object.entries(pairAgg).filter(([, v]) => v.tasks > 0).sort((a, b) => b[1].tasks - a[1].tasks).slice(0, 4);
+    if (pairEntries.length) {
+      lines.push('', 'Role-pair history (when run together):');
+      for (const [pair, v] of pairEntries) {
+        lines.push(`- ${pair}: ${pct(v.passed, v.tasks)} combined pass over ${v.tasks} tasks, ${v.kickbacks} kickbacks (${this.signal(v.tasks)} signal)`);
+      }
+    }
+    const text = lines.length
+      ? lines.join('\n') + '\n\nRead the signal labels: trust high-signal lines, treat low-signal as a weak hint and lean on your own judgment.'
+      : '';
+
+    return {
+      text,
+      similarProjects: top,
+      perRole: roleEntries.map(([role, v]) => ({ role, tasks: v.tasks, passRate: v.tasks ? v.passed / v.tasks : 0, signal: this.signal(v.tasks) })),
+      rolePairs: pairEntries.map(([pair, v]) => ({ pair, tasks: v.tasks, kickbacks: v.kickbacks, passRate: v.tasks ? v.passed / v.tasks : 0, signal: this.signal(v.tasks) })),
+    };
+  }
+
   async healthCheck(): Promise<boolean> {
     return true;
   }

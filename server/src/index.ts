@@ -1195,6 +1195,27 @@ app.get('/api/pvm/status', (req, res) => {
   res.json(pvmIndexer.getStatus());
 });
 
+// PVM routing brief — confidence-labeled coordination evidence for the Planner:
+// which swarm compositions worked on similar past projects, per-role track
+// records, and role-pair history. The orchestrator fetches this once at
+// decomposition time and injects it into the Planner's BUILD turn so the
+// Planner reasons from real outcomes instead of intuition. Always returns a
+// block (empty string when there's no history yet — correct for a first run).
+app.get('/api/pvm/routing-brief', async (req, res) => {
+  try {
+    const { description, capabilities } = req.query;
+    const desc = typeof description === 'string' ? description : '';
+    const caps = typeof capabilities === 'string' && capabilities.length > 0
+      ? capabilities.split(',').map(c => c.trim()).filter(Boolean)
+      : [];
+    const brief = await vectorStore.getRoutingBrief(desc, caps);
+    res.json({ success: true, ...brief });
+  } catch (error: any) {
+    logger.error(`PVM routing-brief failed: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // PVM reindex — force a full re-index of the ChronologicalLog into the vector
 // store. Useful after a tagging-logic change (e.g. after workflow 02 of the
 // PVM-rebuild chain landed) so existing events get re-tagged without a server

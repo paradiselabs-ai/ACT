@@ -1633,6 +1633,18 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 		SuccessCriteria: brief.SuccessCriteria,
 		AgentsInvolved:  brief.AgentsInvolved,
 	}, nil)
+
+	// Inject confidence-labeled routing evidence (past swarm compositions,
+	// per-role + role-pair track records) so the Planner decomposes from real
+	// outcomes, not intuition. Non-fatal: a first-ever project has no history
+	// (empty brief), and the server may be mid-reindex — either way we proceed.
+	if evidence, err := client.RoutingBrief(brief.Description, brief.TechStack); err != nil {
+		logging.Warn("routing_brief_unavailable", "project", name, "error", err)
+	} else if evidence != "" {
+		buildPrompt += "\n\n## Routing evidence from past projects\n\n" + evidence
+		logging.Info("routing_brief_injected", "project", name, "bytes", len(evidence))
+	}
+
 	go o.fireWhenPlannerIdle(ctx, sid, buildPrompt, "build_mode_trigger")
 }
 
