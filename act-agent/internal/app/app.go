@@ -237,7 +237,7 @@ func withTier1ShimPath(role string, base *config.ACPConfig) *config.ACPConfig {
 
 	// Carry the parent process's PATH through (it already has node/npx and the
 	// system tools the agent needs), and prepend the act-agent install dir so
-	// `act` and `act-tier1-<role>` resolve.
+	// `act-agent` and `act-tier1-<role>` resolve.
 	parentPath := os.Getenv("PATH")
 	if existing, ok := out.Env["PATH"]; ok {
 		parentPath = existing

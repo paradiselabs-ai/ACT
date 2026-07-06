@@ -1,12 +1,12 @@
 ---
 id: "acp-planner-prompt-section-dead-path-2026-06-12"
-status: "todo"
+status: "done"
 priority: "high"
 assignee: null
 dueDate: null
 created: "2026-06-12T07:30:00.000Z"
 modified: "2026-06-12T07:30:00.000Z"
-completedAt: null
+completedAt: "2026-07-06T00:00:00.000Z"
 labels: ["prompts", "acp", "cli"]
 order: "a2"
 ---
@@ -41,3 +41,7 @@ lose all on-demand prompt sections (evidence_routing, success_criteria, validati
 `grep -n "prompt-section" act-agent/cli/act-cli.ts` → no dispatch branch;
 `grep -n "prompt-section" act-agent/internal/llm/tools/act_cli_whitelist.go` → granted;
 planner ACP prompt fragment instructs the call (`common.go` actCLICommandsACP path).
+
+## Closed 2026-07-06
+
+The CLI branch already existed (root.go handles `prompt-section` natively from prompt.SectionRegistry — one source of truth; ticket was stale on that point). The REAL dead link: act-tier1-shim exec'd `act`, whose symlink was removed in the act→act-agent rename — every shim call failed or hit nektos/act. Fixed: shim now resolves its act-agent sibling, falling back to PATH `act-agent`. Verified end-to-end: `act-tier1-planner prompt-section examples` prints the section. Regression test `TestWhitelistSubcommandsAllRoute` (cmd/root_test.go) locks every whitelist grant to a route.

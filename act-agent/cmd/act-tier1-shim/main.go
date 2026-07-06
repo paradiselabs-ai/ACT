@@ -19,7 +19,7 @@
 //     in-process tool (no ;, |, &&, ||, $(, `). The shim does not run a
 //     shell — these can't inject — but rejecting them keeps the agent's
 //     usage pattern aligned with the in-process contract.
-//  4. exec.Commands the real `act` binary with the remaining args.
+//  4. exec.Commands the real `act-agent` binary with the remaining args.
 //
 // Hard enforcement preserved: the shim, not the LLM, decides what runs.
 // The ACP-backed agent's PATH is configured to expose only its role's
@@ -92,7 +92,7 @@ func main() {
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
-		fail(exitExecFail, "act-tier1-%s: exec act: %v", role, err)
+		fail(exitExecFail, "act-tier1-%s: exec act-agent: %v", role, err)
 	}
 }
 
@@ -125,14 +125,22 @@ func roleFromArgv0(argv0 string) (string, error) {
 	return role, nil
 }
 
-// runAct execs the real act-agent binary (resolved on PATH). The command was
-// renamed act → act-agent; calling the old `act` name fails on current installs
-// ("act: executable file not found"). stdin/stdout/stderr are passed through so
-// the calling ACP-backed agent sees the same output it would running act-agent
-// directly.
+// runAct execs the real `act-agent` binary. Resolution order: sibling of
+// this shim (the build lands act-tier1-shim alongside act-agent), then
+// PATH. The command is `act-agent`, NOT `act` — the old name died in the
+// nektos/act-collision rename; exec'ing "act" fails on current installs
+// or runs GitHub's act runner. stdin/stdout/stderr are passed through so
+// the calling ACP-backed agent sees the same output it would running
+// `act-agent` directly.
 func runAct(subcommand string, args []string) error {
+	bin := "act-agent"
+	if exe, err := os.Executable(); err == nil {
+		if sibling := filepath.Join(filepath.Dir(exe), "act-agent"); isExecutable(sibling) {
+			bin = sibling
+		}
+	}
 	full := append([]string{subcommand}, args...)
-	cmd := exec.Command("act-agent", full...)
+	cmd := exec.Command(bin, full...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -140,6 +148,12 @@ func runAct(subcommand string, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// isExecutable reports whether path exists as a regular executable file.
+func isExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0
 }
 
 func fail(code int, format string, args ...any) {

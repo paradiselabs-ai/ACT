@@ -7,9 +7,13 @@ import (
 )
 
 // ObserverPrompt returns the system prompt for the Observer role.
-func ObserverPrompt(_ models.ModelProvider) string {
+func ObserverPrompt(provider models.ModelProvider) string {
+	cli := actCLICommands("observer")
+	if provider == models.ProviderACP {
+		cli = actCLICommandsACP("observer")
+	}
 	envInfo := getEnvironmentInfo()
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", baseObserverPrompt, actCLICommands("observer"), communicationProtocol(), coordinationConstraints("observer"), envInfo)
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", baseObserverPrompt, cli, communicationProtocol(), coordinationConstraints("observer"), envInfo)
 }
 
 const baseObserverPrompt = `You are the Observer — you monitor the ACT coordination state and surface problems.

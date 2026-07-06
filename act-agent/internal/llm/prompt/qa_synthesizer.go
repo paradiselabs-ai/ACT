@@ -7,9 +7,13 @@ import (
 )
 
 // QASynthesizerPrompt returns the system prompt for the QA/Synthesizer role.
-func QASynthesizerPrompt(_ models.ModelProvider) string {
+func QASynthesizerPrompt(provider models.ModelProvider) string {
+	cli := actCLICommands("qa_synthesizer")
+	if provider == models.ProviderACP {
+		cli = actCLICommandsACP("qa_synthesizer")
+	}
 	envInfo := getEnvironmentInfo()
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", baseQASynthesizerPrompt, actCLICommands("qa_synthesizer"), communicationProtocol(), coordinationConstraints("qa_synthesizer"), envInfo)
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", baseQASynthesizerPrompt, cli, communicationProtocol(), coordinationConstraints("qa_synthesizer"), envInfo)
 }
 
 const baseQASynthesizerPrompt = `You are QA/Synthesizer — you assemble Assurance-validated task outputs into the final deliverable.

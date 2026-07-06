@@ -119,13 +119,11 @@ You are an in-process Tier 1 role. You speak by writing plain text in your reply
 // priming advertises through renderShimNote). The in-process fragment's "do NOT
 // shell out" framing is wrong for them — they MUST shell out for subcommands.
 // Audit entry 3.5 (the "Use it via Bash" vs "do NOT shell out" cross-backend
-// contradiction). Only the planner case diverges enough to need its own framing
-// today; other roles fall back to the shared in-process fragment.
+// contradiction). Command sets mirror the in-process fragments per role.
 func actCLICommandsACP(role string) string {
-	if role != "planner" {
-		return actCLICommands(role)
-	}
-	return `## ACT CLI Commands (available to you)
+	switch role {
+	case "planner":
+		return `## ACT CLI Commands (available to you)
 You are an ACP-backed Tier 1 role. Reach act_cli by invoking the ` + "`act-tier1-planner`" + ` shim via Bash. CREATE_TASK and PROJECT_BRIEF are still markers in your reply text — write them in plain text, do NOT pass them to Bash.
 - act-tier1-planner context --project <name>    Load full project context (tasks, agents, brief)
 - act-tier1-planner graph unverified            Show tasks not yet validated
@@ -135,6 +133,29 @@ You are an ACP-backed Tier 1 role. Reach act_cli by invoking the ` + "`act-tier1
 - act-tier1-planner task retry <id>             Re-dispatch a failed task to a new agent (uses next retry attempt)
 - act-tier1-planner task abandon <id> --reason "<text>"   Mark a task permanently failed; skips retry. Use when the task is unrecoverable or no longer needed.
 - act-tier1-planner prompt-section <name>       Pull on-demand Planner reference section (evidence_routing, success_criteria, validation, examples)`
+
+	case "observer":
+		return `## ACT CLI Commands (available to you)
+You are an ACP-backed Tier 1 role. Reach act_cli by invoking the ` + "`act-tier1-observer`" + ` shim via Bash. You still speak by writing plain text in your reply — CLI output is visible only to you.
+- act-tier1-observer log --tail 20              Show recent coordination log entries
+- act-tier1-observer graph conflicts            Check for file lock conflicts between agents
+- act-tier1-observer status                     Show server status (agents, tasks, locks)
+- act-tier1-observer graph unverified           Show tasks awaiting validation`
+
+	case "assurance":
+		return `## ACT CLI Commands (available to you)
+You are an ACP-backed Tier 1 role. Reach act_cli by invoking the ` + "`act-tier1-assurance`" + ` shim via Bash. You still speak by writing plain text in your reply — CLI output is visible only to you.
+- act-tier1-assurance validation queue          Show tasks awaiting validation
+- act-tier1-assurance status                    Show server status`
+
+	case "qa_synthesizer":
+		return `## ACT CLI Commands (available to you)
+You are an ACP-backed Tier 1 role. Reach act_cli by invoking the ` + "`act-tier1-qa_synthesizer`" + ` shim via Bash. You still speak by writing plain text in your reply — CLI output is visible only to you.
+- act-tier1-qa_synthesizer status               Show server status`
+
+	default:
+		return actCLICommands(role)
+	}
 }
 
 // communicationProtocol returns the NesTTY communication protocol shared by Tier 1 roles.
