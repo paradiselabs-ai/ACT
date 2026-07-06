@@ -866,6 +866,8 @@ func formatCoordEvent(ev LogEntry) string {
 		return fmt.Sprintf("✅  validation passed — %s", truncate(ev.Message, 140))
 	case "validation_failed", "task_validation_failed":
 		return fmt.Sprintf("❌  validation failed — %s", truncate(ev.Message, 140))
+	case "validation_submission_rejected":
+		return fmt.Sprintf("🚫  %s", truncate(ev.Message, 140))
 	case "synthesis_complete":
 		return fmt.Sprintf("🎁  synthesized — %s", truncate(ev.Message, 140))
 	case "synthesis_needs_clarification":
@@ -1582,19 +1584,22 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 		logging.Warn("Failed to write AGENTS.md", "project", name, "dir", dir, "error", err)
 	} else {
 		logging.Info("AGENTS.md + CLAUDE.md written", "project", name, "dir", dir)
-		// Tier 1 system messages were baked at TUI startup before AGENTS.md
-		// existed. Invalidate the contextPaths cache and rebind each Tier 1
-		// agent's provider so AGENTS.md content reaches Planner, Observer,
-		// Assurance, and QA in the same session that created the project.
-		prompt.InvalidateContextCache()
-		for _, role := range []string{"planner", "observer", "assurance", "qa_synthesizer"} {
-			a := o.getAgent(role)
-			if a == nil {
-				continue
-			}
-			if err := a.RebindSystemPrompt(); err != nil {
-				logging.Warn("Failed to rebind Tier 1 system prompt", "role", role, "error", err)
-			}
+	}
+	// Tier 1 system messages were baked at TUI startup before AGENTS.md
+	// existed. Invalidate the contextPaths cache and rebind each Tier 1
+	// agent's provider so AGENTS.md content reaches Planner, Observer,
+	// Assurance, and QA in the same session that created the project.
+	// Rebind even when the AGENTS.md write failed — the brief is live
+	// server-side and there is no retry path; skipping here left all four
+	// roles on stale intake-era prompts for the rest of the session.
+	prompt.InvalidateContextCache()
+	for _, role := range []string{"planner", "observer", "assurance", "qa_synthesizer"} {
+		a := o.getAgent(role)
+		if a == nil {
+			continue
+		}
+		if err := a.RebindSystemPrompt(); err != nil {
+			logging.Warn("Failed to rebind Tier 1 system prompt", "role", role, "error", err)
 		}
 	}
 
