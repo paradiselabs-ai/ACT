@@ -1,13 +1,13 @@
 ---
 id: "compaction-summarizer-fallback-default-install-2026-05-12"
-status: "todo"
+status: "done"
 priority: "critical"
 assignee: "d34d"
 epic: "compaction"
 dueDate: null
 created: "2026-05-12T00:00:00.000Z"
 modified: "2026-05-12T00:00:00.000Z"
-completedAt: null
+completedAt: "2026-07-06T00:00:00.000Z"
 labels: ["compaction", "context", "config", "default-install"]
 order: "a0"
 ---
@@ -24,3 +24,7 @@ order: "a0"
 - If `agents.summarizer` is explicitly configured, that takes precedence.
 - Build + vet clean.
 - Manual test: set `AutoCompact: true`, `AutoCompactTokens: 5000`, run a session past threshold, verify Summarize fires and writes a `SummaryMessageID`.
+
+## Closed 2026-07-06
+
+Shipped in the alpha worktree pass: `NewAgent` falls back `summarizeProvider` to the Planner's provider/model when `agents.summarizer` is absent (`createProviderFromConfig` extracted so the summarizer keeps its own prompt identity). Explicit `agents.summarizer` still takes precedence. Build + vet clean. Manual AutoCompactTokens live test still owed in the TUI e2e matrix.

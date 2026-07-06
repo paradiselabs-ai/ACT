@@ -110,10 +110,8 @@ func NewAgent(
 	if err != nil {
 		return nil, err
 	}
-	// Title/summarize providers are only attached when the user has explicitly
-	// configured agents.title / agents.summarizer in ~/.act.json. ACT roles
-	// don't wire these by default — the Planner is the canonical conversation
-	// owner and will be given per-role summarize support later if needed.
+	// Title provider is only attached when the user has explicitly configured
+	// agents.title in ~/.act.json.
 	var titleProvider provider.Provider
 	if _, ok := config.Get().Agents[config.AgentTitle]; ok {
 		titleProvider, err = createAgentProvider(config.AgentTitle)
@@ -121,9 +119,19 @@ func NewAgent(
 			return nil, err
 		}
 	}
+	// Summarize provider: agents.summarizer when configured, else the
+	// Planner's provider/model. Without the fallback, default installs
+	// (.act.example.json has no summarizer block) hit the AutoCompactTokens
+	// threshold and Summarize() silently no-ops — long sessions bleed tokens
+	// with no signal.
 	var summarizeProvider provider.Provider
 	if _, ok := config.Get().Agents[config.AgentSummarizer]; ok {
 		summarizeProvider, err = createAgentProvider(config.AgentSummarizer)
+		if err != nil {
+			return nil, err
+		}
+	} else if plannerConfig, ok := config.Get().Agents[config.RolePlanner]; ok {
+		summarizeProvider, err = createProviderFromConfig(config.AgentSummarizer, plannerConfig)
 		if err != nil {
 			return nil, err
 		}
@@ -795,6 +803,14 @@ func createAgentProvider(role config.AgentName) (provider.Provider, error) {
 			return nil, fmt.Errorf("role %s not configured and no agents.developer fallback in ~/.act.json", role)
 		}
 	}
+	return createProviderFromConfig(agentName, agentConfig)
+}
+
+// createProviderFromConfig builds a provider for agentName using an explicit
+// agent config block — lets the summarizer borrow the Planner's provider/model
+// when agents.summarizer is absent from ~/.act.json.
+func createProviderFromConfig(agentName config.AgentName, agentConfig config.Agent) (provider.Provider, error) {
+	cfg := config.Get()
 	if agentConfig.Provider == "" {
 		return nil, fmt.Errorf("role %s missing provider field in ~/.act.json", role)
 	}
