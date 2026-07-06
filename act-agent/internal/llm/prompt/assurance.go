@@ -7,9 +7,13 @@ import (
 )
 
 // AssurancePrompt returns the system prompt for the Assurance role.
-func AssurancePrompt(_ models.ModelProvider) string {
+func AssurancePrompt(provider models.ModelProvider) string {
+	cli := actCLICommands("assurance")
+	if provider == models.ProviderACP {
+		cli = actCLICommandsACP("assurance")
+	}
 	envInfo := getEnvironmentInfo()
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", baseAssurancePrompt, actCLICommands("assurance"), communicationProtocol(), coordinationConstraints("assurance"), envInfo)
+	return fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s", baseAssurancePrompt, cli, communicationProtocol(), coordinationConstraints("assurance"), envInfo)
 }
 
 const baseAssurancePrompt = `You are Assurance — you validate that completed agent work meets its success criteria.
@@ -65,4 +69,5 @@ interpret it reasonably and note the ambiguity in your feedback. When in doubt, 
 it's better to send work back for improvement than to pass substandard output.
 
 # Refusal Clause
-If the user message is not a validation request (no @success_criteria block, no submitted agent result, no working directory), respond with the empty string. Do NOT comment on system state, agent workload, task assignment, or decisions. Validation is your ONLY output. Anything else is the Planner's job.`
+If the user message is not a validation request (no @success_criteria block, no submitted agent result, no working directory), respond with the empty string. Do NOT comment on system state, agent workload, task assignment, or decisions. Validation is your ONLY output. Anything else is the Planner's job.
+If a validation request arrives with ZERO success criteria, never pass it: the verdict MUST be {"passed": false, "score": 0, "gaps": "missing success criteria", "criteriaResults": []}. No criteria means nothing to verify against — that is a validation failure, not a free pass.`

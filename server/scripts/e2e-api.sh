@@ -4,7 +4,7 @@
 # then asserts every PVM endpoint returns evidence-backed numbers (not placeholders).
 set +e
 
-SERVER_DIR=/Users/user/Documents/Developer/dev/AI/act/server
+SERVER_DIR="${ACT_SERVER_DIR:-/Users/user/Documents/Developer/dev/AI/act/server}"
 LOG=/tmp/pvm-e2e.log
 SERVER_PID=""
 BASE=http://localhost:8080
@@ -40,6 +40,14 @@ echo " PVM E2E — 2 projects × 3 agents × 6 task lifecycles"
 echo "═══════════════════════════════════════════════════════"
 
 pkill -9 -f "tsx watch.*server/src/index.ts" 2>/dev/null
+# pkill's pattern misses the tsx child process (node --require .../tsx), so
+# also kill whatever holds the port — otherwise this script silently tests a
+# stale server from another checkout.
+lsof -ti :8080 2>/dev/null | xargs kill -9 2>/dev/null
+for i in $(seq 1 10); do
+  [ -z "$(lsof -ti :8080 2>/dev/null)" ] && break
+  sleep 1
+done
 sleep 2
 cd "$SERVER_DIR"
 rm -f "$LOG"
@@ -72,6 +80,9 @@ echo "── Step 2: Register 5 project-prefixed agents ──"
 for SPEC in dev-1-alpha:alpha:coding backend-1-alpha:alpha:coding,backend qa-1-alpha:alpha:testing dev-1-beta:beta:coding backend-1-beta:beta:coding,backend; do
   IFS=':' read -r A P CAPLIST <<< "$SPEC"
   CAP="[\"$(echo $CAPLIST | sed 's/,/","/g')\"]"
+  # Self-heal: drop any same-ID agent left by a previous run (register 409s
+  # on live duplicates — same pattern the runner uses).
+  curl -s -X DELETE "$BASE/api/agents/$A" >/dev/null
   R=$(curl -s -X POST -H "Content-Type: application/json" \
     -d "{\"agentId\":\"$A\",\"name\":\"$A\",\"projectName\":\"$P\",\"capabilities\":$CAP}" \
     "$BASE/api/agents/register")
@@ -95,9 +106,11 @@ TASKS=(
 TASK_IDS=()
 for spec in "${TASKS[@]}"; do
   IFS=':' read -r PROJ AGENT TYPE DESC <<< "$spec"
-  # Create task scoped to project + agent
+  # Create task scoped to project + agent. Descriptions carry a SPIL
+  # @success_criteria block — the server rejects zero-criteria submissions
+  # (fail-closed gate, see Step 3b for the negative assertion).
   R=$(curl -s -X POST -H "Content-Type: application/json" \
-    -d "{\"description\":\"$DESC\",\"requiredCapabilities\":[\"coding\"],\"priority\":\"medium\",\"assignedAgent\":\"$AGENT\",\"metadata\":{\"projectName\":\"$PROJ\",\"taskType\":\"$TYPE\"}}" \
+    -d "{\"title\":\"$DESC\",\"description\":\"$DESC\\n@success_criteria:\\n- $DESC is implemented and verified\",\"requiredCapabilities\":[\"coding\"],\"priority\":\"medium\",\"assignedAgent\":\"$AGENT\",\"metadata\":{\"projectName\":\"$PROJ\",\"taskType\":\"$TYPE\"}}" \
     "$BASE/api/tasks")
   TID=$(echo "$R" | jq -r '.task.id // .id // empty')
   if [ -z "$TID" ]; then
@@ -117,13 +130,41 @@ for spec in "${TASKS[@]}"; do
     -d "{\"agentId\":\"$AGENT\",\"selfVerification\":{\"checks\":[\"compiles\",\"tested\"]}}" \
     "$BASE/api/tasks/$TID/submit-for-validation" >/dev/null
 
-  # Validation verdict (pass)
+  # Validation verdict (pass) — criteriaResults must be non-empty; the server
+  # rejects evidence-free pass verdicts (VERDICT_MISSING_CRITERIA).
   curl -s -X POST -H "Content-Type: application/json" \
-    -d "{\"agentId\":\"assurance\",\"passed\":true,\"score\":95,\"criteriaResults\":[],\"gaps\":[],\"feedback\":\"all good\"}" \
+    -d "{\"agentId\":\"assurance\",\"passed\":true,\"score\":95,\"criteriaResults\":[{\"criterion\":\"$DESC is implemented and verified\",\"met\":true,\"reasoning\":\"e2e fixture\"}],\"gaps\":[],\"feedback\":\"all good\"}" \
     "$BASE/api/tasks/$TID/validation-verdict" >/dev/null
 
   echo "  task $PROJ/$AGENT/$TYPE/${TID:0:8} ✓ lifecycle complete"
 done
+
+# ────────────────────────────────────────────────────────────────
+echo
+echo "── Step 3b: Zero-criteria fail-closed gates ──"
+# (a) A task without @success_criteria cannot be submitted for validation.
+R=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d "{\"title\":\"Task with no criteria\",\"description\":\"Task with no criteria\",\"requiredCapabilities\":[\"testing\"],\"priority\":\"low\",\"assignedAgent\":\"qa-1-alpha\",\"metadata\":{\"projectName\":\"alpha\",\"taskType\":\"python\"}}" \
+  "$BASE/api/tasks")
+NCID=$(echo "$R" | jq -r '.task.id // .id // empty')
+curl -s -X POST -H "Content-Type: application/json" \
+  -d "{\"agentId\":\"qa-1-alpha\",\"success\":true,\"result\":\"done\"}" \
+  "$BASE/api/tasks/$NCID/complete" >/dev/null
+R=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d "{\"agentId\":\"qa-1-alpha\"}" \
+  "$BASE/api/tasks/$NCID/submit-for-validation")
+S=$(echo "$R" | jq -r '.success')
+E=$(echo "$R" | jq -r '.error // ""' | grep -o 'NO_SUCCESS_CRITERIA' || echo missing)
+assert "zero-criteria submission rejected" "false" "$S"
+assert "rejection names NO_SUCCESS_CRITERIA" "NO_SUCCESS_CRITERIA" "$E"
+
+# (b) An evidence-free pass verdict is rejected even on a task with criteria.
+FIRST_TID="${TASK_IDS[0]%%:*}"
+R=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d "{\"agentId\":\"assurance\",\"passed\":true,\"score\":100,\"criteriaResults\":[],\"gaps\":[],\"feedback\":\"rubber stamp\"}" \
+  "$BASE/api/tasks/$FIRST_TID/validation-verdict")
+S=$(echo "$R" | jq -r '.success')
+assert "evidence-free pass verdict rejected" "false" "$S"
 
 # Wait for PVM indexer to ingest (10s polling loop)
 echo

@@ -5,7 +5,7 @@ priority: "high"
 assignee: null
 dueDate: null
 created: "2026-05-26T23:10:00.000Z"
-modified: "2026-06-07T05:00:00.000Z"
+modified: "2026-07-06T00:00:00.000Z"
 completedAt: null
 labels: ["assurance", "validation", "correctness"]
 order: "v01"
@@ -26,15 +26,22 @@ This is the ticket's **option 2 (fail-closed at the gate)** — the minimal safe
 net that unblocks alpha. The ticket *recommended* **option 1 (refuse + re-queue +
 immediate Planner re-emit)**; that self-healing UX is NOT yet built.
 
+## Status update (2026-07-06, alpha worktree pass)
+
+Shipped: **Layer #1 server gate** — `submit-for-validation` 400s
+(`NO_SUCCESS_CRITERIA`) when `extractSuccessCriteria(description)` is empty,
+with a `validation_submission_rejected` ChronLog event surfaced in the TUI
+chat (🚫 line). The verdict endpoint also rejects evidence-free passes
+(`passed:true` + empty `criteriaResults` → 400 `VERDICT_MISSING_CRITERIA`).
+**Layer #2** — assurance.go refusal clause now names the zero-criteria case
+explicitly. **e2e-api.sh** carries 3 fail-closed assertions (27/27 green).
+Alpha decision: option-2-is-enough — the self-healing loop below is post-alpha.
+
 **Still open (kept this ticket in-progress, not done):**
 - Option-1 re-queue loop: orchestrator immediately routes the Planner to re-emit
   with criteria, instead of the current burn-retries-then-`validation_stuck` path.
-- Layer #1 — server-side gate (`server/src/index.ts`): reject zero-criteria
-  submissions with a specific 400 before Assurance is invoked.
-- Layer #2 — Assurance prompt (`assurance.go`): make the refusal clause explicit
-  for the zero-criteria case (defense in depth; the LLM should also refuse).
-- Success-criteria items not yet met: an orchestrator chat **system message**
-  stating "no criteria attached", and the **e2e-api.sh** assertion.
+- Residual: junk non-empty criteria items (`criteriaResults:[{}]`) still pass
+  the length checks (parser + server).
 - Separate follow-up: reject a criteria-less CREATE_TASK at dispatch (Planner-
   output-quality; the under-specified 45-byte directive).
 

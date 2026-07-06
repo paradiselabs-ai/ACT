@@ -847,6 +847,22 @@ app.post('/api/tasks/:taskId/submit-for-validation', async (req, res) => {
       return res.status(400).json({ success: false, error: `Task must be completed or in_progress to submit for validation (current: ${task.status})` });
     }
 
+    // Fail closed on zero-criteria submissions: with no @success_criteria in
+    // the task description Assurance has nothing to score against and
+    // historically rubber-stamped 100% (wordtallies 9c7bdb39). Reject at the
+    // seam so the runner/Planner sees the failure before Assurance is invoked.
+    const criteria = extractSuccessCriteria(task.description || '');
+    if (criteria.length === 0) {
+      chronologicalLog.append({
+        timestamp: new Date().toISOString(),
+        agent: agentId || 'system',
+        message: `validation submission rejected — no @success_criteria on task: ${taskId}`,
+        type: 'validation_submission_rejected',
+        data: { taskId, agentId, reason: 'NO_SUCCESS_CRITERIA' }
+      });
+      return res.status(400).json({ success: false, error: 'NO_SUCCESS_CRITERIA: task has no @success_criteria block, so it cannot be validated. Re-emit the task with explicit criteria.' });
+    }
+
     await taskCoordinator.updateTaskProgress(taskId, { status: 'submitted_for_validation' });
 
     // Store self-verification in metadata
@@ -879,6 +895,14 @@ app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
 
     const task = taskCoordinator.getTask(taskId);
     if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+
+    // Fail closed: a pass verdict with no per-criterion evidence is malformed
+    // (mirrors parseValidationVerdict in the Go orchestrator). The server must
+    // not trust a bare passed=true — that is exactly the fail-open this gate
+    // closes.
+    if (passed && (!Array.isArray(criteriaResults) || criteriaResults.length === 0)) {
+      return res.status(400).json({ success: false, error: 'VERDICT_MISSING_CRITERIA: passed=true requires a non-empty criteriaResults array' });
+    }
 
     const verdict = { passed, score, criteriaResults, gaps, feedback, timestamp: new Date().toISOString() };
 

@@ -50,6 +50,7 @@ export type MessageType =
   | 'agent_registered'
   // Assurance validation types
   | 'task_submitted_for_validation'
+  | 'validation_submission_rejected'
   | 'task_validated'
   | 'task_validation_failed'
   // QA/Synthesizer outcome
