@@ -1,6 +1,6 @@
 // Package acp implements an Agent Client Protocol (ACP) client that drives
 // external agent CLI subprocesses (Claude Code via @agentclientprotocol/claude-agent-acp,
-// and — post-alpha — Codex, Gemini CLI, OpenCode).
+// Antigravity CLI (agy) via the bundled agy-acp.mjs shim, and — future — Codex, OpenCode).
 //
 // ACP is a JSON-RPC 2.0 protocol over stdio with newline-delimited framing.
 // Framing was verified empirically against claude-agent-acp@0.37.0; the

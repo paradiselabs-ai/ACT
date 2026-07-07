@@ -36,15 +36,14 @@ type MCPServer struct {
 type AgentName string
 
 // Auxiliary helper agents (session title generation, conversation
-// summarization, sub-agent dispatch). These are not user-facing ACT roles
+// summarization). These are not user-facing ACT roles
 // and only wire up when the user explicitly configures
-// agents.title / agents.summarizer / agents.task in ~/.act.json. ACT
+// agents.title / agents.summarizer in ~/.act.json. ACT
 // dispatches strictly by explicit role (Planner / Observer / Assurance /
 // QA / developer / frontend_dev / backend_dev / qa_engineer / researcher),
 // never by a generic fallback.
 const (
 	AgentSummarizer AgentName = "summarizer"
-	AgentTask       AgentName = "task"
 	AgentTitle      AgentName = "title"
 )
 
@@ -162,6 +161,11 @@ func (p Provider) Usable(id models.ModelProvider) bool {
 // fallback — the developer role is the project-wide default and must be
 // configured. If it isn't, agent construction will fail with a clear error
 // rather than silently landing on some generic catch-all.
+//
+// This is a MODEL/BACKEND-config lookup ONLY. NEVER use its result to pick a
+// role's system prompt: the developer fallback would turn an unconfigured
+// Planner into a Tier 2 swarm developer. Prompt selection must always key on
+// the true role (see createAgentProvider / GetAgentPrompt).
 func AgentConfigForRole(role string) AgentName {
 	roleName := AgentName(role)
 	cfg := Get()
@@ -508,9 +512,10 @@ func applyDefaultValues() {
 // the model name when the first request is made. We only verify that
 // the agent points at a configured, enabled provider with credentials.
 func validateAgent(cfg *Config, name AgentName, agent Agent) error {
-	// Tier 2 swarm agents using the claude-code backend run an external
-	// CLI; their model is configured by Claude Code itself.
-	if agent.Backend == "claude-code" {
+	// ACP-backed agents run an external CLI subprocess; model/provider are
+	// the external agent's concern, not ACT's in-process config.
+	switch agent.Backend {
+	case "claude-code", "antigravity", "agy":
 		return nil
 	}
 	if agent.Provider == "" {

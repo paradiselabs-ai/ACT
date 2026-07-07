@@ -125,13 +125,14 @@ func roleFromArgv0(argv0 string) (string, error) {
 	return role, nil
 }
 
-// runAct execs the real `act` binary (whatever's on PATH, typically the
-// symlink at /opt/homebrew/bin/act → act-agent). stdin/stdout/stderr are
-// passed through so the calling ACP-backed agent sees the same output it
-// would running `act` directly.
+// runAct execs the real act-agent binary (resolved on PATH). The command was
+// renamed act → act-agent; calling the old `act` name fails on current installs
+// ("act: executable file not found"). stdin/stdout/stderr are passed through so
+// the calling ACP-backed agent sees the same output it would running act-agent
+// directly.
 func runAct(subcommand string, args []string) error {
 	full := append([]string{subcommand}, args...)
-	cmd := exec.Command("act", full...)
+	cmd := exec.Command("act-agent", full...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

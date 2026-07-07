@@ -39,9 +39,16 @@ func GetAgentPrompt(agentName config.AgentName, provider models.ModelProvider) s
 	case config.RoleResearcher:
 		basePrompt = ResearcherPrompt(provider)
 	default:
-		// Unknown role — use the developer prompt. Every ACT role is handled
-		// explicitly above; anything else is a swarm-adjacent agent that should
-		// behave like a developer.
+		// Utility agents (title/summarizer) legitimately use the generic
+		// developer prompt. Any OTHER unrecognized name means a role string
+		// never got a case above — warn loudly rather than letting it silently
+		// masquerade as a developer (the role-swap anti-pattern).
+		if agentName != config.AgentTitle && agentName != config.AgentSummarizer {
+			logging.Warn("prompt_role_unrecognized",
+				"agent_name", string(agentName),
+				"action", "falling back to developer prompt — this role has no case in GetAgentPrompt",
+			)
+		}
 		basePrompt = DeveloperPrompt(provider)
 	}
 

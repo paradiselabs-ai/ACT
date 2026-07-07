@@ -35,8 +35,9 @@ func IsSwarmRole(role string) bool {
 
 // Backend identifiers for the SwarmRoleSpec.Backend field.
 const (
-	BackendActAgent   = "act-agent"
-	BackendClaudeCode = "claude-code"
+	BackendActAgent    = "act-agent"
+	BackendClaudeCode  = "claude-code"
+	BackendAntigravity = "antigravity" // Tier 1 ACP only; Tier 2 runner support is separate
 )
 
 // IsValidBackend returns true if the given backend name is supported.

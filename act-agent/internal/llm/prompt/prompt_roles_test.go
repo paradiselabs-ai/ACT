@@ -55,7 +55,6 @@ func TestSwitchCasesExist(t *testing.T) {
 
 	builtins := map[config.AgentName]bool{
 		config.AgentTitle:      true,
-		config.AgentTask:       true,
 		config.AgentSummarizer: true,
 	}
 

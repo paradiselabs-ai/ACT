@@ -263,7 +263,6 @@ func generateSchema() map[string]any {
 		string(config.RoleBackendDev),
 		string(config.RoleQAEngineer),
 		string(config.RoleResearcher),
-		string(config.AgentTask),
 		string(config.AgentTitle),
 		string(config.AgentSummarizer),
 	}

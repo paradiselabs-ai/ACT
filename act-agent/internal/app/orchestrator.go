@@ -1301,14 +1301,6 @@ const (
 	variantSystemNoTask
 )
 
-// autoRoutePlanner is the legacy entry point — equivalent to
-// autoRoutePlannerV with variantAnomaly. Kept for the agent-message handler
-// at orchestrator.go:884 which still uses the Observer template by default;
-// the call there picks a variant inline before invoking the V form.
-func (o *Orchestrator) autoRoutePlanner(ctx context.Context, fromRole, fromContent string) {
-	o.autoRoutePlannerV(ctx, fromRole, fromContent, variantAnomaly)
-}
-
 // autoRoutePlannerV forwards a non-Planner Tier 1 message into a Planner
 // turn using the given prompt variant. Cascade-safe via a sliding-window
 // cap: at most autoTurnCap fires within autoRouteWindow, regardless of

@@ -776,17 +776,30 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func createAgentProvider(agentName config.AgentName) (provider.Provider, error) {
+// createAgentProvider builds the LLM provider for an ACT role. The role's
+// IDENTITY — its system prompt — is ALWAYS the requested role. Only the MODEL
+// CONFIG (provider/model/maxTokens/reasoning) may fall back to the developer
+// role when the role has no explicit ~/.act.json entry. This is the single
+// fallback ACT permits: an unconfigured Planner still thinks and talks like a
+// Planner, just on the developer's model. Falling the PROMPT back too would
+// silently turn a Tier 1 decision-maker into a Tier 2 swarm developer — the
+// exact role-swap this guards against.
+func createAgentProvider(role config.AgentName) (provider.Provider, error) {
 	cfg := config.Get()
-	agentConfig, ok := cfg.Agents[agentName]
+	agentConfig, ok := cfg.Agents[role]
 	if !ok {
-		return nil, fmt.Errorf("agent %s not found", agentName)
+		// Model config only — borrow the developer role's provider/model/limits.
+		// The system message below stays keyed on `role`, so identity is intact.
+		agentConfig, ok = cfg.Agents[config.RoleDeveloper]
+		if !ok {
+			return nil, fmt.Errorf("role %s not configured and no agents.developer fallback in ~/.act.json", role)
+		}
 	}
 	if agentConfig.Provider == "" {
-		return nil, fmt.Errorf("agent %s missing provider field in ~/.act.json", agentName)
+		return nil, fmt.Errorf("role %s missing provider field in ~/.act.json", role)
 	}
 	if agentConfig.Model == "" {
-		return nil, fmt.Errorf("agent %s missing model field in ~/.act.json", agentName)
+		return nil, fmt.Errorf("role %s missing model field in ~/.act.json", role)
 	}
 	providerCfg, ok := cfg.Providers[agentConfig.Provider]
 	if !ok {
@@ -805,7 +818,7 @@ func createAgentProvider(agentName config.AgentName) (provider.Provider, error) 
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithModel(model),
-		provider.WithSystemMessage(prompt.GetAgentPrompt(agentName, agentConfig.Provider)),
+		provider.WithSystemMessage(prompt.GetAgentPrompt(role, agentConfig.Provider)),
 		provider.WithMaxTokens(maxTokens),
 		provider.WithBaseURL(providerCfg.BaseURL),
 	}

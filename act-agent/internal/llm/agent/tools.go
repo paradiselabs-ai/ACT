@@ -6,19 +6,15 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/history"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/lsp"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/session"
 )
 
 // DeveloperTools returns the full toolbox used by Tier 2 swarm agents
 // (developer, frontend_dev, backend_dev, qa_engineer, researcher). These
 // roles do the actual building so they get bash, edit/patch/write, view,
-// grep, glob, ls, fetch, sourcegraph, and the sub-agent dispatcher.
+// grep, glob, ls, fetch, and sourcegraph.
 func DeveloperTools(
 	permissions permission.Service,
-	sessions session.Service,
-	messages message.Service,
 	history history.Service,
 	lspClients map[string]*lsp.Client,
 ) []tools.BaseTool {
@@ -39,19 +35,8 @@ func DeveloperTools(
 			tools.NewViewTool(lspClients),
 			tools.NewPatchTool(lspClients, permissions, history),
 			tools.NewWriteTool(lspClients, permissions, history),
-			NewAgentTool(sessions, messages, lspClients),
 		}, otherTools...,
 	)
-}
-
-func TaskAgentTools(lspClients map[string]*lsp.Client) []tools.BaseTool {
-	return []tools.BaseTool{
-		tools.NewGlobTool(),
-		tools.NewGrepTool(),
-		tools.NewLsTool(),
-		tools.NewSourcegraphTool(),
-		tools.NewViewTool(lspClients),
-	}
 }
 
 // ─── ACT Tier 1 per-role tool subsets ─────────────────────────────────────────
@@ -124,8 +109,6 @@ func QASynthesizerTools(permissions permission.Service, lspClients map[string]*l
 func Tier1ToolsForRole(
 	role string,
 	permissions permission.Service,
-	sessions session.Service,
-	messages message.Service,
 	history history.Service,
 	lspClients map[string]*lsp.Client,
 ) []tools.BaseTool {
@@ -139,6 +122,6 @@ func Tier1ToolsForRole(
 	case "qa_synthesizer":
 		return QASynthesizerTools(permissions, lspClients)
 	default:
-		return DeveloperTools(permissions, sessions, messages, history, lspClients)
+		return DeveloperTools(permissions, history, lspClients)
 	}
 }

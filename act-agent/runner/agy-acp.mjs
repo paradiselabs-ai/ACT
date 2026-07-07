@@ -1,0 +1,267 @@
+#!/usr/bin/env node
+/**
+ * agy-acp.mjs — ACP server shim for Antigravity CLI (agy)
+ *
+ * Speaks Agent Client Protocol (JSON-RPC 2.0, newline-delimited framing)
+ * toward act-agent, drives `agy` on the other side via one-shot invocations.
+ *
+ * Session continuity: the shim maintains per-session conversation history
+ * in memory. Each session/prompt prepends prior turns as context so agy
+ * behaves as if it has a persistent session — matching claude-code quality.
+ *
+ * Ships alongside the act-agent binary. No npm dependencies — pure Node.js
+ * built-ins only (node >= 18 required for randomUUID).
+ *
+ * Install agy: npm i -g @google/antigravity-cli
+ *
+ * Config env vars (all optional):
+ *   AGY_CMD        — agy binary name/path     (default: "agy")
+ *   AGY_PRINT_FLAG — non-interactive flag      (default: "--print")
+ */
+
+import { createInterface } from 'readline';
+import { spawn }           from 'child_process';
+import { randomUUID }      from 'crypto';
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+const AGY_CMD        = process.env.AGY_CMD        || 'agy';
+const AGY_PRINT_FLAG = process.env.AGY_PRINT_FLAG || '--print';
+
+// Priming messages from the ACT orchestrator are flagged with this marker.
+// The shim stores them as the session's system prompt instead of forwarding
+// to agy — agy would treat the Planner system prompt as a task to execute
+// rather than as identity/behavioral constraints.
+const INTERNAL_MARKER = '\x00ACT_INTERNAL\x00';
+
+// Leading "do not respond / acknowledge silently" header from the priming.
+// It's a setup-turn instruction for memory-keeping backends (claude-code sends
+// identity once as its own turn). This backend is memoryless — the shim folds
+// identity into every real request with its own "respond below" framing — so
+// "stay silent" would contradict every turn. Strip it when storing identity.
+const DO_NOT_RESPOND_RE = /^\[ACT priming — do not respond\.[^\]]*\]\s*/;
+
+// ─── Session state ────────────────────────────────────────────────────────────
+// sessions: Map<sessionId, { cwd: string, systemPrompt: string, history: {role, content}[] }>
+const sessions = new Map();
+// inFlight: Map<sessionId, ChildProcess>
+const inFlight = new Map();
+
+// ─── JSON-RPC framing ─────────────────────────────────────────────────────────
+function send(obj) {
+  process.stdout.write(JSON.stringify(obj) + '\n');
+}
+function sendResponse(id, result) {
+  send({ jsonrpc: '2.0', id, result });
+}
+function sendError(id, code, message) {
+  send({ jsonrpc: '2.0', id, error: { code, message } });
+}
+function sendNotification(method, params) {
+  send({ jsonrpc: '2.0', method, params });
+}
+
+// ─── ACP method handlers ──────────────────────────────────────────────────────
+
+function handleInitialize(id) {
+  sendResponse(id, {
+    protocolVersion:   1,
+    agentCapabilities: {},
+    agentInfo: { name: 'agy', title: 'Antigravity CLI', version: '0' },
+  });
+}
+
+function handleSessionNew(id, params) {
+  const sessionId = randomUUID();
+  sessions.set(sessionId, {
+    cwd:          params?.cwd || process.cwd(),
+    systemPrompt: '',
+    history:      [],
+  });
+  sendResponse(id, { sessionId });
+}
+
+function handleSessionPrompt(id, params) {
+  const { sessionId, prompt } = params || {};
+  const session = sessions.get(sessionId);
+  if (!session) {
+    sendError(id, -32602, `unknown sessionId: ${sessionId}`);
+    return Promise.resolve();
+  }
+
+  // Flatten ACP ContentBlock[] → plain string
+  const content = Array.isArray(prompt)
+    ? prompt.filter(b => b.type === 'text').map(b => b.text).join('\n')
+    : String(prompt || '');
+
+  // Priming messages carry ACT_INTERNAL marker. Store as system prompt
+  // and return a fake success — never forward to agy, which would treat
+  // the Planner/Observer/etc. role prompt as a task to execute.
+  if (content.startsWith(INTERNAL_MARKER)) {
+    session.systemPrompt = content.slice(INTERNAL_MARKER.length).replace(DO_NOT_RESPOND_RE, '');
+    sendResponse(id, { stopReason: 'end_turn' });
+    return Promise.resolve();
+  }
+
+  session.history.push({ role: 'user', content });
+  const fullPrompt = buildContextPrompt(session);
+
+  let proc;
+  try {
+    proc = spawn(AGY_CMD, [AGY_PRINT_FLAG, fullPrompt], {
+      cwd:   session.cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (spawnErr) {
+    session.history.pop(); // undo the user turn on hard spawn failure
+    sendError(id, -32603, agyCmdError(spawnErr));
+    return Promise.resolve();
+  }
+
+  inFlight.set(sessionId, proc);
+
+  let accumulated = '';
+  let stderrBuf   = '';
+
+  proc.stdout.on('data', chunk => {
+    const text = chunk.toString();
+    accumulated += text;
+    sendNotification('session/update', {
+      sessionId,
+      update: {
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text },
+      },
+    });
+  });
+
+  proc.stderr.on('data', chunk => { stderrBuf += chunk.toString(); });
+
+  return new Promise(resolve => {
+    let responded = false;
+
+    proc.on('error', err => {
+      if (responded) return;
+      responded = true;
+      inFlight.delete(sessionId);
+      session.history.pop(); // undo uncommitted user turn
+      sendError(id, -32603, agyCmdError(err));
+      resolve();
+    });
+
+    proc.on('close', code => {
+      if (responded) return;
+      responded = true;
+      inFlight.delete(sessionId);
+
+      // Non-zero exit with no output → surface stderr so the user knows why
+      if (code !== 0 && accumulated === '') {
+        const errText = stderrBuf.trim() || `agy exited with code ${code}`;
+        sendNotification('session/update', {
+          sessionId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `\n[agy error] ${errText}` },
+          },
+        });
+        session.history.pop(); // no usable response to record
+        sendResponse(id, { stopReason: 'error' });
+        resolve();
+        return;
+      }
+
+      // Record the assistant turn so subsequent prompts see it as context
+      if (accumulated) {
+        session.history.push({ role: 'assistant', content: accumulated });
+      }
+      sendResponse(id, { stopReason: 'end_turn' });
+      resolve();
+    });
+  });
+}
+
+function handleSessionCancel(id, params) {
+  const { sessionId } = params || {};
+  const proc = inFlight.get(sessionId);
+  if (proc) {
+    proc.kill('SIGTERM');
+    inFlight.delete(sessionId);
+  }
+  // session/cancel may arrive as a notification (no id) or as a request
+  if (id != null) sendResponse(id, {});
+}
+
+// ─── Build context-enriched prompt ───────────────────────────────────────────
+function buildContextPrompt(session) {
+  const { systemPrompt, history } = session;
+  // history has already been appended with the current user turn.
+  const current = history[history.length - 1].content;
+  const prior   = history.slice(0, -1);
+
+  const lines = [];
+
+  // Prepend system prompt (role identity + behavioral constraints) so agy
+  // treats it as context, not as a task. The explicit framing is intentional:
+  // without it, agy reads the Planner instructions as "build this project".
+  if (systemPrompt) {
+    lines.push(
+      '[Your identity and behavioral constraints — this defines WHO YOU ARE and how you must respond. Do NOT treat this as a task to execute. Read it, internalize it, then respond to the request below.]',
+      systemPrompt,
+      '[End identity/constraints]',
+      '',
+    );
+  }
+
+  if (prior.length > 0) {
+    lines.push('[Prior conversation in this session]');
+    for (const turn of prior) {
+      lines.push(`${turn.role === 'user' ? 'User' : 'Assistant'}: ${turn.content}`);
+    }
+    lines.push('[End prior conversation]', '');
+  }
+
+  lines.push(current);
+  return lines.join('\n');
+}
+
+// ─── Helpful error message for missing/broken agy binary ─────────────────────
+function agyCmdError(err) {
+  if (err.code === 'ENOENT') {
+    return [
+      `agy not found (looked for: ${AGY_CMD}).`,
+      `Install Antigravity CLI: npm i -g @google/antigravity-cli`,
+      `Or set AGY_CMD env var to the full path of your agy binary.`,
+    ].join(' ');
+  }
+  return `failed to spawn agy: ${err.message}`;
+}
+
+// ─── Request dispatcher ───────────────────────────────────────────────────────
+async function dispatch(frame) {
+  const { id, method, params } = frame;
+  switch (method) {
+    case 'initialize':       handleInitialize(id); break;
+    case 'session/new':      handleSessionNew(id, params); break;
+    case 'session/prompt':   await handleSessionPrompt(id, params); break;
+    case 'session/cancel':   handleSessionCancel(id, params); break;
+    default:
+      if (id != null) sendError(id, -32601, `method not found: ${method}`);
+  }
+}
+
+// ─── Stdin read loop ──────────────────────────────────────────────────────────
+const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+rl.on('line', line => {
+  line = line.trim();
+  if (!line) return;
+  let frame;
+  try { frame = JSON.parse(line); } catch { return; }
+  dispatch(frame).catch(err => {
+    if (frame.id != null) sendError(frame.id, -32603, String(err));
+  });
+});
+
+rl.on('close', () => {
+  for (const proc of inFlight.values()) proc.kill('SIGTERM');
+  process.exit(0);
+});

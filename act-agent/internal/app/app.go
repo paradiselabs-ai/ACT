@@ -102,18 +102,16 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 			toolsN   int
 		)
 		switch backendChoice {
-		case "claude-code", "codex", "gemini", "opencode":
+		case "claude-code", "antigravity", "agy", "codex", "opencode":
 			// External CLI agent → drive over ACP. The acp package decides
-			// the spawn argv from the backend name; codex/gemini/opencode
-			// return explicit unimplemented errors for the alpha.
+			// the spawn argv from the backend name; codex/opencode
+			// return explicit unimplemented errors for now.
 			withShim := withTier1ShimPath(role, acpCfg)
 			agentSvc, err = acp.NewACPAgent(role, backendChoice, withShim, app.Sessions, app.Messages, makePrimingInjector(role))
 		default:
 			roleTools := agent.Tier1ToolsForRole(
 				role,
 				app.Permissions,
-				app.Sessions,
-				app.Messages,
 				app.History,
 				app.LSPClients,
 			)
@@ -131,7 +129,10 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 			if role == "planner" {
 				histMode = agent.HistoryThread
 			}
-			agentSvc, err = agent.NewAgent(agentName, app.Sessions, app.Messages, roleTools, role, histMode)
+			// Pass the true role (not the fallback config key) so the system
+			// prompt is always this role's identity. createAgentProvider falls
+			// the MODEL config back to developer internally; the prompt does not.
+			agentSvc, err = agent.NewAgent(config.AgentName(role), app.Sessions, app.Messages, roleTools, role, histMode)
 		}
 		if err != nil {
 			logging.Warn("tier1_agent_wire_failed", "role", role, "config_key", string(agentName), "backend", backendChoice, "error", err)
@@ -220,6 +221,17 @@ func withTier1ShimPath(role string, base *config.ACPConfig) *config.ACPConfig {
 			"error", err,
 		)
 		return &out
+	}
+	// Resolve symlinks before taking the dir. When act-agent is launched via a
+	// PATH symlink (e.g. ~/.local/bin/act-agent → repo binary), os.Executable
+	// returns the SYMLINK path, so filepath.Dir would point at the symlink's
+	// dir (~/.local/bin) where the act-tier1-<role> shims do NOT live. Follow
+	// the link to the real binary dir where the shims are built. Mirrors
+	// agyShimPath strategy 2 (internal/acp/antigravity_cli.go) — same fix,
+	// applied here in the shared PATH builder so every ACP-backed Tier 1 role
+	// (planner/observer/assurance/qa) gets it.
+	if real, lerr := filepath.EvalSymlinks(exe); lerr == nil {
+		exe = real
 	}
 	binDir := filepath.Dir(exe)
 
@@ -324,20 +336,18 @@ func buildSwarmSpecs(cfg *config.Config) []runner.SwarmRoleSpec {
 	return specs
 }
 
-// CreateAgentForRole creates a new agent using role-specific model config.
-// Falls back to the developer role's config if no role-specific config exists
-// (see config.AgentConfigForRole). Used by --agent mode to select the model
-// per swarm role with the full Tier 2 toolbox.
+// CreateAgentForRole creates a new agent for a Tier 2 swarm role. The role's
+// prompt is always this role's identity; only the MODEL config falls back to
+// the developer role when no role-specific config exists (the fallback lives
+// in createAgentProvider). Used by --agent mode to select the model per swarm
+// role with the full Tier 2 toolbox.
 func (a *App) CreateAgentForRole(role string) (agent.Service, error) {
-	agentName := config.AgentConfigForRole(role)
 	return agent.NewAgent(
-		agentName,
+		config.AgentName(role),
 		a.Sessions,
 		a.Messages,
 		agent.DeveloperTools(
 			a.Permissions,
-			a.Sessions,
-			a.Messages,
 			a.History,
 			a.LSPClients,
 		),

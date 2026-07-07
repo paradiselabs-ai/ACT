@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"image/color"
@@ -14,7 +13,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
-	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/agent"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/llm/tools"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/message"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
@@ -332,8 +330,6 @@ func findToolResponse(toolCallID string, futureMessages []message.Message) *mess
 
 func toolName(name string) string {
 	switch name {
-	case agent.AgentToolName:
-		return "Task"
 	case tools.BashToolName:
 		return "Bash"
 	case tools.EditToolName:
@@ -360,8 +356,6 @@ func toolName(name string) string {
 
 func getToolAction(name string) string {
 	switch name {
-	case agent.AgentToolName:
-		return "Preparing prompt..."
 	case tools.BashToolName:
 		return "Building command..."
 	case tools.EditToolName:
@@ -449,11 +443,6 @@ func removeWorkingDirPrefix(path string) string {
 func renderToolParams(paramWidth int, toolCall message.ToolCall) string {
 	params := ""
 	switch toolCall.Name {
-	case agent.AgentToolName:
-		var params agent.AgentParams
-		json.Unmarshal([]byte(toolCall.Input), &params)
-		prompt := strings.ReplaceAll(params.Prompt, "\n", " ")
-		return renderParams(paramWidth, prompt)
 	case tools.BashToolName:
 		var params tools.BashParams
 		json.Unmarshal([]byte(toolCall.Input), &params)
@@ -579,8 +568,6 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 	toolTextStyle := baseStyle.Width(width).Foreground(t.TextMuted())
 
 	switch toolCall.Name {
-	case agent.AgentToolName:
-		return toolTextStyle.Render(resultContent)
 	case tools.BashToolName:
 		return toolTextStyle.Render(resultContent)
 	case tools.EditToolName:
@@ -690,17 +677,6 @@ func renderToolMessage(
 		parts = append(parts, lipgloss.JoinHorizontal(lipgloss.Left, prefix, toolNameText, formattedParams))
 	}
 
-	if toolCall.Name == agent.AgentToolName {
-		taskMessages, _ := messagesService.List(context.Background(), toolCall.ID)
-		toolCalls := []message.ToolCall{}
-		for _, v := range taskMessages {
-			toolCalls = append(toolCalls, v.ToolCalls()...)
-		}
-		for _, call := range toolCalls {
-			rendered := renderToolMessage(call, []message.Message{}, messagesService, focusedUIMessageId, true, width, 0)
-			parts = append(parts, rendered.content)
-		}
-	}
 	if responseContent != "" && !nested {
 		parts = append(parts, responseContent)
 	}

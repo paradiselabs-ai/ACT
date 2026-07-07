@@ -546,8 +546,14 @@ func buildCommand(role, host string, cfg *config.ACPConfig) (*exec.Cmd, error) {
 		switch host {
 		case "claude-code", "":
 			command, args = claudeCodeDefaults()
-		case "codex", "gemini", "opencode":
-			return nil, fmt.Errorf("acp: backend %q is not implemented for the alpha (claude-code only)", host)
+		case "antigravity", "agy":
+			var env map[string]string
+			if cfg != nil {
+				env = cfg.Env
+			}
+			command, args = antigravityCLIDefaults(env)
+		case "codex", "opencode":
+			return nil, fmt.Errorf("acp: backend %q is not implemented yet", host)
 		default:
 			return nil, fmt.Errorf("acp: unknown backend %q", host)
 		}

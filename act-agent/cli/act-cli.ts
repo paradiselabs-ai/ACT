@@ -549,7 +549,7 @@ async function cmdStatus(client: ACTClient): Promise<void> {
 // ─── /swarm command surface (mirrors the TUI slash commands) ──────
 
 const SWARM_ROLES = ['developer', 'frontend_dev', 'backend_dev', 'qa_engineer', 'researcher'];
-const VALID_BACKENDS = ['act-agent', 'claude-code'];
+const VALID_BACKENDS = ['act-agent', 'claude-code', 'antigravity'];
 
 async function cmdSwarm(args: string[]): Promise<void> {
   // args[0] is the subcommand: list, status, set, restart
