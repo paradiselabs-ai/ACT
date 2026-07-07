@@ -97,6 +97,15 @@ type Orchestrator struct {
 	// resetting the counter between cycles let through.
 	recentAutoRoutes []time.Time
 
+	// Build-contract gate. Armed when the automated build-mode kick fires, so
+	// the NEXT Planner reply is expected to carry CREATE_TASK directives.
+	// Autonomous-agent backends (observed live: antigravity, 2026-07-07
+	// spend-test) ignore the planner contract and BUILD the project themselves
+	// instead of planning it; a single corrective re-prompt snapped it back.
+	// This gate automates that correction: one retry, then a loud alert.
+	buildContractArmed   bool
+	buildContractRetried bool
+
 	// lastTurnAt[role] records the start time of the most recent runAgentTurn
 	// for that Tier 1 role. Powers the Observer Tier 1 watchdog (α-2): when a
 	// queue is non-empty AND the responsible role is idle AND its last turn was
@@ -1642,7 +1651,46 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 		logging.Info("routing_brief_injected", "project", name, "bytes", len(evidence))
 	}
 
+	o.armBuildContract()
 	go o.fireWhenPlannerIdle(ctx, sid, buildPrompt, "build_mode_trigger")
+}
+
+// buildContractCorrectivePrompt is the re-prompt sent when an armed build
+// contract is violated (Planner replied with zero CREATE_TASK directives).
+// Text mirrors the manual correction that snapped antigravity back into role
+// on the 2026-07-07 spend-test.
+const buildContractCorrectivePrompt = `[SYSTEM] Contract check failed: your build-mode reply contained ZERO CREATE_TASK directives. You are the Planner — you never implement anything yourself. Do not write code, do not create files, do not run the project's commands. Your ONLY move now: decompose the brief into tasks and emit one CREATE_TASK: {json} directive per task, in plain reply text, for the swarm to execute. Emit them now.`
+
+// armBuildContract marks that the next Planner reply must carry CREATE_TASK
+// directives. Called when the automated build-mode kick fires.
+func (o *Orchestrator) armBuildContract() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.buildContractArmed = true
+	o.buildContractRetried = false
+}
+
+// buildContractOnReply consumes a Planner reply's parsed task count and
+// returns the gate's decision: "" (nothing to do), "retry" (send the
+// corrective re-prompt), or "alert" (retry already burned — tell the human).
+func (o *Orchestrator) buildContractOnReply(taskCount int) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.buildContractArmed {
+		return ""
+	}
+	if taskCount > 0 {
+		o.buildContractArmed = false
+		o.buildContractRetried = false
+		return ""
+	}
+	if !o.buildContractRetried {
+		o.buildContractRetried = true
+		return "retry"
+	}
+	o.buildContractArmed = false
+	o.buildContractRetried = false
+	return "alert"
 }
 
 // fireWhenPlannerIdle waits for the Planner to finish its current turn, then
@@ -1677,7 +1725,7 @@ func (o *Orchestrator) fireWhenPlannerIdle(ctx context.Context, sessionID, promp
 // The ctx parameter is currently unused — act.Client doesn't accept a context
 // yet — but is kept on the signature so the caller's loop context can be
 // threaded through once the HTTP client is made context-aware.
-func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content string) {
+func (o *Orchestrator) handlePlannerTaskDirectives(ctx context.Context, content string) {
 	tasks, markersFound, firstFailPreview, pattern2Used := parseCreateTaskDirectives(content)
 	logging.Info("create_task_parse",
 		"content_bytes", len(content),
@@ -1693,8 +1741,21 @@ func (o *Orchestrator) handlePlannerTaskDirectives(_ context.Context, content st
 		)
 	}
 	if len(tasks) == 0 {
+		o.mu.RLock()
+		sid := o.sessionID
+		o.mu.RUnlock()
+		switch o.buildContractOnReply(0) {
+		case "retry":
+			logging.Warn("build_contract_violation", "action", "corrective_retry")
+			o.emitSystemMessage(ctx, sid, "⚠   Planner's build-mode reply had no CREATE_TASK directives — sending corrective re-prompt")
+			go o.fireWhenPlannerIdle(ctx, sid, buildContractCorrectivePrompt, "build_contract_retry")
+		case "alert":
+			logging.Warn("build_contract_violation", "action", "alert_human")
+			o.emitSystemMessage(ctx, sid, "⛔  Planner emitted no CREATE_TASK directives after the build-mode kick AND one corrective retry. The planner backend is not honoring the role contract (autonomous-agent backends may build instead of planning). Dispatch is stalled — nudge it yourself, or switch backends with /backend planner <backend>.")
+		}
 		return
 	}
+	o.buildContractOnReply(len(tasks)) // disarm on success
 
 	// Defense-in-depth content-hash dedup. The dispatchedMsgs guard in
 	// messageOwnershipLoop catches pubsub re-fires of the same msg.ID. This

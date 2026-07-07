@@ -999,3 +999,43 @@ func TestBuildSynthesisPrompt_IncludesValidationScore(t *testing.T) {
 			"this is the zero-value bug: routeToQA forgot to populate ValidatedOutput.ValidationScore;\ngot:\n%s", prompt)
 	}
 }
+
+// The build-contract gate: armed by the build-mode kick, one corrective
+// retry on a zero-task Planner reply, then a human alert — and any reply
+// that does carry tasks disarms it.
+func TestBuildContractGate(t *testing.T) {
+	o := &Orchestrator{}
+
+	// Unarmed: zero-task replies are ordinary conversation.
+	if got := o.buildContractOnReply(0); got != "" {
+		t.Fatalf("unarmed gate acted: %q", got)
+	}
+
+	// Armed, contract met on first reply → disarmed.
+	o.armBuildContract()
+	if got := o.buildContractOnReply(3); got != "" {
+		t.Fatalf("met contract should be silent, got %q", got)
+	}
+	if got := o.buildContractOnReply(0); got != "" {
+		t.Fatalf("gate should be disarmed after success, got %q", got)
+	}
+
+	// Armed, violated twice → retry, then alert, then disarmed.
+	o.armBuildContract()
+	if got := o.buildContractOnReply(0); got != "retry" {
+		t.Fatalf("first violation: want retry, got %q", got)
+	}
+	if got := o.buildContractOnReply(0); got != "alert" {
+		t.Fatalf("second violation: want alert, got %q", got)
+	}
+	if got := o.buildContractOnReply(0); got != "" {
+		t.Fatalf("gate should be disarmed after alert, got %q", got)
+	}
+
+	// Retry that succeeds disarms cleanly.
+	o.armBuildContract()
+	_ = o.buildContractOnReply(0) // retry burned
+	if got := o.buildContractOnReply(5); got != "" {
+		t.Fatalf("successful retry should be silent, got %q", got)
+	}
+}
