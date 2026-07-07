@@ -15,8 +15,11 @@
  * Install agy: npm i -g @google/antigravity-cli
  *
  * Config env vars (all optional):
- *   AGY_CMD        — agy binary name/path     (default: "agy")
- *   AGY_PRINT_FLAG — non-interactive flag      (default: "--print")
+ *   AGY_CMD            — agy binary name/path          (default: "agy")
+ *   AGY_PRINT_FLAG     — non-interactive flag           (default: "--print")
+ *   AGY_TIMEOUT_MS     — per-turn agy timeout           (default: 240000)
+ *   AGY_MAX_TURNS      — prior turns replayed as context (default: 12)
+ *   AGY_MAX_TURN_CHARS — per-turn replay truncation      (default: 8000)
  */
 
 import { createInterface } from 'readline';
@@ -26,6 +29,22 @@ import { randomUUID }      from 'crypto';
 // ─── Config ───────────────────────────────────────────────────────────────────
 const AGY_CMD        = process.env.AGY_CMD        || 'agy';
 const AGY_PRINT_FLAG = process.env.AGY_PRINT_FLAG || '--print';
+// Below the orchestrator's 5-minute turn ceiling so a hung agy fails crisply
+// here (with a log line and an error the Planner loop can see) instead of
+// being reaped opaquely by the Go side.
+const AGY_TIMEOUT_MS     = parseInt(process.env.AGY_TIMEOUT_MS     || '240000', 10);
+// The full context replays inside ONE argv string every turn; macOS caps argv
+// around 256KB, so unbounded history eventually kills the spawn. Cap replayed
+// turns and per-turn size — the system prompt and current request never trim.
+const AGY_MAX_TURNS      = parseInt(process.env.AGY_MAX_TURNS      || '12', 10);
+const AGY_MAX_TURN_CHARS = parseInt(process.env.AGY_MAX_TURN_CHARS || '8000', 10);
+
+// Stderr is routed by act-agent to ~/.act/runners/tier1-<role>-acp.log (and by
+// the runner to its role log). Before this existed the bridge was silent —
+// the 2026-07-07 spend-test stall was undiagnosable from the log file.
+function log(msg) {
+  process.stderr.write(`[agy-acp ${new Date().toISOString()}] ${msg}\n`);
+}
 
 // Priming messages from the ACT orchestrator are flagged with this marker.
 // The shim stores them as the session's system prompt instead of forwarding
@@ -63,6 +82,7 @@ function sendNotification(method, params) {
 // ─── ACP method handlers ──────────────────────────────────────────────────────
 
 function handleInitialize(id) {
+  log(`initialize (cmd=${AGY_CMD}, timeout=${AGY_TIMEOUT_MS}ms)`);
   sendResponse(id, {
     protocolVersion:   1,
     agentCapabilities: {},
@@ -77,6 +97,7 @@ function handleSessionNew(id, params) {
     systemPrompt: '',
     history:      [],
   });
+  log(`session/new ${sessionId} cwd=${sessions.get(sessionId).cwd}`);
   sendResponse(id, { sessionId });
 }
 
@@ -98,12 +119,14 @@ function handleSessionPrompt(id, params) {
   // the Planner/Observer/etc. role prompt as a task to execute.
   if (content.startsWith(INTERNAL_MARKER)) {
     session.systemPrompt = content.slice(INTERNAL_MARKER.length).replace(DO_NOT_RESPOND_RE, '');
+    log(`session/prompt ${sessionId}: stored priming as system prompt (${session.systemPrompt.length} chars)`);
     sendResponse(id, { stopReason: 'end_turn' });
     return Promise.resolve();
   }
 
   session.history.push({ role: 'user', content });
   const fullPrompt = buildContextPrompt(session);
+  log(`session/prompt ${sessionId}: spawning agy (prompt=${fullPrompt.length} chars, history=${session.history.length - 1} prior turns)`);
 
   let proc;
   try {
@@ -113,11 +136,19 @@ function handleSessionPrompt(id, params) {
     });
   } catch (spawnErr) {
     session.history.pop(); // undo the user turn on hard spawn failure
+    log(`session/prompt ${sessionId}: spawn failed: ${spawnErr.message}`);
     sendError(id, -32603, agyCmdError(spawnErr));
     return Promise.resolve();
   }
 
   inFlight.set(sessionId, proc);
+
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    log(`session/prompt ${sessionId}: turn timeout after ${AGY_TIMEOUT_MS}ms — SIGTERM agy`);
+    proc.kill('SIGTERM');
+  }, AGY_TIMEOUT_MS);
 
   let accumulated = '';
   let stderrBuf   = '';
@@ -142,8 +173,10 @@ function handleSessionPrompt(id, params) {
     proc.on('error', err => {
       if (responded) return;
       responded = true;
+      clearTimeout(timer);
       inFlight.delete(sessionId);
       session.history.pop(); // undo uncommitted user turn
+      log(`session/prompt ${sessionId}: agy process error: ${err.message}`);
       sendError(id, -32603, agyCmdError(err));
       resolve();
     });
@@ -151,11 +184,15 @@ function handleSessionPrompt(id, params) {
     proc.on('close', code => {
       if (responded) return;
       responded = true;
+      clearTimeout(timer);
       inFlight.delete(sessionId);
+      log(`session/prompt ${sessionId}: agy exited code=${code} output=${accumulated.length} chars${timedOut ? ' (timed out)' : ''}`);
 
-      // Non-zero exit with no output → surface stderr so the user knows why
-      if (code !== 0 && accumulated === '') {
-        const errText = stderrBuf.trim() || `agy exited with code ${code}`;
+      // Timeout or non-zero exit with no output → surface why
+      if ((code !== 0 || timedOut) && accumulated === '') {
+        const errText = timedOut
+          ? `agy timed out after ${AGY_TIMEOUT_MS}ms with no output`
+          : (stderrBuf.trim() || `agy exited with code ${code}`);
         sendNotification('session/update', {
           sessionId,
           update: {
@@ -195,7 +232,14 @@ function buildContextPrompt(session) {
   const { systemPrompt, history } = session;
   // history has already been appended with the current user turn.
   const current = history[history.length - 1].content;
-  const prior   = history.slice(0, -1);
+  // Cap the replay window: last AGY_MAX_TURNS turns, each clipped to
+  // AGY_MAX_TURN_CHARS. Identity and the current request are never trimmed.
+  const prior = history.slice(0, -1).slice(-AGY_MAX_TURNS).map(turn => ({
+    role: turn.role,
+    content: turn.content.length > AGY_MAX_TURN_CHARS
+      ? turn.content.slice(0, AGY_MAX_TURN_CHARS) + ' …[truncated]'
+      : turn.content,
+  }));
 
   const lines = [];
 
