@@ -110,18 +110,29 @@ function handleSessionPrompt(id, params) {
   }
 
   // Flatten ACP ContentBlock[] → plain string
-  const content = Array.isArray(prompt)
+  let content = Array.isArray(prompt)
     ? prompt.filter(b => b.type === 'text').map(b => b.text).join('\n')
     : String(prompt || '');
 
-  // Priming messages carry ACT_INTERNAL marker. Store as system prompt
-  // and return a fake success — never forward to agy, which would treat
-  // the Planner/Observer/etc. role prompt as a task to execute.
+  // The ACT_INTERNAL marker means "orchestrator-authored, hidden from the
+  // TUI" — NOT "this is priming". Only the FIRST message of a fresh session
+  // is identity priming: store it and ack without spawning agy. Any LATER
+  // marked message (build-mode kick, autoroute wrapper) is a real work
+  // order — strip the marker and run it. The old always-priming rule
+  // swallowed the build kick after PROJECT_BRIEF: the Planner went silent
+  // ("stall after brief") AND the kick text REPLACED the role identity, so
+  // the next human nudge ran agy with "start creating tasks immediately"
+  // as its whole persona → the 2026-07-07 rogue-build incident.
   if (content.startsWith(INTERNAL_MARKER)) {
-    session.systemPrompt = content.slice(INTERNAL_MARKER.length).replace(DO_NOT_RESPOND_RE, '');
-    log(`session/prompt ${sessionId}: stored priming as system prompt (${session.systemPrompt.length} chars)`);
-    sendResponse(id, { stopReason: 'end_turn' });
-    return Promise.resolve();
+    const body = content.slice(INTERNAL_MARKER.length);
+    if (!session.systemPrompt && session.history.length === 0) {
+      session.systemPrompt = body.replace(DO_NOT_RESPOND_RE, '');
+      log(`session/prompt ${sessionId}: stored priming as system prompt (${session.systemPrompt.length} chars)`);
+      sendResponse(id, { stopReason: 'end_turn' });
+      return Promise.resolve();
+    }
+    log(`session/prompt ${sessionId}: internal orchestrator prompt (${body.length} chars) — forwarding as turn`);
+    content = body;
   }
 
   session.history.push({ role: 'user', content });
