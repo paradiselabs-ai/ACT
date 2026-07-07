@@ -132,37 +132,8 @@ func (c *Client) GetContext() (string, error) {
 	return strings.Join(sections, "\n\n"), nil
 }
 
-// ReportProgress updates task progress percentage.
-func (c *Client) ReportProgress(taskID string, percent int) error {
-	body := map[string]any{
-		"agentId":  c.AgentID,
-		"progress": percent,
-		"status":   "in_progress",
-	}
-	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/progress", url.PathEscape(taskID)), body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// ReportComplete marks a task as complete with a result summary.
-func (c *Client) ReportComplete(taskID string, result string) error {
-	body := map[string]any{
-		"agentId": c.AgentID,
-		"success": true,
-		"result":  result,
-	}
-	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/complete", url.PathEscape(taskID)), body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
 // ClaimFiles claims exclusive editing rights on files.
+// kept: reserved for the PreToolUse file-claim hook (hooks plan Phase 2).
 func (c *Client) ClaimFiles(taskID string, files []string) error {
 	body := map[string]any{
 		"agent_id":     c.AgentID,
@@ -179,6 +150,7 @@ func (c *Client) ClaimFiles(taskID string, files []string) error {
 }
 
 // ReleaseFiles releases file locks.
+// kept: reserved for the PreToolUse file-claim hook (hooks plan Phase 2).
 func (c *Client) ReleaseFiles(files []string) error {
 	body := map[string]any{
 		"agent_id":     c.AgentID,
@@ -206,30 +178,6 @@ func (c *Client) SendMessage(text string) error {
 	}
 	defer resp.Body.Close()
 	return nil
-}
-
-// SubmitForValidation submits a completed task for Assurance review.
-func (c *Client) SubmitForValidation(taskID string) error {
-	body := map[string]any{
-		"agentId": c.AgentID,
-	}
-	resp, err := c.post(fmt.Sprintf("/api/tasks/%s/submit-for-validation", url.PathEscape(taskID)), body)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	return nil
-}
-
-// Status fetches the ACT system status as a formatted string.
-func (c *Client) Status() (string, error) {
-	return c.getString("/api/status")
-}
-
-// PVMSearch searches coordination memory for relevant patterns.
-func (c *Client) PVMSearch(query string) (string, error) {
-	path := fmt.Sprintf("/api/pvm/search?query=%s&limit=10", url.QueryEscape(query))
-	return c.getString(path)
 }
 
 // RoutingBrief fetches confidence-labeled coordination evidence (past swarm
@@ -410,53 +358,6 @@ func (c *Client) SetTaskDependencies(taskID string, dependencyIDs []string) erro
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("act PATCH dependencies: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	return nil
-}
-
-// RetryTask resets a failed task to pending and increments its retryCount.
-// Returns an error if the task is not failed, doesn't exist, or has exceeded
-// MAX_TASK_RETRIES (server returns 409 permanentlyFailed=true).
-func (c *Client) RetryTask(taskID string) error {
-	req, err := http.NewRequest("POST", c.ServerURL+"/api/tasks/"+url.PathEscape(taskID)+"/retry", nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("act POST retry: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("act POST retry: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	return nil
-}
-
-// AbandonTask marks a task permanently failed with metadata.abandoned=true.
-// Distinct from RetryTask — abandoned tasks are not re-dispatched. Used by
-// the Planner when a task is unrecoverable. Reason is required for audit.
-func (c *Client) AbandonTask(taskID, reason string) error {
-	body := map[string]any{"reason": reason}
-	jsonBody, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("marshal abandon body: %w", err)
-	}
-	req, err := http.NewRequest("POST", c.ServerURL+"/api/tasks/"+url.PathEscape(taskID)+"/abandon", bytes.NewReader(jsonBody))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("act POST abandon: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("act POST abandon: HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 	return nil
 }
