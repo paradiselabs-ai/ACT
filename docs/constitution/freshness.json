@@ -15,7 +15,7 @@
         "server/src/"
       ],
       "refresh": ".claude/architecture-flows-method.md",
-      "verified_against": "83a5cac",
+      "verified_against": "6f54c5f",
       "status": "fresh",
       "staled_by": null,
       "auto_refresh": true,

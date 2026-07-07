@@ -114,11 +114,11 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 </div>
 <script type="application/json" id="data">{
   "meta": {
-    "version": 9,
+    "version": 10,
     "model": "subsystem-columns",
-    "branch": "feat/remove-nomik",
-    "headCommit": "83a5cac",
-    "generatedAt": "2026-06-17",
+    "branch": "feat/chronlog-durability-pvm-sidecar",
+    "headCommit": "6f54c5f",
+    "generatedAt": "2026-07-06",
     "summary": "Seven columns, one per subsystem; each node is a real component (friendly name + its file/function). Click a flow to trace the coordination handoffs across columns — edge labels are the actual mechanism cited to file:line. Two config FORKS show as twin paths converging on a shared result; one documented-but-unbuilt capability is a GAP.",
     "findings": [
       {
@@ -140,7 +140,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         "title": "ChronLog SQLite mode silently no-ops",
         "status": "gap-found",
         "summary": "storageType 'sqlite' routes flush to an empty stub = data loss; dormant because default is jsonl.",
-        "evidence": "server/src/services/ChronologicalLog.ts:242 (empty), :188-193 (dispatch)"
+        "evidence": "server/src/services/ChronologicalLog.ts:234-237 (empty), :196-198 (dispatch)"
       },
       {
         "id": "F-file-lock-prompt-only",
@@ -174,7 +174,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
         "id": "F-qdrant-excluded",
         "title": "Persistent vector store build-excluded (intentional)",
         "status": "gap-found",
-        "summary": "Qdrant adapter exists but is excluded from the build; runtime uses in-memory local embeddings rebuilt from JSONL each boot. Deliberate (ops burden).",
+        "summary": "Qdrant adapter exists but is excluded from the build; runtime uses in-memory local embeddings, now persisted to a rebuildable sidecar cache (data/pvm-vectors.jsonl) so restarts skip re-embedding. Deliberate (ops burden).",
         "evidence": "server/tsconfig.json exclude; server/src/services/index.ts:11-12"
       }
     ]
@@ -609,7 +609,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "ChronLog",
       "parent": "memory",
       "kind": "store",
-      "detail": "Append-only event log; two append surfaces (REST handlers + EventHub); buffered flush to JSONL + per-project mirror. ChronologicalLog.ts.",
+      "detail": "Append-only event log; two append surfaces (REST handlers + EventHub); buffered fsync flush to a single JSONL truth file; reads served from an in-memory array loaded once at initialize(). ChronologicalLog.ts.",
       "src": "ChronologicalLog.ts",
       "hover": "An append-only log of every coordination event, written to disk (ChronologicalLog.ts). From a user perspective, this is the project's permanent activity history."
     },
@@ -627,7 +627,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "Vector store",
       "parent": "memory",
       "kind": "store",
-      "detail": "LocalEmbeddingVectorStore: MiniLM embeddings in an in-memory array; silent hash-embed fallback if the model fails to load. LocalEmbeddingVectorStore.ts.",
+      "detail": "LocalEmbeddingVectorStore: MiniLM embeddings in an in-memory points array, persisted to a rebuildable sidecar cache (data/pvm-vectors.jsonl) so restarts skip re-embedding; silent hash-embed fallback if the model fails to load (hash vectors never persisted). LocalEmbeddingVectorStore.ts.",
       "src": "LocalEmbeddingVectorStore.ts",
       "hover": "Holds those memories as searchable vectors, kept in memory (LocalEmbeddingVectorStore.ts). From a user perspective, this is the searchable memory bank."
     },
@@ -645,7 +645,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "label": "PVM routing brief",
       "parent": "memory",
       "kind": "endpoint",
-      "detail": "GET /api/pvm/routing-brief -> vectorStore.getRoutingBrief: confidence-labeled coordination evidence (similar past projects by capability overlap, per-role pass rates, role-pair history) computed from real task-outcome events. index.ts:1204 / LocalEmbeddingVectorStore.ts:583.",
+      "detail": "GET /api/pvm/routing-brief -> vectorStore.getRoutingBrief: confidence-labeled coordination evidence (similar past projects by capability overlap, per-role pass rates, role-pair history) computed from real task-outcome events. index.ts:1204 / LocalEmbeddingVectorStore.ts:672.",
       "src": "index.ts /api/pvm/routing-brief",
       "hover": "Builds a one-shot evidence block of what worked on past projects — which team mixes and roles passed, what commonly failed (index.ts /api/pvm/routing-brief, getRoutingBrief). From a user perspective, this is the system telling the Planner 'here's what worked before' before it picks the team."
     },
@@ -1224,14 +1224,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
       "id": "pvm_capture",
       "label": "PVM capture: events -> ChronLog buffer -> flush JSONL (+SQLite stub) -> indexer poll -> embed -> vector points",
       "family": "memory",
-      "summary": "Coordination events append to the ChronLog buffer (fire-and-forget) and flush to JSONL + per-project mirror; the SQLite branch is an empty stub. The indexer polls, builds embedding text, embeds (real MiniLM or hash fallback), and stores in-memory points.",
+      "summary": "Coordination events append to the ChronLog buffer (fire-and-forget) and flush to a single fsync'd JSONL truth file (reads served from an in-memory array); the SQLite branch is an empty stub. The indexer polls, builds embedding text, embeds (real MiniLM or hash fallback), and stores in-memory points.",
       "steps": [
         {
           "from": "srv_rest",
           "to": "mem_chronlog",
           "label": "REST handlers append CoordinationMessage to ChronLog buffer (fire-and-forget)",
           "status": "ok",
-          "detail": "server/src/index.ts:172,239 -> ChronologicalLog.ts:137-143 — async append() enqueued, not awaited by handlers"
+          "detail": "server/src/index.ts:172,239 -> ChronologicalLog.ts:149-162 — async append() enqueued, not awaited by handlers"
         },
         {
           "from": "srv_event_hub",
@@ -1245,21 +1245,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "mem_chronlog",
           "label": "flushToSQLite() empty TODO stub when storageType sqlite/both (dormant; default jsonl)",
           "status": "gap-found",
-          "detail": "ChronologicalLog.ts:242 — flushToSQLite(): empty body; no SQLite persistence"
+          "detail": "ChronologicalLog.ts:234-237 — flushToSQLite(): empty body; no SQLite persistence"
         },
         {
           "from": "mem_chronlog",
           "to": "mem_pvm_indexer",
-          "label": "buffer>=100 or 5s timer -> flushToJSONL (coordination-log.jsonl + per-project mirror); indexer startIndexing(10s) -> indexNewEvents -> chronologicalLog.query(since)",
+          "label": "buffer>=100 or 5s timer -> flushToJSONL (coordination-log.jsonl, single fsync'd truth file); indexer startIndexing(10s) -> indexNewEvents -> chronologicalLog.query(since)",
           "status": "ok",
-          "detail": "ChronologicalLog.ts:137-235 (flush 188; flushToJSONL fsync 210-218; mirror 223-235); PVMIndexer.ts:100-151 setInterval(indexNewEvents,10000); query({since,limit:100000})"
+          "detail": "ChronologicalLog.ts:149-228 (append 149-162; flush 188-207; flushToJSONL fsync 214-228); PVMIndexer.ts:100-151 setInterval(indexNewEvents,10000); query({since,limit:100000})"
         },
         {
           "from": "mem_pvm_indexer",
           "to": "mem_vector_store",
           "label": "filter dup coordination events; buildEmbeddingText; classifyScope; extractProjectName -> batchStore -> store -> embed (realEmbed MiniLM or hashEmbed fallback) -> points[]",
           "status": "ok",
-          "detail": "PVMIndexer.ts:160-201 (dedupe; buildEmbeddingText 66; classifyScope 28; extractProjectName 36); LocalEmbeddingVectorStore.ts:179-194 store StoredPoint; embed(97) realEmbed(151 all-MiniLM-L6-v2)/hashEmbed(160)"
+          "detail": "PVMIndexer.ts:164-203 (dedupe; buildEmbeddingText 66; classifyScope 28; extractProjectName 36); LocalEmbeddingVectorStore.ts:206-242 store StoredPoint (sidecar cache 210-229); embed(121) realEmbed(178 all-MiniLM-L6-v2)/hashEmbed(187)"
         }
       ]
     },
@@ -1295,7 +1295,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "mem_vector_store",
           "label": "vectorStore.search: embed query -> filter by project/scope -> cosine rank -> top-K",
           "status": "ok",
-          "detail": "LocalEmbeddingVectorStore.ts:202-257 — embed(212); filters(217-240); cosineSimilarity(242-245); slice(253)"
+          "detail": "LocalEmbeddingVectorStore.ts:291-346 — embed(301); filters(307-329); cosineSimilarity(333, def 835); slice(342)"
         },
         {
           "from": "mem_vector_store",
@@ -1331,7 +1331,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "mem_vector_store",
           "label": "getRoutingBrief: getProjectOutcomes -> rank similar projects by capability overlap, aggregate per-role + role-pair pass rates with signal labels",
           "status": "ok",
-          "detail": "server/src/index.ts:1211 -> LocalEmbeddingVectorStore.ts:583-660 (getProjectOutcomes:490; signal:477)"
+          "detail": "server/src/index.ts:1211 -> LocalEmbeddingVectorStore.ts:672-750 (getProjectOutcomes:579; signal:566)"
         },
         {
           "from": "mem_vector_store",
@@ -1360,21 +1360,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "mem_vector_store",
           "label": "lookupTaskOutcomes walks points[] and JOINs task_assigned/completed/validated by taskId",
           "status": "ok",
-          "detail": "LocalEmbeddingVectorStore.ts:475-533 — reads points[].message.data lifecycle events by event.data.taskId (real data)"
+          "detail": "LocalEmbeddingVectorStore.ts:775-833 — reads points[].message.data lifecycle events by event.data.taskId (real data)"
         },
         {
           "from": "mem_vector_store",
           "to": "mem_pvm_indexer",
           "label": "points[] populated by indexer batchStore from ChronLog (not mocked)",
           "status": "ok",
-          "detail": "PVMIndexer.ts:129-224 — indexNewEvents -> batchStore(coordinationMessages) keeps points[] in sync"
+          "detail": "PVMIndexer.ts:129-228 — indexNewEvents -> batchStore(coordinationMessages) keeps points[] in sync"
         },
         {
           "from": "mem_pvm_indexer",
           "to": "mem_chronlog",
-          "label": "chronologicalLog.query({since,limit}) reads JSONL events",
+          "label": "chronologicalLog.query({since,limit}) reads in-memory events",
           "status": "ok",
-          "detail": "PVMIndexer.ts:151 -> ChronologicalLog.ts:300-346 — query filters by since/until/agent/type"
+          "detail": "PVMIndexer.ts:151 -> ChronologicalLog.ts:265-305 — query filters the in-memory read model by since/until/agent/type"
         },
         {
           "from": "mem_analytics",
@@ -1793,7 +1793,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "mem_chronlog",
           "label": "coordinationEventLoop 3s ticker -> pollCoordinationEvents -> client.GetLog(50) GET /api/log -> chronologicalLog.getRecent",
           "status": "ok",
-          "detail": "orchestrator.go:699-734; client.go:511-516; server/src/index.ts:1277-1296; ChronologicalLog.ts:260-291 — 3s interval; reads JSONL, last N reversed"
+          "detail": "orchestrator.go:699-734; client.go:511-516; server/src/index.ts:1298-1313; ChronologicalLog.ts:246-257 — 3s interval; getRecent serves last N reversed from the in-memory read model"
         },
         {
           "from": "orch_coord_loop",
