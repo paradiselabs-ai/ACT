@@ -16,8 +16,8 @@
       ],
       "refresh": ".claude/architecture-flows-method.md",
       "verified_against": "6f54c5f",
-      "status": "fresh",
-      "staled_by": null,
+      "status": "stale",
+      "staled_by": "9b11107",
       "auto_refresh": true,
       "debounce_minutes": 60,
       "purpose": "Continuously-current architecture view: html for humans; the json doubles as fast agent onboarding/reminder context for the ACT codebase \u2014 which is exactly why it must stay trustworthy"
