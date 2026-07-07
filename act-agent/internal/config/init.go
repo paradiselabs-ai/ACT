@@ -16,31 +16,6 @@ type ProjectInitFlag struct {
 	Initialized bool `json:"initialized"`
 }
 
-// ShouldShowInitDialog checks if the initialization dialog should be shown for the current directory
-func ShouldShowInitDialog() (bool, error) {
-	if cfg == nil {
-		return false, fmt.Errorf("config not loaded")
-	}
-
-	// Create the flag file path
-	flagFilePath := filepath.Join(cfg.Data.Directory, InitFlagFilename)
-
-	// Check if the flag file exists
-	_, err := os.Stat(flagFilePath)
-	if err == nil {
-		// File exists, don't show the dialog
-		return false, nil
-	}
-
-	// If the error is not "file not found", return the error
-	if !os.IsNotExist(err) {
-		return false, fmt.Errorf("failed to check init flag file: %w", err)
-	}
-
-	// File doesn't exist, show the dialog
-	return true, nil
-}
-
 // IsFirstRun checks if this is the first time ACT is being used on this machine.
 // Returns true if neither .act/ nor .opencode/ exists in the user's home directory.
 func IsFirstRun() bool {

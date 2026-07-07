@@ -84,15 +84,6 @@ type ParseConfig struct {
 // ParseOption modifies a ParseConfig
 type ParseOption func(*ParseConfig)
 
-// WithContextSize sets the number of context lines to include
-func WithContextSize(size int) ParseOption {
-	return func(p *ParseConfig) {
-		if size >= 0 {
-			p.ContextSize = size
-		}
-	}
-}
-
 // -------------------------------------------------------------------------
 // Side-by-Side Configuration
 // -------------------------------------------------------------------------
@@ -574,18 +565,6 @@ func createStyles(t theme.Theme) (removedLineStyle, addedLineStyle, contextLineS
 // -------------------------------------------------------------------------
 // Rendering Functions
 // -------------------------------------------------------------------------
-
-func lipglossToHex(c color.Color) string {
-	r, g, b, a := c.RGBA()
-
-	// Scale uint32 values (0-65535) to uint8 (0-255).
-	r8 := uint8(r >> 8)
-	g8 := uint8(g >> 8)
-	b8 := uint8(b >> 8)
-	a8 := uint8(a >> 8)
-
-	return fmt.Sprintf("#%02x%02x%02x%02x", r8, g8, b8, a8)
-}
 
 // applyHighlighting applies intra-line highlighting to a piece of text
 func applyHighlighting(content string, segments []Segment, segmentType LineType, highlightBg compat.AdaptiveColor) string {

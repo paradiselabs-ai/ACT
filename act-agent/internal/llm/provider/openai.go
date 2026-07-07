@@ -408,12 +408,6 @@ func WithOpenAIExtraHeaders(headers map[string]string) OpenAIOption {
 	}
 }
 
-func WithOpenAIDisableCache() OpenAIOption {
-	return func(options *openaiOptions) {
-		options.disableCache = true
-	}
-}
-
 func WithReasoningEffort(effort string) OpenAIOption {
 	return func(options *openaiOptions) {
 		defaultReasoningEffort := "medium"

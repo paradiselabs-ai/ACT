@@ -46,11 +46,6 @@ func InfoPersist(msg string, args ...any) {
 	slog.Info(msg, args...)
 }
 
-func DebugPersist(msg string, args ...any) {
-	args = append(args, persistKeyArg, true)
-	slog.Debug(msg, args...)
-}
-
 func WarnPersist(msg string, args ...any) {
 	args = append(args, persistKeyArg, true)
 	slog.Warn(msg, args...)
@@ -157,40 +152,6 @@ func WriteRequestMessage(sessionId string, requestSeqId int, message string) str
 	filename := fmt.Sprintf("%d_request.json", requestSeqId)
 
 	return AppendToSessionLogFile(sessionId, filename, message)
-}
-
-func AppendToStreamSessionLogJson(sessionId string, requestSeqId int, jsonableChunk any) string {
-	if MessageDir == "" || sessionId == "" || requestSeqId <= 0 {
-		return ""
-	}
-	chunkJson, err := json.Marshal(jsonableChunk)
-	if err != nil {
-		Error("Failed to marshal message", "session_id", sessionId, "request_seq_id", requestSeqId, "error", err)
-		return ""
-	}
-	return AppendToStreamSessionLog(sessionId, requestSeqId, string(chunkJson))
-}
-
-func AppendToStreamSessionLog(sessionId string, requestSeqId int, chunk string) string {
-	if MessageDir == "" || sessionId == "" || requestSeqId <= 0 {
-		return ""
-	}
-	filename := fmt.Sprintf("%d_response_stream.log", requestSeqId)
-	return AppendToSessionLogFile(sessionId, filename, chunk)
-}
-
-func WriteChatResponseJson(sessionId string, requestSeqId int, response any) string {
-	if MessageDir == "" || sessionId == "" || requestSeqId <= 0 {
-		return ""
-	}
-	responseJson, err := json.Marshal(response)
-	if err != nil {
-		Error("Failed to marshal response", "session_id", sessionId, "request_seq_id", requestSeqId, "error", err)
-		return ""
-	}
-	filename := fmt.Sprintf("%d_response.json", requestSeqId)
-
-	return AppendToSessionLogFile(sessionId, filename, string(responseJson))
 }
 
 func WriteToolResultsJson(sessionId string, requestSeqId int, toolResults any) string {

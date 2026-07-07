@@ -185,10 +185,3 @@ func shortKey(k string) string {
 	return k[:12]
 }
 
-// Stats returns hit/miss counters for diagnostics. Cheap; safe to call
-// from any goroutine.
-func (c *ResponseCache) Stats() (hits int, misses int, size int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.hits, c.misses, len(c.entries)
-}

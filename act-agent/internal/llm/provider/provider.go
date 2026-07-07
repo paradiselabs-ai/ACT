@@ -307,14 +307,3 @@ func WithOpenAIOptions(openaiOptions ...OpenAIOption) ProviderClientOption {
 	}
 }
 
-func WithGeminiOptions(geminiOptions ...GeminiOption) ProviderClientOption {
-	return func(options *providerClientOptions) {
-		options.geminiOptions = geminiOptions
-	}
-}
-
-func WithBedrockOptions(bedrockOptions ...BedrockOption) ProviderClientOption {
-	return func(options *providerClientOptions) {
-		options.bedrockOptions = bedrockOptions
-	}
-}

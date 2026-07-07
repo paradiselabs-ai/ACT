@@ -287,19 +287,6 @@ func (s *PersistentShell) Exec(ctx context.Context, command string, timeoutMs in
 	return result.stdout, result.stderr, result.exitCode, result.interrupted, result.err
 }
 
-func (s *PersistentShell) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if !s.isAlive {
-		return
-	}
-
-	s.stdin.Write([]byte("exit\n"))
-
-	s.cmd.Process.Kill()
-	s.isAlive = false
-}
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
