@@ -540,4 +540,71 @@ describe('ChronologicalLog', () => {
       expect(lock.lockedAt).toBeInstanceOf(Date);
     });
   });
+
+  describe('in-memory read model', () => {
+    const mkEvent = (n: number, project?: string): CoordinationMessage => ({
+      timestamp: `2026-07-06T00:00:${String(n).padStart(2, '0')}Z`,
+      agent: `agent_${n % 2}`,
+      message: `event ${n}`,
+      type: 'coordination',
+      ...(project ? { data: { projectName: project } } : {})
+    });
+
+    it('getRecent and query filter by projectName without mirror files', async () => {
+      await log.batchAppend([
+        mkEvent(1, 'projA'), mkEvent(2, 'projB'), mkEvent(3, 'projA'), mkEvent(4)
+      ]);
+
+      const recentA = await log.getRecent(10, 'projA');
+      expect(recentA.map(e => e.message)).toEqual(['event 3', 'event 1']); // newest first
+
+      const queryA = await log.query({}, 'projA');
+      expect(queryA.total).toBe(2);
+      expect(queryA.events.map(e => e.message)).toEqual(['event 1', 'event 3']);
+
+      const queryGlobal = await log.query({}, '__global__');
+      expect(queryGlobal.events.map(e => e.message)).toEqual(['event 4']);
+
+      // No per-project mirror directory is written anymore
+      await log.flush();
+      await expect(fs.access(path.join(TEST_DATA_DIR, 'projects'))).rejects.toThrow();
+    });
+
+    it('survives a restart: new instance over the same file sees identical events', async () => {
+      const events = [mkEvent(1, 'projA'), mkEvent(2), mkEvent(3, 'projB')];
+      await log.batchAppend(events);
+      await log.close(); // flushes
+
+      const reopened = new ChronologicalLog({ jsonlPath: TEST_LOG_PATH });
+      await reopened.initialize();
+      expect(await reopened.getAll()).toEqual(events);
+      expect(reopened.getEventCount()).toBe(3);
+      expect((await reopened.getRecent(10, 'projA')).map(e => e.message)).toEqual(['event 1']);
+      await reopened.close();
+    });
+
+    it('tolerates a truncated final line and keeps accepting appends', async () => {
+      await log.append(mkEvent(1));
+      await log.flush();
+      await log.close();
+      // Simulate a crash mid-append: partial JSON on the last line
+      await fs.appendFile(TEST_LOG_PATH, '{"timestamp":"2026-07-06T00:0', 'utf-8');
+
+      const reopened = new ChronologicalLog({ jsonlPath: TEST_LOG_PATH });
+      await reopened.initialize();
+      expect(reopened.getEventCount()).toBe(1);
+
+      await reopened.append(mkEvent(2));
+      expect(reopened.getEventCount()).toBe(2);
+      expect((await reopened.getRecent(1))[0].message).toBe('event 2');
+      await reopened.close();
+
+      // The post-crash append must not merge into the partial line on disk:
+      // a THIRD instance must still see both intact events.
+      const third = new ChronologicalLog({ jsonlPath: TEST_LOG_PATH });
+      await third.initialize();
+      expect((await third.getAll()).map(e => e.message)).toEqual(['event 1', 'event 2']);
+      await third.close();
+    });
+  });
 });

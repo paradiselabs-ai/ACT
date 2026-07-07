@@ -9,7 +9,8 @@
  * - Efficient recent event queries for context windows
  * - Persistent storage (JSONL format) with SQLite fallback
  * - Background flush strategy (every 10 events or 5 seconds)
- * - Compaction for long-running servers
+ * - In-memory read model: the JSONL on disk is the single source of truth;
+ *   reads are served from a resident array loaded once at initialize()
  *
  * Integration:
  * - VectorMemoryStore reads from this log to build semantic memory
@@ -32,8 +33,6 @@ export interface ChronologicalLogConfig {
   // Performance tuning
   bufferSize?: number; // In-memory buffer size before flush
   flushIntervalMs?: number; // Max time between flushes
-  compactionThreshold?: number; // Events before compaction triggers
-  compactionKeepRecent?: number; // Keep this many recent events uncompacted
 
   // Query optimization
   indexTimestamps?: boolean;
@@ -45,8 +44,6 @@ export const DEFAULT_CHRONOLOGICAL_CONFIG: ChronologicalLogConfig = {
   jsonlPath: './data/coordination-log.jsonl',
   bufferSize: 100,
   flushIntervalMs: 5000,
-  compactionThreshold: 10000,
-  compactionKeepRecent: 1000,
   indexTimestamps: true,
   indexAgents: true
 };
@@ -86,9 +83,14 @@ export interface LogQueryResult {
 export class ChronologicalLog {
   private config: ChronologicalLogConfig;
   private buffer: CoordinationMessage[] = [];
+  // In-memory read model: every event, loaded from disk once at initialize()
+  // and appended in lockstep with the write path. Reads never touch disk.
+  private events: CoordinationMessage[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
-  private totalEvents: number = 0;
   private initialized: boolean = false;
+  // Set when the file on disk ends mid-line (crash during a previous append);
+  // the next flush starts with '\n' so new events don't merge into the fragment.
+  private needsLeadingNewline: boolean = false;
 
   constructor(config: Partial<ChronologicalLogConfig> = {}) {
     this.config = { ...DEFAULT_CHRONOLOGICAL_CONFIG, ...config };
@@ -106,19 +108,29 @@ export class ChronologicalLog {
       await fs.mkdir(dir, { recursive: true });
     }
 
-    // Count existing events
+    // Load existing events into the in-memory read model
     if (this.config.jsonlPath) {
       try {
         const content = await fs.readFile(this.config.jsonlPath, 'utf-8');
         const lines = content.trim().split('\n').filter(l => l.length > 0);
-        this.totalEvents = lines.length;
-        console.log(`ChronologicalLog: Loaded ${this.totalEvents} existing events`);
+        let skipped = 0;
+        for (const line of lines) {
+          try {
+            this.events.push(JSON.parse(line) as CoordinationMessage);
+          } catch {
+            skipped++; // tolerate a truncated/corrupt line (e.g. crash mid-append)
+          }
+        }
+        if (skipped > 0) {
+          console.warn(`ChronologicalLog: Skipped ${skipped} unparseable line(s) while loading`);
+        }
+        this.needsLeadingNewline = content.length > 0 && !content.endsWith('\n');
+        console.log(`ChronologicalLog: Loaded ${this.events.length} existing events`);
       } catch (error: any) {
         if (error.code !== 'ENOENT') {
           console.error('Error loading existing log:', error);
         }
         // File doesn't exist yet - that's fine
-        this.totalEvents = 0;
       }
     }
 
@@ -139,21 +151,13 @@ export class ChronologicalLog {
       await this.initialize();
     }
 
-    // Add to in-memory buffer
+    // Add to the read model and the write buffer
+    this.events.push(event);
     this.buffer.push(event);
-    this.totalEvents++;
 
     // Flush if buffer is full
     if (this.buffer.length >= this.config.bufferSize!) {
       await this.flush();
-    }
-
-    // Check if compaction is needed
-    if (this.totalEvents >= this.config.compactionThreshold!) {
-      // Trigger compaction in background (don't await)
-      this.compact().catch(error => {
-        console.error('Background compaction failed:', error);
-      });
     }
   }
 
@@ -168,9 +172,9 @@ export class ChronologicalLog {
       await this.initialize();
     }
 
-    // Add all to buffer
+    // Add all to the read model and the write buffer
+    this.events.push(...events);
     this.buffer.push(...events);
-    this.totalEvents += events.length;
 
     // Flush if buffer exceeds threshold
     if (this.buffer.length >= this.config.bufferSize!) {
@@ -210,28 +214,16 @@ export class ChronologicalLog {
   private async flushToJSONL(): Promise<void> {
     if (!this.config.jsonlPath) return;
 
-    const lines = this.buffer.map(event => JSON.stringify(event)).join('\n') + '\n';
+    const prefix = this.needsLeadingNewline ? '\n' : '';
+    const lines = prefix + this.buffer.map(event => JSON.stringify(event)).join('\n') + '\n';
 
     const fh = await fs.open(this.config.jsonlPath, 'a');
     try {
       await fh.write(lines, null, 'utf-8');
       await fh.sync();
+      this.needsLeadingNewline = false;
     } finally {
       await fh.close();
-    }
-
-    // Per-project mirror writes
-    const groups: Map<string, CoordinationMessage[]> = new Map();
-    for (const e of this.buffer) {
-      const project = extractProjectName(e as any);
-      if (!groups.has(project)) groups.set(project, []);
-      groups.get(project)!.push(e);
-    }
-    for (const [project, events] of groups.entries()) {
-      const projPath = this.projectLogPath(project);
-      await fs.mkdir(path.dirname(projPath), { recursive: true });
-      const projLines = events.map(e => JSON.stringify(e)).join('\n') + '\n';
-      await fs.appendFile(projPath, projLines, 'utf-8');
     }
   }
 
@@ -242,12 +234,6 @@ export class ChronologicalLog {
   private async flushToSQLite(): Promise<void> {
     // TODO: Implement SQLite storage for efficient queries
     // For now, JSONL is sufficient
-  }
-
-  private projectLogPath(projectName: string): string {
-    const safe = projectName.replace(/[^A-Za-z0-9_-]/g, '_');
-    const dir = path.dirname(this.config.jsonlPath || './data/coordination-log.jsonl');
-    return path.join(dir, 'projects', safe, 'coordination-log.jsonl');
   }
 
   /**
@@ -262,33 +248,12 @@ export class ChronologicalLog {
       await this.initialize();
     }
 
-    // Flush buffer to ensure we have latest
-    await this.flush();
+    const source = projectName
+      ? this.events.filter(e => extractProjectName(e as any) === projectName)
+      : this.events;
 
-    const sourcePath = projectName
-      ? this.projectLogPath(projectName)
-      : this.config.jsonlPath;
-
-    if (!sourcePath) {
-      return [];
-    }
-
-    try {
-      const content = await fs.readFile(sourcePath, 'utf-8');
-      const lines = content.trim().split('\n').filter(l => l.length > 0);
-
-      // Get last N lines
-      const recentLines = lines.slice(-limit);
-
-      // Parse and reverse (newest first)
-      const events = recentLines.map(line => JSON.parse(line) as CoordinationMessage);
-      return events.reverse();
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return [];
-      }
-      throw error;
-    }
+    // Last N, newest first
+    return source.slice(-limit).reverse();
   }
 
   /**
@@ -302,16 +267,10 @@ export class ChronologicalLog {
       await this.initialize();
     }
 
-    // Flush to ensure we query latest data
-    await this.flush();
-
-    // Read all events — from per-project file if projectName given
-    const allEvents = projectName
-      ? await this.readProjectLog(projectName)
-      : await this.getAll();
-
-    // Filter events
-    let filtered = allEvents;
+    // Filter events from the in-memory read model
+    let filtered = projectName
+      ? this.events.filter(e => extractProjectName(e as any) === projectName)
+      : this.events;
 
     if (query.since) {
       filtered = filtered.filter(e => e.timestamp >= query.since!);
@@ -355,22 +314,7 @@ export class ChronologicalLog {
       await this.initialize();
     }
 
-    await this.flush();
-
-    if (!this.config.jsonlPath) {
-      return [];
-    }
-
-    try {
-      const content = await fs.readFile(this.config.jsonlPath, 'utf-8');
-      const lines = content.trim().split('\n').filter(l => l.length > 0);
-      return lines.map(line => JSON.parse(line) as CoordinationMessage);
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        return [];
-      }
-      throw error;
-    }
+    return [...this.events];
   }
 
   /**
@@ -379,59 +323,7 @@ export class ChronologicalLog {
    * @returns Total number of events in log
    */
   getEventCount(): number {
-    return this.totalEvents;
-  }
-
-  private async readProjectLog(projectName: string): Promise<CoordinationMessage[]> {
-    const sourcePath = this.projectLogPath(projectName);
-    try {
-      const content = await fs.readFile(sourcePath, 'utf-8');
-      return content.trim().split('\n').filter(l => l.length > 0)
-        .map(line => JSON.parse(line) as CoordinationMessage);
-    } catch (error: any) {
-      if (error.code === 'ENOENT') return [];
-      throw error;
-    }
-  }
-
-  /**
-   * Compact the log file
-   * Removes duplicate events, optimizes storage
-   * Keeps recent events intact for auditing
-   */
-  private async compact(): Promise<void> {
-    if (!this.config.jsonlPath) return;
-
-    console.log('ChronologicalLog: Starting compaction...');
-
-    try {
-      const allEvents = await this.getAll();
-
-      // Keep recent events uncompacted
-      const keepRecent = this.config.compactionKeepRecent!;
-      const recentEvents = allEvents.slice(-keepRecent);
-
-      // Older events can be deduplicated/compressed
-      const olderEvents = allEvents.slice(0, -keepRecent);
-
-      // For now, simple compaction: just keep all events
-      // TODO: More sophisticated compaction (remove duplicates, compress, etc.)
-      // TODO: per-project files also need compaction in the future.
-      const compactedEvents = [...olderEvents, ...recentEvents];
-
-      // Write compacted log
-      const compactedPath = this.config.jsonlPath + '.compacted';
-      const lines = compactedEvents.map(e => JSON.stringify(e)).join('\n') + '\n';
-      await fs.writeFile(compactedPath, lines, 'utf-8');
-
-      // Atomic replace
-      await fs.rename(compactedPath, this.config.jsonlPath);
-
-      console.log(`ChronologicalLog: Compaction complete (${allEvents.length} → ${compactedEvents.length} events)`);
-    } catch (error) {
-      console.error('Compaction failed:', error);
-      throw error;
-    }
+    return this.events.length;
   }
 
   /**
