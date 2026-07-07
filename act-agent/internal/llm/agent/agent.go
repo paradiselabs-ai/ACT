@@ -803,13 +803,16 @@ func createAgentProvider(role config.AgentName) (provider.Provider, error) {
 			return nil, fmt.Errorf("role %s not configured and no agents.developer fallback in ~/.act.json", role)
 		}
 	}
-	return createProviderFromConfig(agentName, agentConfig)
+	return createProviderFromConfig(role, agentConfig)
 }
 
-// createProviderFromConfig builds a provider for agentName using an explicit
-// agent config block — lets the summarizer borrow the Planner's provider/model
-// when agents.summarizer is absent from ~/.act.json.
-func createProviderFromConfig(agentName config.AgentName, agentConfig config.Agent) (provider.Provider, error) {
+// createProviderFromConfig builds a provider for the given role using an
+// explicit agent config block. The split from createAgentProvider exists so a
+// role's PROMPT identity and its MODEL config can come from different places:
+// the summarizer borrows the Planner's provider/model when agents.summarizer
+// is absent, and an unconfigured role borrows the developer's model config —
+// both keep their own system prompt.
+func createProviderFromConfig(role config.AgentName, agentConfig config.Agent) (provider.Provider, error) {
 	cfg := config.Get()
 	if agentConfig.Provider == "" {
 		return nil, fmt.Errorf("role %s missing provider field in ~/.act.json", role)
