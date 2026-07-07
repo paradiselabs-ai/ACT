@@ -9,10 +9,10 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/permission"
 )
 
-// DeveloperTools returns the full toolbox used by Tier 2 swarm agents
-// (developer, frontend_dev, backend_dev, qa_engineer, researcher). These
-// roles do the actual building so they get bash, edit/patch/write, view,
-// grep, glob, ls, fetch, and sourcegraph.
+// DeveloperTools returns the full toolbox used by building Tier 2 swarm
+// agents (developer, frontend_dev, backend_dev, qa_engineer). These roles
+// do the actual building so they get bash, edit/patch/write, view, grep,
+// glob, ls, fetch, and sourcegraph. researcher gets ResearcherTools instead.
 func DeveloperTools(
 	permissions permission.Service,
 	history history.Service,
@@ -35,6 +35,31 @@ func DeveloperTools(
 			tools.NewViewTool(lspClients),
 			tools.NewPatchTool(lspClients, permissions, history),
 			tools.NewWriteTool(lspClients, permissions, history),
+		}, otherTools...,
+	)
+}
+
+// ResearcherTools returns the read-only toolbox for the researcher swarm
+// role. Its prompt says "analysis, not code" — least privilege makes the
+// tools match: search/read/fetch plus MCP and diagnostics, no bash, no
+// edit/write/patch.
+func ResearcherTools(
+	permissions permission.Service,
+	lspClients map[string]*lsp.Client,
+) []tools.BaseTool {
+	ctx := context.Background()
+	otherTools := GetMcpTools(ctx, permissions)
+	if len(lspClients) > 0 {
+		otherTools = append(otherTools, tools.NewDiagnosticsTool(lspClients))
+	}
+	return append(
+		[]tools.BaseTool{
+			tools.NewFetchTool(permissions),
+			tools.NewGlobTool(),
+			tools.NewGrepTool(),
+			tools.NewLsTool(),
+			tools.NewSourcegraphTool(),
+			tools.NewViewTool(lspClients),
 		}, otherTools...,
 	)
 }

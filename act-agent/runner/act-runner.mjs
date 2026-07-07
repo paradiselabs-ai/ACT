@@ -278,8 +278,22 @@ async function runAgentActAgent(prompt) {
   }
 }
 
+// Least-privilege tool restriction per role for the claude-code backend.
+// Mirrors ResearcherTools on the act-agent backend: the researcher's prompt
+// says "analysis, not code", so its tools must not mutate files or run shell
+// commands. Names claude doesn't know are ignored, so this is version-safe.
+const ROLE_DISALLOWED_TOOLS = {
+  researcher: ['Bash', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit'],
+};
+
+function claudeToolRestrictionArgs() {
+  const denied = ROLE_DISALLOWED_TOOLS[AGENT_ROLE];
+  return denied ? ['--disallowedTools', denied.join(',')] : [];
+}
+
 async function runAgentClaudeCode(prompt, attempt = 1) {
-  log(`  [claude invoke] path=${CLAUDE_PATH} attempt=${attempt} prompt_bytes=${prompt.length}`);
+  const restrictionArgs = claudeToolRestrictionArgs();
+  log(`  [claude invoke] path=${CLAUDE_PATH} attempt=${attempt} prompt_bytes=${prompt.length}${restrictionArgs.length ? ` disallowed=${restrictionArgs[1]}` : ''}`);
   try {
     // `input: ''` closes stdin with EOF immediately. Without this Node leaves
     // stdin as a piped-but-empty stream and claude's "--print" mode waits 3s
@@ -287,7 +301,7 @@ async function runAgentClaudeCode(prompt, attempt = 1) {
     // kills it. Passing empty input cleanly tells claude "no piped input".
     const { stdout, stderr } = await execFileAsync(
       CLAUDE_PATH,
-      ['--print', '--dangerously-skip-permissions', prompt],
+      ['--print', '--dangerously-skip-permissions', ...restrictionArgs, prompt],
       { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024, input: '' }
     );
     if (stderr) log(`  [claude stderr] ${stderr.trim().split('\n')[0]}`);

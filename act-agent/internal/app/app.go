@@ -340,17 +340,20 @@ func buildSwarmSpecs(cfg *config.Config) []runner.SwarmRoleSpec {
 // prompt is always this role's identity; only the MODEL config falls back to
 // the developer role when no role-specific config exists (the fallback lives
 // in createAgentProvider). Used by --agent mode to select the model per swarm
-// role with the full Tier 2 toolbox.
+// role. Building roles get the full Tier 2 toolbox; researcher is read-only
+// (least privilege — its prompt forbids writing code, its tools now agree).
 func (a *App) CreateAgentForRole(role string) (agent.Service, error) {
+	var roleTools []tools.BaseTool
+	if role == "researcher" {
+		roleTools = agent.ResearcherTools(a.Permissions, a.LSPClients)
+	} else {
+		roleTools = agent.DeveloperTools(a.Permissions, a.History, a.LSPClients)
+	}
 	return agent.NewAgent(
 		config.AgentName(role),
 		a.Sessions,
 		a.Messages,
-		agent.DeveloperTools(
-			a.Permissions,
-			a.History,
-			a.LSPClients,
-		),
+		roleTools,
 		"",                 // no thread tag — Tier 2 runs alone in its own task session
 		agent.HistoryFull,  // keeps full history of that session
 	)

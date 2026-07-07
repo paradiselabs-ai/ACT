@@ -1,11 +1,11 @@
 ---
 id: "ralph-wiggum-loop-code-enforcement-2026-05-19"
 status: "todo"
-priority: "medium"
+priority: "high"
 assignee: null
 dueDate: null
 created: "2026-05-19T05:50:00.000Z"
-modified: "2026-05-19T05:50:00.000Z"
+modified: "2026-07-07T08:33:31.000Z"
 completedAt: null
 labels: ["validation", "swarm", "architecture-mapping-finding"]
 order: "m01"
@@ -53,3 +53,7 @@ Option 1 is real code enforcement and is preferred. Option 2 is statistical enfo
 - Architecture mapping: `architecture-flows.html` flow `runner-poll`, step `runner_proc → ralph_loop` marked `prompt-only`.
 - Finding F-Ralph surfaced in `flows-explainer.html`.
 - Coord entry: `act-coordination.json` 2026-05-19T05:50:01Z.
+
+## Plan alignment (2026-07-07)
+
+Adopted as orchestration-plan Phase 2b — the highest-leverage HOTL change: Assurance stops validating claims and starts validating evidence. Gate lives server-side (the deterministic-state layer). Roll out warn-mode first, then enforce. Pairs with [[pi-extension-hook-system-2026-04-21]] (Phase 2a).
