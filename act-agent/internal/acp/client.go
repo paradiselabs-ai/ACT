@@ -14,6 +14,12 @@ import (
 // belongs on the consumer side of a channel the handler writes to.
 type NotificationHandler func(method string, params json.RawMessage)
 
+// RequestHandler answers agent-initiated requests (session/request_permission).
+// Invoked from the reader goroutine — same no-blocking contract as
+// NotificationHandler. Return (result, nil) to answer, or (nil, rpcErr) to
+// reject the method.
+type RequestHandler func(method string, params json.RawMessage) (any, *RPCError)
+
 // ErrClientClosed is returned by Call/Notify after Close has been called.
 var ErrClientClosed = errors.New("acp client: closed")
 
@@ -24,6 +30,7 @@ var ErrClientClosed = errors.New("acp client: closed")
 type Client struct {
 	transport Transport
 	notify    NotificationHandler
+	onRequest RequestHandler
 
 	// nextID is the JSON-RPC id allocator. Atomic for lock-free Call().
 	nextID atomic.Int64
@@ -51,6 +58,13 @@ func NewClient(t Transport, notify NotificationHandler) *Client {
 	}
 	go c.readLoop()
 	return c
+}
+
+// SetRequestHandler installs the handler for agent-initiated requests.
+// Must be called before the agent can send one — in practice, immediately
+// after NewClient and before the initialize call.
+func (c *Client) SetRequestHandler(h RequestHandler) {
+	c.onRequest = h
 }
 
 // Call sends a JSON-RPC request and waits for the matching response. Returns
@@ -192,11 +206,36 @@ func (c *Client) readLoop() {
 				c.notify(f.Method, f.Params)
 			}
 		default:
-			// A request from the agent — the alpha doesn't handle these (no
-			// host-side tools exposed). Record and drop. Future work can route
-			// session/request_permission etc. here.
-			c.readErr.Store(fmt.Errorf("acp client: ignoring agent-initiated request %q (id=%v)", f.Method, f.ID))
+			// A request from the agent (session/request_permission). Route to
+			// the handler and answer on the wire; an unanswered request would
+			// hang the agent's tool call forever. No handler installed →
+			// method-not-found, which agents treat as a denial.
+			c.dispatchRequest(f)
 		}
+	}
+}
+
+// dispatchRequest answers an agent-initiated request via the installed
+// RequestHandler. Runs on the reader goroutine — handlers must be fast and
+// non-blocking (the permission policy is a pure decision, so this holds).
+func (c *Client) dispatchRequest(f *Frame) {
+	if f.ID == nil {
+		// Neither response, notification, nor answerable request.
+		c.readErr.Store(fmt.Errorf("acp client: dropping malformed frame (no id, method %q)", f.Method))
+		return
+	}
+	resp := Response{JSONRPC: "2.0", ID: *f.ID}
+	if c.onRequest == nil {
+		resp.Error = &RPCError{Code: -32601, Message: fmt.Sprintf("method %q not supported by this client", f.Method)}
+	} else if result, rpcErr := c.onRequest(f.Method, f.Params); rpcErr != nil {
+		resp.Error = rpcErr
+	} else if b, err := json.Marshal(result); err != nil {
+		resp.Error = &RPCError{Code: -32603, Message: fmt.Sprintf("marshal %q result: %v", f.Method, err)}
+	} else {
+		resp.Result = b
+	}
+	if err := c.transport.WriteFrame(resp); err != nil {
+		c.readErr.Store(fmt.Errorf("acp client: respond to %q: %w", f.Method, err))
 	}
 }
 

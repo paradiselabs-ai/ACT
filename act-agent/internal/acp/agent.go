@@ -146,6 +146,15 @@ func NewACPAgent(
 
 	transport := NewNewlineTransport(stdout, stdin, stdin)
 	a.client = NewClient(transport, a.onNotification)
+	// Tool-permission broker: hard per-role enforcement at the protocol
+	// boundary (see permission_policy.go). Installed before initialize so no
+	// request can slip through unanswered.
+	a.client.SetRequestHandler(func(method string, params json.RawMessage) (any, *RPCError) {
+		if method != MethodReqPermission {
+			return nil, &RPCError{Code: -32601, Message: fmt.Sprintf("method %q not supported by this client", method)}
+		}
+		return answerPermissionRequest(role, params)
+	})
 
 	// Initialize handshake — fail loudly if the agent doesn't speak ACP. Use
 	// a fresh context here; the caller hasn't started a turn yet so there's

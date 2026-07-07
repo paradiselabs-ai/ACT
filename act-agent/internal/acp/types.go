@@ -213,4 +213,42 @@ const (
 	MethodPrompt        = "session/prompt"
 	MethodCancel        = "session/cancel"
 	NotifSessionUpdate  = "session/update"
+	MethodReqPermission = "session/request_permission"
 )
+
+// RequestPermissionParams — the agent asks the client to authorize one tool
+// call. Options carry the agent-defined choice IDs the client must pick from.
+type RequestPermissionParams struct {
+	SessionID string             `json:"sessionId"`
+	ToolCall  PermissionToolCall `json:"toolCall"`
+	Options   []PermissionOption `json:"options"`
+}
+
+// PermissionToolCall is the subset of the ACP tool-call shape the policy
+// consults. Kind is the spec's tool classification (read / edit / delete /
+// move / search / execute / think / fetch / other); Title and RawInput give
+// the human-readable command context (used to recognize the role shim).
+type PermissionToolCall struct {
+	ToolCallID string          `json:"toolCallId,omitempty"`
+	Title      string          `json:"title,omitempty"`
+	Kind       string          `json:"kind,omitempty"`
+	RawInput   json.RawMessage `json:"rawInput,omitempty"`
+}
+
+// PermissionOption is one selectable outcome the agent offers.
+type PermissionOption struct {
+	OptionID string `json:"optionId"`
+	Name     string `json:"name,omitempty"`
+	Kind     string `json:"kind,omitempty"` // allow_once | allow_always | reject_once | reject_always
+}
+
+// RequestPermissionResult answers session/request_permission.
+type RequestPermissionResult struct {
+	Outcome PermissionOutcome `json:"outcome"`
+}
+
+// PermissionOutcome — "selected" with the chosen OptionID, or "cancelled".
+type PermissionOutcome struct {
+	Outcome  string `json:"outcome"`
+	OptionID string `json:"optionId,omitempty"`
+}
