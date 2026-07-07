@@ -124,17 +124,29 @@ func NewAgent(
 	// (.act.example.json has no summarizer block) hit the AutoCompactTokens
 	// threshold and Summarize() silently no-ops — long sessions bleed tokens
 	// with no signal.
+	//
+	// The fallback is BEST-EFFORT: an ACP-backed Planner (backend:
+	// antigravity/claude-code) legitimately has no provider/model fields, and
+	// failing NewAgent here took every in-process Tier 1 role down with it
+	// (live finance run 2026-07-07: Observer never wired). No usable planner
+	// config → warn once and run without a summarizer, the pre-fallback
+	// behavior.
 	var summarizeProvider provider.Provider
 	if _, ok := config.Get().Agents[config.AgentSummarizer]; ok {
 		summarizeProvider, err = createAgentProvider(config.AgentSummarizer)
 		if err != nil {
 			return nil, err
 		}
-	} else if plannerConfig, ok := config.Get().Agents[config.RolePlanner]; ok {
+	} else if plannerConfig, ok := config.Get().Agents[config.RolePlanner]; ok && plannerConfig.Provider != "" && plannerConfig.Model != "" {
 		summarizeProvider, err = createProviderFromConfig(config.AgentSummarizer, plannerConfig)
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		logging.Warn("summarizer_unavailable",
+			"agent", agentName,
+			"reason", "no agents.summarizer and Planner has no in-process provider/model (ACP backend?) — auto-compaction disabled; configure agents.summarizer in ~/.act.json",
+		)
 	}
 
 	agent := &agent{

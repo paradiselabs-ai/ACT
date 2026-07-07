@@ -32,7 +32,10 @@ fix. Ticket: `compaction-anomaly-lifecycle-chronlog-ids-2026-05-12`.
 
 Auto-compaction (AutoCompactTokens threshold) fires only for the Planner
 thread. Observer / Assurance / QA threads grow unbounded in long sessions.
-There is no manual `/compact` command yet.
+There is no manual `/compact` command yet. The summarizer falls back to the
+Planner's provider/model — but an ACP-backed Planner (backend:
+claude-code/antigravity) has none, so compaction is disabled unless you
+configure `agents.summarizer` explicitly (a startup warning says so).
 Tickets: `compaction-all-tier1-agents-not-just-planner-2026-05-12`,
 `compaction-slash-and-palette-command-2026-05-12`.
 
