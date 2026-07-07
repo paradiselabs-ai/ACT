@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,6 +29,15 @@ func TestLsTool_Run(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "ls_tool_test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
+
+	// Empty/relative path params fall back to config.WorkingDirectory, which
+	// panics if the config singleton was never loaded (test binaries skip
+	// the normal startup path).
+	t.Setenv("XDG_CONFIG_HOME", tempDir)
+	config.ResetForTests()
+	_, err = config.Load(tempDir, false)
+	require.NoError(t, err)
+	t.Cleanup(config.ResetForTests)
 
 	// Create a test directory structure
 	testDirs := []string{
@@ -120,9 +130,6 @@ func TestLsTool_Run(t *testing.T) {
 	})
 
 	t.Run("handles empty path parameter", func(t *testing.T) {
-		// For this test, we need to mock the config.WorkingDirectory function
-		// Since we can't easily do that, we'll just check that the response doesn't contain an error message
-		
 		tool := NewLsTool()
 		params := LSParams{
 			Path: "",
@@ -183,21 +190,11 @@ func TestLsTool_Run(t *testing.T) {
 	})
 
 	t.Run("handles relative path", func(t *testing.T) {
-		// Save original working directory
-		origWd, err := os.Getwd()
-		require.NoError(t, err)
-		defer func() {
-			os.Chdir(origWd)
-		}()
-		
-		// Change to a directory above the temp directory
-		parentDir := filepath.Dir(tempDir)
-		err = os.Chdir(parentDir)
-		require.NoError(t, err)
-		
+		// Relative paths resolve against config.WorkingDirectory (tempDir,
+		// loaded above) — NOT the process cwd.
 		tool := NewLsTool()
 		params := LSParams{
-			Path: filepath.Base(tempDir),
+			Path: "dir2",
 		}
 
 		paramsJSON, err := json.Marshal(params)
@@ -210,10 +207,9 @@ func TestLsTool_Run(t *testing.T) {
 
 		response, err := tool.Run(context.Background(), call)
 		require.NoError(t, err)
-		
-		// Should list the temp directory contents
-		assert.Contains(t, response.Content, "dir1")
-		assert.Contains(t, response.Content, "file1.txt")
+
+		assert.Contains(t, response.Content, "subdir1")
+		assert.Contains(t, response.Content, "file4.txt")
 	})
 }
 
