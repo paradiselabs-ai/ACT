@@ -208,7 +208,12 @@ export class PVMIndexer {
       }
 
       // Store in vector store
+      const statsBefore = (this.vectorStore as any).getSidecarStats?.();
       await this.vectorStore.batchStore(coordinationMessages);
+      const statsAfter = (this.vectorStore as any).getSidecarStats?.();
+      if (statsBefore && statsAfter) {
+        logger.info(`PVM drain: ${statsAfter.fromCache - statsBefore.fromCache} from cache, ${statsAfter.freshEmbeds - statsBefore.freshEmbeds} embedded fresh`);
+      }
 
       // Advance cursor to the latest event's timestamp
       this.lastIndexedTimestamp = events[events.length - 1].timestamp;

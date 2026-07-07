@@ -11,6 +11,9 @@
  * cosine similarity, filtering, agent profiles, and storage are unchanged.
  */
 
+import fs from 'fs/promises';
+import path from 'path';
+import { createHash } from 'crypto';
 import {
   VectorMemoryStore,
   VectorStoreConfig,
@@ -54,6 +57,23 @@ interface StoredPoint {
   message: CoordinationMessage;
 }
 
+const EMBEDDING_MODEL = 'Xenova/all-MiniLM-L6-v2';
+
+// Persistent embedding cache entry. The sidecar JSONL is a derived,
+// rebuildable artifact — the ChronLog remains the single source of truth;
+// deleting the sidecar just means re-embedding on the next drain.
+interface SidecarEntry {
+  key: string;      // `${timestamp}_${agent}` — same identity as StoredPoint.id
+  textHash: string; // sha1 of the exact embedded string
+  model: string;    // invalidates the cache wholesale on model swap
+  dim: number;
+  vector: number[];
+}
+
+function sha1(text: string): string {
+  return createHash('sha1').update(text).digest('hex');
+}
+
 export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   private config: VectorStoreConfig;
   private points: StoredPoint[] = [];
@@ -61,10 +81,14 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   private modelReady = false;
   private mode: 'real' | 'hash' | 'unknown' = 'unknown';
   private modeAnnounced: boolean = false;
+  private sidecarPath: string;
+  private sidecar: Map<string, SidecarEntry> | null = null; // lazy-loaded on first store()
+  private sidecarStats = { fromCache: 0, freshEmbeds: 0 };
 
-  constructor(config: Partial<VectorStoreConfig> = {}) {
+  constructor(config: Partial<VectorStoreConfig> & { sidecarPath?: string } = {}) {
     super();
     this.config = { ...DEFAULT_VECTOR_CONFIG, ...config, vectorDbType: 'mock' };
+    this.sidecarPath = config.sidecarPath ?? './data/pvm-vectors.jsonl';
     // Warm up the model in the background so first embed() is fast
     getEmbeddingPipeline()
       .then(() => {
@@ -137,7 +161,10 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       }
     }
 
-    if (this.config.cacheEmbeddings) {
+    // Only cache real embeddings — a cached hash vector would be served on a
+    // later cache hit even after the model recovers (and could then leak into
+    // the persistent sidecar).
+    if (this.config.cacheEmbeddings && this.mode === 'real') {
       if (this.embeddingCache.size >= (this.config.maxCacheSize ?? 1000)) {
         const firstKey = this.embeddingCache.keys().next().value;
         if (firstKey !== undefined) this.embeddingCache.delete(firstKey);
@@ -177,11 +204,32 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   }
 
   async store(message: CoordinationMessage, embedding?: number[]): Promise<void> {
-    const vector = embedding || await this.embed(
-      `${message.agent}: ${message.message} [${message.type}]`
-    );
+    const id = `${message.timestamp}_${message.agent}`;
+    let vector = embedding;
+
+    if (!vector) {
+      const text = `${message.agent}: ${message.message} [${message.type}]`;
+      await this.ensureSidecarLoaded();
+      const hash = sha1(text);
+      const cached = this.sidecar!.get(id);
+      if (cached && cached.textHash === hash && cached.model === EMBEDDING_MODEL) {
+        vector = cached.vector;
+        this.sidecarStats.fromCache++;
+      } else {
+        vector = await this.embed(text);
+        this.sidecarStats.freshEmbeds++;
+        // Persist only real embeddings — a hash-fallback vector written to
+        // disk would permanently poison the index even after the model heals.
+        if (this.mode === 'real') {
+          const entry: SidecarEntry = { key: id, textHash: hash, model: EMBEDDING_MODEL, dim: vector.length, vector };
+          this.sidecar!.set(id, entry);
+          await this.sidecarAppend(entry);
+        }
+      }
+    }
+
     const point: StoredPoint = {
-      id: `${message.timestamp}_${message.agent}`,
+      id,
       vector,
       message
     };
@@ -196,6 +244,47 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   async batchStore(messages: CoordinationMessage[]): Promise<void> {
     for (const message of messages) {
       await this.store(message);
+    }
+  }
+
+  /** Cumulative sidecar counters; callers diff around batchStore for per-drain numbers. */
+  public getSidecarStats(): { fromCache: number; freshEmbeds: number } {
+    return { ...this.sidecarStats };
+  }
+
+  private async ensureSidecarLoaded(): Promise<void> {
+    if (this.sidecar) return;
+    const map = new Map<string, SidecarEntry>();
+    try {
+      const content = await fs.readFile(this.sidecarPath, 'utf-8');
+      for (const line of content.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const e = JSON.parse(line) as SidecarEntry;
+          // last-write-wins per key
+          if (e.key && e.textHash && e.model && Array.isArray(e.vector)) map.set(e.key, e);
+        } catch {
+          // tolerate a truncated final line (crash mid-append)
+        }
+      }
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') {
+        logger.warn(`[PVM] sidecar load failed (${err.message}) — starting with empty cache`);
+      }
+    }
+    this.sidecar = map;
+    if (map.size > 0) {
+      logger.info(`[PVM] loaded ${map.size} cached embeddings from ${this.sidecarPath}`);
+    }
+  }
+
+  private async sidecarAppend(entry: SidecarEntry): Promise<void> {
+    try {
+      await fs.mkdir(path.dirname(this.sidecarPath), { recursive: true });
+      await fs.appendFile(this.sidecarPath, JSON.stringify(entry) + '\n', 'utf-8');
+    } catch (err: any) {
+      // Cache-only artifact — never fatal, worst case is a re-embed next boot
+      logger.warn(`[PVM] sidecar append failed: ${err.message}`);
     }
   }
 
