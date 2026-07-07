@@ -116,9 +116,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
   "meta": {
     "version": 10,
     "model": "subsystem-columns",
-    "branch": "feat/chronlog-durability-pvm-sidecar",
-    "headCommit": "6f54c5f",
-    "generatedAt": "2026-07-06",
+    "branch": "feat/remove-nomik",
+    "headCommit": "284d4d5",
+    "generatedAt": "2026-07-07",
     "summary": "Seven columns, one per subsystem; each node is a real component (friendly name + its file/function). Click a flow to trace the coordination handoffs across columns — edge labels are the actual mechanism cited to file:line. Two config FORKS show as twin paths converging on a shared result; one documented-but-unbuilt capability is a GAP.",
     "findings": [
       {
@@ -692,28 +692,28 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_marker_parser",
           "label": "parseProjectBrief(content) extracts PROJECT_BRIEF: JSON",
           "status": "ok",
-          "detail": "orchestrator.go:3054-3073 — finds 'PROJECT_BRIEF:' marker, then extractJSONContaining(tail, '\"description\"')"
+          "detail": "orchestrator.go:3046-3065 — finds 'PROJECT_BRIEF:' marker, then extractJSONContaining(tail, '\"description\"')"
         },
         {
           "from": "orch_marker_parser",
           "to": "srv_project_store",
           "label": "client.CreateProject(...) POST /api/projects",
           "status": "ok",
-          "detail": "orchestrator.go:1578 — CreateProject() POSTs to /api/projects (act/client.go:552-568)"
+          "detail": "orchestrator.go:1570 — CreateProject() POSTs to /api/projects (act/client.go:552-568)"
         },
         {
           "from": "srv_project_store",
           "to": "prompt_context",
           "label": "writeAgentsMd materializes AGENTS.md, then InvalidateContextCache + RebindSystemPrompt on all Tier-1 agents",
           "status": "ok",
-          "detail": "orchestrator.go:1589-1606 — writeAgentsMd(dir,name,brief); prompt.InvalidateContextCache(); RebindSystemPrompt() per role"
+          "detail": "orchestrator.go:1581-1598 — writeAgentsMd(dir,name,brief); prompt.InvalidateContextCache(); RebindSystemPrompt() per role"
         },
         {
           "from": "prompt_context",
           "to": "orch_turn_mgr",
           "label": "intakeMode=false; fireWhenPlannerIdle kicks Planner into BUILD",
           "status": "ok",
-          "detail": "orchestrator.go:1610,1636 — o.intakeMode=false; fireWhenPlannerIdle(ctx,sid,buildPrompt,'build_mode_trigger')"
+          "detail": "orchestrator.go:1602,1628 — o.intakeMode=false; fireWhenPlannerIdle(ctx,sid,buildPrompt,'build_mode_trigger')"
         }
       ]
     },
@@ -742,28 +742,28 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_marker_parser",
           "label": "parseProjectBrief(content); attach stashed codebase analysis to brief",
           "status": "ok",
-          "detail": "orchestrator.go:1544,1569 — parseProjectBrief; brief.CodebaseNotes = o.codebaseAnalysis (brownfield only)"
+          "detail": "orchestrator.go:1536,1561 — parseProjectBrief; brief.CodebaseNotes = o.codebaseAnalysis (brownfield only)"
         },
         {
           "from": "orch_marker_parser",
           "to": "srv_project_store",
           "label": "client.CreateProject(...) POST /api/projects",
           "status": "ok",
-          "detail": "orchestrator.go:1578 — CreateProject() with brief fields POSTs /api/projects"
+          "detail": "orchestrator.go:1570 — CreateProject() with brief fields POSTs /api/projects"
         },
         {
           "from": "srv_project_store",
           "to": "prompt_context",
           "label": "writeAgentsMd (incl. '## Codebase analysis'); InvalidateContextCache + RebindSystemPrompt",
           "status": "ok",
-          "detail": "orchestrator.go:1589-1606; agents_md.go:19 renderAgentsMd includes CodebaseNotes section"
+          "detail": "orchestrator.go:1581-1598; agents_md.go:19 renderAgentsMd includes CodebaseNotes section"
         },
         {
           "from": "prompt_context",
           "to": "orch_turn_mgr",
           "label": "intakeMode=false; fireWhenPlannerIdle -> Planner BUILD decomposition",
           "status": "ok",
-          "detail": "orchestrator.go:1610,1636 — buildPrompt = renderBriefContext('build',...); Planner emits CREATE_TASK"
+          "detail": "orchestrator.go:1602,1628 — buildPrompt = renderBriefContext('build',...); Planner emits CREATE_TASK"
         },
         {
           "from": "orch_turn_mgr",
@@ -777,28 +777,28 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_marker_parser",
           "label": "parseCreateTaskDirectives(content) extracts task batch",
           "status": "ok",
-          "detail": "orchestrator.go:1672 — parseCreateTaskDirectives finds 'CREATE_TASK:' markers"
+          "detail": "orchestrator.go:1664 — parseCreateTaskDirectives finds 'CREATE_TASK:' markers"
         },
         {
           "from": "orch_marker_parser",
           "to": "orch_dispatch",
           "label": "taskBatchHash dedup; lazy swarm spawn check; two-pass create",
           "status": "ok",
-          "detail": "orchestrator.go:1696-1759 — checkAndRecordDispatchHash; lazy StartSwarm; pass1 create / pass2 resolve"
+          "detail": "orchestrator.go:1688-1751 — checkAndRecordDispatchHash; lazy StartSwarm; pass1 create / pass2 resolve"
         },
         {
           "from": "orch_dispatch",
           "to": "swarm_spawner",
           "label": "StartSwarm(specs) lazy-spawns Tier-2 on first batch",
           "status": "ok",
-          "detail": "orchestrator.go:1737 — o.runnerSpawner.StartSwarm(specs) filtered by agentsInvolved"
+          "detail": "orchestrator.go:1729 — o.runnerSpawner.StartSwarm(specs) filtered by agentsInvolved"
         },
         {
           "from": "orch_dispatch",
           "to": "srv_task_coordinator",
           "label": "client.CreateTask POST /api/tasks; SetTaskDependencies PATCH /api/tasks/:id/dependencies",
           "status": "ok",
-          "detail": "orchestrator.go:1783,1813 — CreateTask returns taskID; SetTaskDependencies(taskID,resolved) for title-deps"
+          "detail": "orchestrator.go:1775,1805 — CreateTask returns taskID; SetTaskDependencies(taskID,resolved) for title-deps"
         }
       ]
     },
@@ -856,21 +856,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_dispatch",
           "label": "taskBatchHash + checkAndRecordDispatchHash; IsAvailable; lazy spawn check",
           "status": "ok",
-          "detail": "orchestrator.go:1696-1730 — content-hash dedup (60s window); client.IsAvailable(); first batch triggers lazy spawn"
+          "detail": "orchestrator.go:1688-1722 — content-hash dedup (60s window); client.IsAvailable(); first batch triggers lazy spawn"
         },
         {
           "from": "orch_dispatch",
           "to": "swarm_spawner",
           "label": "StartSwarm(specs): one Runner subprocess per swarm role",
           "status": "ok",
-          "detail": "orchestrator.go:1737 — o.runnerSpawner.StartSwarm(specs)"
+          "detail": "orchestrator.go:1729 — o.runnerSpawner.StartSwarm(specs)"
         },
         {
           "from": "orch_dispatch",
           "to": "srv_task_coordinator",
           "label": "Pass 1: CreateTask POST /api/tasks (nil deps, collect title->ID); Pass 2: SetTaskDependencies PATCH /api/tasks/:id/dependencies",
           "status": "ok",
-          "detail": "orchestrator.go:1759-1820 — pass1 CreateTask (act/client.go:350); pass2 resolves title->ID and SetTaskDependencies (act/client.go:383)"
+          "detail": "orchestrator.go:1751-1812 — pass1 CreateTask (act/client.go:350); pass2 resolves title->ID and SetTaskDependencies (act/client.go:383)"
         }
       ]
     },
@@ -885,7 +885,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "swarm_spawner",
           "label": "StartSwarm called from handlePlannerTaskDirectives (lazy spawn)",
           "status": "ok",
-          "detail": "orchestrator.go:1737 — o.runnerSpawner.StartSwarm(specs)"
+          "detail": "orchestrator.go:1729 — o.runnerSpawner.StartSwarm(specs)"
         },
         {
           "from": "swarm_spawner",
@@ -1095,14 +1095,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "srv_validation_routes",
           "label": "validationPollLoop (10s) -> checkPendingValidation (attempt cap 3) -> GET /api/tasks/pending-validation (project-scoped)",
           "status": "ok",
-          "detail": "orchestrator.go:2553-2611 (ticker 10s; alreadySeen/incAttempt cap 3; GetPendingValidation client.go:466-472); server/src/index.ts:632-643 getTasksByStatus('submitted_for_validation')"
+          "detail": "orchestrator.go:2545-2603 (ticker 10s; alreadySeen/incAttempt cap 3; GetPendingValidation client.go:466-472); server/src/index.ts:632-643 getTasksByStatus('submitted_for_validation')"
         },
         {
           "from": "orch_validation_router",
           "to": "orch_turn_mgr",
           "label": "routeToAssurance: buildValidationPrompt -> runAgentTurn('assurance')",
           "status": "ok",
-          "detail": "orchestrator.go:2613-2626 — buildValidationPrompt(t,dir); runAgentTurn(ctx,sid,'assurance',prompt,false)"
+          "detail": "orchestrator.go:2605-2618 — buildValidationPrompt(t,dir); runAgentTurn(ctx,sid,'assurance',prompt,false)"
         },
         {
           "from": "orch_turn_mgr",
@@ -1116,14 +1116,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_marker_parser",
           "label": "parseValidationVerdict; fail-closed when len(CriteriaResults)==0",
           "status": "ok",
-          "detail": "orchestrator.go:2643,3094-3111 — extractJSONContaining('\"criteriaResults\"'); emptyCriteria forces Passed=false"
+          "detail": "orchestrator.go:2635,3086-3103 — extractJSONContaining('\"criteriaResults\"'); emptyCriteria forces Passed=false"
         },
         {
           "from": "orch_marker_parser",
           "to": "srv_validation_routes",
           "label": "SubmitVerdict POST /api/tasks/:id/validation-verdict; mark seen after accept",
           "status": "ok",
-          "detail": "orchestrator.go:2662,2669 — SubmitVerdict (client.go:572-587); markSeen after success"
+          "detail": "orchestrator.go:2654,2661 — SubmitVerdict (client.go:572-587); markSeen after success"
         },
         {
           "from": "srv_validation_routes",
@@ -1145,21 +1145,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_turn_mgr",
           "label": "qaPollLoop (10s) -> checkValidatedTasks -> GetValidatedTasks (GET /api/tasks/validated) -> routeToQA: build ValidatedOutput (Result truncated 4000) + buildSynthesisPrompt -> runAgentTurn('qa_synthesizer')",
           "status": "ok",
-          "detail": "orchestrator.go:2675-2779 — ticker 10s; GetValidatedTasks; ValidatedOutput (orchestrator_types.go:155-162); buildSynthesisPrompt(3173-3185)"
+          "detail": "orchestrator.go:2667-2771 — ticker 10s; GetValidatedTasks; ValidatedOutput (orchestrator_types.go:155-162); buildSynthesisPrompt(3173-3185)"
         },
         {
           "from": "orch_turn_mgr",
           "to": "prompt_tier1",
           "label": "QA/Synthesizer prompt assembles deliverable; emits SYNTHESIS_COMPLETE or NEED_CLARIFICATION",
           "status": "ok",
-          "detail": "orchestrator.go:3173-3185 — prompt instructs QA to emit SYNTHESIS_COMPLETE: <summary>"
+          "detail": "orchestrator.go:3165-3177 — prompt instructs QA to emit SYNTHESIS_COMPLETE: <summary>"
         },
         {
           "from": "prompt_tier1",
           "to": "orch_marker_parser",
           "label": "parseSynthesisResponse extracts ONLY the one-line summary — full Result never captured",
           "status": "gap-found",
-          "detail": "orchestrator.go:3125-3137 — summary = TrimSpace(raw[idx+len('SYNTHESIS_COMPLETE:'):]); ValidatedOutput.Result (avail line 2750) never passed to SubmitSynthesis"
+          "detail": "orchestrator.go:3117-3129 — summary = TrimSpace(raw[idx+len('SYNTHESIS_COMPLETE:'):]); ValidatedOutput.Result (avail line 2750) never passed to SubmitSynthesis"
         },
         {
           "from": "orch_marker_parser",
@@ -1181,14 +1181,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_turn_mgr",
           "label": "qaPollLoop -> routeToQA -> buildSynthesisPrompt -> QA turn",
           "status": "ok",
-          "detail": "orchestrator.go:2690-2778 — checkValidatedTasks -> routeToQA -> buildSynthesisPrompt(3173-3184)"
+          "detail": "orchestrator.go:2682-2770 — checkValidatedTasks -> routeToQA -> buildSynthesisPrompt(3173-3184)"
         },
         {
           "from": "orch_turn_mgr",
           "to": "prompt_tier1",
           "label": "QA prompt instructs SYNTHESIS_COMPLETE | NEED_CLARIFICATION marker",
           "status": "ok",
-          "detail": "orchestrator.go:3173-3184 — prompt advertises both markers"
+          "detail": "orchestrator.go:3165-3176 — prompt advertises both markers"
         },
         {
           "from": "prompt_tier1",
@@ -1202,21 +1202,21 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_marker_parser",
           "label": "clarificationRegex parses NEED_CLARIFICATION: @<agent> <question>",
           "status": "ok",
-          "detail": "orchestrator.go:2824,2841 — clarificationRegex extracts addressee + question"
+          "detail": "orchestrator.go:2816,2833 — clarificationRegex extracts addressee + question"
         },
         {
           "from": "orch_marker_parser",
           "to": "srv_event_hub",
           "label": "If addressee != planner: client.SendMessage POST /api/messages; emit system 'QA clarification routed'",
           "status": "ok",
-          "detail": "orchestrator.go:2852-2862 — SendMessage(content) (client.go:197-209); else returns false -> fall through to autoroute"
+          "detail": "orchestrator.go:2844-2854 — SendMessage(content) (client.go:197-209); else returns false -> fall through to autoroute"
         },
         {
           "from": "orch_qa_router",
           "to": "srv_validation_routes",
           "label": "routeToQA also SubmitSynthesis POST /api/tasks/:id/synthesis (kind=complete|need_clarification)",
           "status": "ok",
-          "detail": "orchestrator.go:2805 — SubmitSynthesis (client.go:593-607) after parseSynthesisResponse"
+          "detail": "orchestrator.go:2797 — SubmitSynthesis (client.go:593-607) after parseSynthesisResponse"
         }
       ]
     },
@@ -1324,7 +1324,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "mem_routing_brief",
           "label": "handleProjectBrief: client.RoutingBrief(description, techStack) -> GET /api/pvm/routing-brief (non-fatal on error/empty)",
           "status": "ok",
-          "detail": "orchestrator.go:1641 -> act-agent/internal/act/client.go:239-247 -> server/src/index.ts:1204-1217"
+          "detail": "orchestrator.go:1633 -> act-agent/internal/act/client.go:239-247 -> server/src/index.ts:1204-1217"
         },
         {
           "from": "mem_routing_brief",
@@ -1338,7 +1338,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_turn_mgr",
           "label": "evidence appended as '## Routing evidence from past projects' -> fireWhenPlannerIdle starts Planner BUILD turn",
           "status": "ok",
-          "detail": "orchestrator.go:1644-1648 — buildPrompt += evidence; go fireWhenPlannerIdle(...,buildPrompt,'build_mode_trigger')"
+          "detail": "orchestrator.go:1636-1640 — buildPrompt += evidence; go fireWhenPlannerIdle(...,buildPrompt,'build_mode_trigger')"
         }
       ]
     },
@@ -1404,7 +1404,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "prompt_priming",
           "label": "makePrimingInjector -> wrapPriming (marker + do-not-respond + base) -> renderShimNote (allowed subcommands)",
           "status": "ok",
-          "detail": "app.go:260-305 — closure calls GetAgentPrompt; wrapPriming(288-290); renderShimNote reads tools.AllowedFor(role)",
+          "detail": "app.go:260-305 — closure calls GetAgentPrompt; wrapPriming(286-287); renderShimNote reads tools.AllowedFor(role)",
           "branch": "acp"
         },
         {
@@ -1420,7 +1420,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "exec_agent_service",
           "label": "app.Agents[role] = ACP agent.Service",
           "status": "ok",
-          "detail": "app.go:143 — ACP branch produces agent.Service stored in map",
+          "detail": "app.go:141 — ACP branch produces agent.Service stored in map",
           "branch": "acp"
         },
         {
@@ -1428,7 +1428,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "exec_tool_subsets",
           "label": "App.New per-role switch: default (empty/act-agent) -> Tier1ToolsForRole(role) per-role tool subset",
           "status": "ok",
-          "detail": "app.go:53-119; tools.go:124-144 — default case; planner: act_cli+expand; observer: act_cli; assurance/qa: act_cli+view+grep",
+          "detail": "app.go:53-119; tools.go:109-126 — default case; planner: act_cli+expand; observer: act_cli; assurance/qa: act_cli+view+grep",
           "branch": "in-process"
         },
         {
@@ -1436,7 +1436,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "exec_inproc_agent",
           "label": "historyMode per role; agent.NewAgent(role, tools, threadID, histMode)",
           "status": "ok",
-          "detail": "app.go:130-137; agent.go:101-147 — HistoryThread(planner)/HistoryNone(others); NewAgent constructs struct",
+          "detail": "app.go:128-135; agent.go:101-147 — HistoryThread(planner)/HistoryNone(others); NewAgent constructs struct",
           "branch": "in-process"
         },
         {
@@ -1444,7 +1444,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "exec_agent_service",
           "label": "app.Agents[role] = in-process agent.Service",
           "status": "ok",
-          "detail": "app.go:143 — in-process branch produces agent.Service stored in map",
+          "detail": "app.go:141 — in-process branch produces agent.Service stored in map",
           "branch": "in-process"
         },
         {
@@ -1528,7 +1528,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "prompt_priming",
           "label": "wrapPriming: InternalPromptMarker + do-not-respond header + base + renderShimNote(AllowedFor(role))",
           "status": "ok",
-          "detail": "app.go:288-306 — wrapPriming(288-290); renderShimNote(297-306) reads tools.AllowedFor(role); whitelist (act_cli_whitelist.go:50-61)"
+          "detail": "app.go:286-306 — wrapPriming(286-287); renderShimNote(295-306) reads tools.AllowedFor(role); whitelist (act_cli_whitelist.go:50-61)"
         },
         {
           "from": "prompt_priming",
@@ -1578,7 +1578,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "exec_tool_subsets",
           "label": "in-process: Planner invokes expand_prompt_section tool (in PlannerTools)",
           "status": "ok",
-          "detail": "tools.go:84; agent.go:388 — NewExpandPromptSectionTool wired at construction; invoked via provider tool loop",
+          "detail": "tools.go:69; agent.go:388 — NewExpandPromptSectionTool wired at construction; invoked via provider tool loop",
           "branch": "in-process"
         },
         {
@@ -1657,7 +1657,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "exec_tool_subsets",
           "label": "App.New loops tier1Roles; in-process -> Tier1ToolsForRole(role): planner act_cli+expand; observer act_cli; assurance/qa act_cli+view+grep; default (Tier-2) DeveloperTools full roster",
           "status": "ok",
-          "detail": "app.go:79-119; tools.go:81-143 — Planner/Observer/Assurance/QASynthesizerTools subsets; default DeveloperTools(18-44)"
+          "detail": "app.go:79-119; tools.go:60-126 — Planner/Observer/Assurance/QASynthesizerTools subsets; default DeveloperTools(16-40)"
         },
         {
           "from": "exec_tool_subsets",
@@ -1707,14 +1707,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "srv_rest",
           "label": "observerLoop 120s ticker -> runObserverCheck (skip if any agent busy) -> buildStatusSnapshot: parallel GET /api/tasks, /api/agents, /api/files/locks, /api/log",
           "status": "ok",
-          "detail": "orchestrator.go:2013-2043 (ticker; IsAnyBusy early-return); 2217-2220 ListTasks/ListAgents/GetFileLocks/GetLog(20) parallel; server index.ts:493,260,1146,1277"
+          "detail": "orchestrator.go:2005-2035 (ticker; IsAnyBusy early-return); 2217-2220 ListTasks/ListAgents/GetFileLocks/GetLog(20) parallel; server index.ts:493,260,1146,1277"
         },
         {
           "from": "orch_observer_loop",
           "to": "orch_turn_mgr",
           "label": "tier1Watchdog re-triggers idle Assurance/QA (>5min, non-empty queue); else detectAnomalies (7 rules) + no-op gate -> on changed anomaly buildObserverPrompt -> runAgentTurn('observer') (else 8-min health ping)",
           "status": "ok",
-          "detail": "orchestrator.go:2070-2201 — tier1Watchdog (2175-2201); 7 rules(2285-2502); lastObserverPromptHash gate; runAgentTurn(ctx,sid,'observer',false); cycle%4 emitSystemMessage"
+          "detail": "orchestrator.go:2062-2193 — tier1Watchdog (2175-2201); 7 rules(2285-2502); lastObserverPromptHash gate; runAgentTurn(ctx,sid,'observer',false); cycle%4 emitSystemMessage"
         },
         {
           "from": "orch_turn_mgr",
@@ -1728,14 +1728,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_autoroute",
           "label": "observer role -> autoRoutePlannerV(variantAnomaly): pruneAutoRoutes; cap 5/10min; renderAutoRoutePrompt; fireWhenPlannerIdle",
           "status": "ok",
-          "detail": "orchestrator.go:1202-1252,1319-1350 — autoRoutePlannerV; pruneAutoRoutes; autoTurnCap; renderAutoRoutePrompt"
+          "detail": "orchestrator.go:1202-1252,1311-1342 — autoRoutePlannerV; pruneAutoRoutes; autoTurnCap; renderAutoRoutePrompt"
         },
         {
           "from": "orch_autoroute",
           "to": "orch_turn_mgr",
           "label": "fireWhenPlannerIdle (poll 200ms, 60s max) -> runAgentTurn('planner')",
           "status": "ok",
-          "detail": "orchestrator.go:1649-1661 — IsRoleBusy('planner') poll; runAgentTurn(ctx,sid,'planner',prompt,false)"
+          "detail": "orchestrator.go:1641-1653 — IsRoleBusy('planner') poll; runAgentTurn(ctx,sid,'planner',prompt,false)"
         }
       ]
     },
@@ -1771,7 +1771,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "orch_turn_mgr",
           "label": "pruneAutoRoutes (>10min); if len>=autoTurnCap(5) drop+return; record; renderAutoRoutePrompt(variant) -> fireWhenPlannerIdle -> IsRoleBusy poll -> runAgentTurn('planner')",
           "status": "ok",
-          "detail": "orchestrator.go:1319-1350,1649-1661 — sliding-window prune/cap/record; renderAutoRoutePrompt per variant; fireWhenPlannerIdle; IsRoleBusy(1116); runAgentTurn('planner')"
+          "detail": "orchestrator.go:1311-1342,1641-1653 — sliding-window prune/cap/record; renderAutoRoutePrompt per variant; fireWhenPlannerIdle; IsRoleBusy(1116); runAgentTurn('planner')"
         },
         {
           "from": "human",
@@ -1829,7 +1829,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "swarm_actagent",
           "label": "swarmWorkflow + developer prompt instruct 'claim files before editing' -> agent runs 'act files claim <paths>' (instructed, never enforced by orchestrator)",
           "status": "prompt-only",
-          "detail": "common.go:132-144; developer.go — 'CLAIM FILES: run act-agent files claim <paths>'; no code calls client.ClaimFiles, orchestrator never pre-checks locks"
+          "detail": "common.go:154; developer.go — 'CLAIM FILES: run act-agent files claim <paths>'; no code calls client.ClaimFiles, orchestrator never pre-checks locks"
         },
         {
           "from": "swarm_actagent",
@@ -1879,7 +1879,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
           "to": "srv_task_coordinator",
           "label": "client.CreateTask POST /api/tasks (generic, NOT A2A); SetTaskDependencies PATCH deps",
           "status": "ok",
-          "detail": "orchestrator.go:1783,1813; client.go:350,375-398; server/src/index.ts:502-566 — assignOptimalAgent"
+          "detail": "orchestrator.go:1775,1805; client.go:350,375-398; server/src/index.ts:502-566 — assignOptimalAgent"
         },
         {
           "from": "srv_task_coordinator",
