@@ -185,15 +185,26 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 	// Tier 1 "I'm alive" pings — without these the user has no way to know
 	// Observer/Assurance/QA exist (they're event-driven and stay silent on
 	// healthy runs). Pinged once at startup, after a short delay so they
-	// land after the welcome message.
+	// land after the welcome message. Pings reflect reality: a role that
+	// failed to wire gets a loud failure line, never a false "online" —
+	// three 2026-07-07 runs shipped a dead Observer behind the old
+	// unconditional ping and nobody could tell.
 	go func() {
 		time.Sleep(2 * time.Second)
 		o.mu.RLock()
 		sid := o.sessionID
 		o.mu.RUnlock()
-		o.emitSystemMessage(context.Background(), sid, "👁  Observer online — monitoring every 120s")
-		o.emitSystemMessage(context.Background(), sid, "✅  Assurance online — waiting for tasks to validate")
-		o.emitSystemMessage(context.Background(), sid, "🧩  QA/Synthesizer online — waiting for validated outputs")
+		for _, p := range []struct{ role, online string }{
+			{"observer", "👁  Observer online — monitoring every 120s"},
+			{"assurance", "✅  Assurance online — waiting for tasks to validate"},
+			{"qa_synthesizer", "🧩  QA/Synthesizer online — waiting for validated outputs"},
+		} {
+			if o.getAgent(p.role) != nil {
+				o.emitSystemMessage(context.Background(), sid, p.online)
+			} else {
+				o.emitSystemMessage(context.Background(), sid, "⛔  "+p.role+" FAILED to start — fix its ~/.act.json entry and relaunch (details: tier1_agent_wire_failed in debug.log)")
+			}
+		}
 	}()
 
 	// Brownfield intake: existing code, unknown project. Analyze the repo in the
