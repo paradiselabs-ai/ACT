@@ -55,9 +55,9 @@
         "server/src/"
       ],
       "refresh": "docs/constitution/UPDATE_LOOPS.md \u00a73 (grep-verify section claims; fix only confirmed-wrong lines)",
-      "verified_against": "d7ef63b",
-      "status": "stale",
-      "staled_by": "76ba3d7"
+      "verified_against": "ed5805f",
+      "status": "fresh",
+      "staled_by": null
     },
     "readme": {
       "paths": [
