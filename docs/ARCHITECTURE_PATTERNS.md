@@ -1,3 +1,11 @@
+---
+title: Architecture Patterns to Adopt
+status: current
+verified_against: e3733d2
+owner: project-owner
+last_verified: 2026-07-11
+---
+
 # Architecture Patterns to Adopt
 
 Patterns identified from Claude Code's leaked source (March 2026) worth implementing independently in ACT's Go/TypeScript codebase. No proprietary code — concepts only.

@@ -18,7 +18,7 @@ Why this is non-negotiable:
 > "fix" it. (2026-06-12: an assumed-bug ignore path was actually intentional; "fixing" it untracked
 > 205 deliberately-committed SPIL test files and reached the remote.)
 
-> `architecture-flows.html/.json` are currently **known stale** — do not consult them until they are rebuilt against the current codebase.
+> `architecture-flows.html/.json` are **BACKBURNERED** (2026-07-11): moved to `docs/dev/BACKBURNER-architecture-flows.{html,json}` and untracked (`.gitignore`) — implementation approach undecided, refresh cost too high. Advisory-only if consulted on disk; `flows-explainer.html` remains tracked at repo root.
 
 ***
 
@@ -36,9 +36,11 @@ reconciliation commit `d7ef63b`).
 operation: code-verify any claim that affects your next step, even from artifacts marked `fresh`.
 Anyone who finds a FALSE statement in a fresh artifact resets the cycle count and fixes the doc.
 
-Branch lineage right now: `NesTTY` → `feat/remove-nomik` → `feat/cleanup-constitution`. Remaining
-on this effort: architecture-flows + planner-prompts regeneration (pre-merge gate), merge back to
-`feat/remove-nomik`, NVIDIA provider wiring, TUI e2e matrix (below), PR → `NesTTY` when alpha-worthy.
+Branch lineage right now: `NesTTY` (shared integration) → `feat/remove-nomik` (active; `feat/cleanup-constitution`
+already merged in, ff `90f7230`). Landed since: Nomik removal, the antigravity/agy Tier-1 ACP backends,
+NVIDIA provider wiring. Remaining on this effort: planner-prompts regeneration (pre-merge gate),
+TUI e2e matrix (below), PR → `NesTTY` when alpha-worthy. (architecture-flows regeneration is
+backburnered — see the banner above.)
 
 ***
 
@@ -48,7 +50,7 @@ on this effort: architecture-flows + planner-prompts regeneration (pre-merge gat
 
 **Current Phase**: NesTTY branch — two-tier role hierarchy.
 
-**Branch**: `NesTTY`
+**Branch**: `feat/remove-nomik` — active feature branch off the shared `NesTTY` integration branch.
 
 ***
 
@@ -92,7 +94,7 @@ The swarm agents execute tasks headlessly with role specializations: `frontend_d
 
 Users change backends with `/swarm <role> <backend>` (in the TUI) or `act-agent swarm set <role> <backend>` (CLI). The bulk form is `/swarm all claude-code` or `act-agent swarm set all claude-code`.
 
-**Tier 1 ALSO has backend selection — do NOT re-implement it.** Each Tier-1 role dispatches on `agents.<role>.backend` in `~/.act.json` via the backend switch in `internal/app/app.go`: external CLI hosts (e.g. `claude-code`; the live member set changes — **re-grep the switch, never trust a list here**) are driven over **ACP** (`internal/acp/`, constructor `acp.NewACPAgent`, per-role CLI allowlist enforced by `cmd/act-tier1-shim`); an empty/`act-agent` backend keeps the in-process goroutine path. The TUI command is `/backend <role|all> <backend>` (`slash.go`) — separate from Tier 2's `/swarm`. An `antigravity`/`agy` backend pair is in flight (see kanban `document-antigravity-agy-backends-2026-06-11`).
+**Tier 1 ALSO has backend selection — do NOT re-implement it.** Each Tier-1 role dispatches on `agents.<role>.backend` in `~/.act.json` via the backend switch in `internal/app/app.go`: external CLI hosts (e.g. `claude-code`; the live member set changes — **re-grep the switch, never trust a list here**) are driven over **ACP** (`internal/acp/`, constructor `acp.NewACPAgent`, per-role CLI allowlist enforced by `cmd/act-tier1-shim`); an empty/`act-agent` backend keeps the in-process goroutine path. The TUI command is `/backend <role|all> <backend>` (`slash.go`) — separate from Tier 2's `/swarm`. The `antigravity`/`agy` ACP backends have **landed** (commit `9b11107` + follow-ups): `antigravity` is offered by `/backend` (`slash.go`) and the `app.go` switch accepts `claude-code`, `antigravity`, `agy`, `codex`, `opencode` — **re-grep the switch, don't trust this list**. (Kanban: `document-antigravity-agy-backends-2026-06-11`.)
 
 **Other swarm details:**
 - Planner picks role mix per project → writes tasks to role IDs → Runner spawns swarm agents
@@ -186,7 +188,9 @@ If either founder catches themselves doing any of these, stop and recalibrate:
 ACT/
 ├── act-coordination.json          # CRITICAL: multi-agent coordination log (append-only)
 ├── CLAUDE.md                      # ← You are here
-├── docs/Vault/Agent Coordination Toolkit/nestty/  # Architecture docs (READ FIRST for design work)
+├── docs/constitution/             # Truth rules + freshness.json (READ FIRST — governs where docs live)
+├── docs/{dev,audits,planner-prompt-audit}/  # Dev-state, audit outputs, prompt-audit line (tracked)
+│   #  (docs/Vault/ is a gitignored personal vault — owner's machine only; nothing load-bearing lives ONLY there)
 ├── server/                        # ACT Coordination Server (TypeScript/Express/Socket.io)
 │   ├── src/index.ts              # REST endpoints + Socket.io handlers
 │   ├── src/services/
@@ -402,7 +406,7 @@ the captured evidence paths. Label by subsystem (`TUI`, `orchestrator`, `server`
 
 ## Build Order (Current)
 
-See `docs/Vault/Agent Coordination Toolkit/nestty/BUILD_ORDER.md` for full details.
+Full details live in the owner's personal vault (`docs/Vault/.../nestty/BUILD_ORDER.md` — ⚠ gitignored, not in the repo; advisory only).
 
 **Gate 0**: `claude --print "test"` works ✅
 **Block 1**: Brief injection ✅, CLAUDE.md update ✅, Role taxonomy ✅
@@ -498,11 +502,10 @@ Handoffs live at **`docs/dev/HANDOFF.md`** (tracked — Constitution Art. 7). On
 
 ## Visual codebase mapping
 
-Three artifacts at repo root map the entire NesTTY codebase honestly:
+Artifacts that map the NesTTY codebase honestly:
 
-- `architecture-flows.html` — single-file interactive diagram. Open offline via `file://`. Filter chips per category, multi-select flow overlays in five colors (gold, blue, green, magenta, cyan).
-- `architecture-flows.json` — sibling JSON, byte-identical to the inline `<script type="application/json">` block in the HTML. Used for machine verification.
-- `flows-explainer.html` — companion with a Findings headline at top covering six gap items (Ralph prompt-only, QA partial-deliverable persistence, Socket.io vestigial, no-auth trust boundary, Qdrant build-excluded, kanban doc-only).
+- `flows-explainer.html` — **tracked at repo root.** Companion with a Findings headline at top covering six gap items (Ralph prompt-only, QA partial-deliverable persistence, Socket.io vestigial, no-auth trust boundary, Qdrant build-excluded, kanban doc-only).
+- `architecture-flows.html` / `architecture-flows.json` — **BACKBURNERED** (2026-07-11): the interactive diagram + its sibling machine-verification JSON now live at `docs/dev/BACKBURNER-architecture-flows.{html,json}`, untracked via `.gitignore`. Kept on disk (advisory only); not maintained. Reason: implementation approach undecided, refresh cost too high. Freshness `auto_refresh` is off for this artifact.
 
 Status taxonomy distinguishes code-enforced from prompt-wished behavior:
 - `ok` — code-verified. Every step's `detail` cites `file:line`.
@@ -510,7 +513,7 @@ Status taxonomy distinguishes code-enforced from prompt-wished behavior:
 - `gap-found` ⚠ — documented but no implementing code, or partially implemented.
 - `unverified` is forbidden in shipped artifacts; it exists as a construction-time scratch marker only.
 
-**The method doc is `.claude/architecture-flows-method.md`.** Read it before rebuilding any of these artifacts. It contains the amended §4c (grep upfront, sub-agent claims must be re-grep'd by the parent before encoding), the JSON schema, the rendering rules, and the post-completion verification command. Rebuild when a REST endpoint changes, a Tier 1 or Tier 2 role file appears or disappears, a coordination protocol step changes, or a claim in the method doc is contradicted by reality.
+**The method doc is `.claude/architecture-flows-method.md`.** Read it before rebuilding any of these artifacts. It contains the amended §4c (grep upfront, sub-agent claims must be re-grep'd by the parent before encoding), the JSON schema, the rendering rules, and the post-completion verification command. Note: the `architecture-flows.{html,json}` rebuild loop is **backburnered** — do not spawn refresh sessions for it until the backburner is lifted, even when a REST endpoint / role file / protocol step changes.
 
 ***
 

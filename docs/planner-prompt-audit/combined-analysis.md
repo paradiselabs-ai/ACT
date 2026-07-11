@@ -1,3 +1,11 @@
+---
+title: Combined Planner Prompt Analysis
+status: current
+verified_against: d7ef63b
+owner: generated
+last_verified: 2026-06-11
+---
+
 # Combined Planner Prompt Analysis — De-duped Findings
 
 Source material:
