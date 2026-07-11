@@ -45,6 +45,14 @@ coverage/
 TESTING_STRATEGY.md
 SETUP.md
 
+# ── Backburnered artifacts (kept on disk, out of version control) ──
+# architecture-flows maps: deferred — implementation approach undecided and the
+# cost of frequent heavy swarm refresh sessions to troubleshoot is too high.
+# See the BACKBURNER banner inside each file. (Untracked under explicit owner
+# instruction 2026-07-11; flows-explainer.html stays tracked at repo root.)
+docs/dev/BACKBURNER-architecture-flows.html
+docs/dev/BACKBURNER-architecture-flows.json
+
 # ── Personal scratch / notes ────────────────
 taskade agentics.md
 *.md

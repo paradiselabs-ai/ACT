@@ -27,7 +27,8 @@ Where docs live, how a doc page is structured, how docs are pruned, and how ever
 | `docs/_archive/` | Superseded docs (tombstoned, see §4) | ✅ | History |
 | `docs/Vault/` | Personal Obsidian vault. **Advisory scratch only** — nothing load-bearing may live ONLY here. | ❌ gitignored | Project owner's machine |
 | `.devtool/features/` | Kanban (see [TASK_TRACKING.md](TASK_TRACKING.md)) | ✅ | Everyone |
-| Repo root `architecture-flows.{json,html}`, `flows-explainer.html` | Generated codebase maps (rebuild method: `.claude/architecture-flows-method.md`) | ✅ | Everyone |
+| Repo root `flows-explainer.html` | Generated codebase map — the Findings companion (rebuild method: `.claude/architecture-flows-method.md`) | ✅ | Everyone |
+| `docs/dev/BACKBURNER-architecture-flows.{json,html}` | **Backburnered** codebase maps (2026-07-11) — kept on disk, out of VC | ❌ gitignored | History |
 
 **Decision table — where does a new doc go?**
 

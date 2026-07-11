@@ -3,8 +3,8 @@
   "artifacts": {
     "architecture-flows": {
       "paths": [
-        "architecture-flows.json",
-        "architecture-flows.html",
+        "docs/dev/BACKBURNER-architecture-flows.json",
+        "docs/dev/BACKBURNER-architecture-flows.html",
         "flows-explainer.html"
       ],
       "watch": [
@@ -18,8 +18,9 @@
       "verified_against": "284d4d5",
       "status": "stale",
       "staled_by": "ec3c9a1",
-      "auto_refresh": true,
+      "auto_refresh": false,
       "debounce_minutes": 60,
+      "backburner": "BACKBURNER (2026-07-11, owner instruction): architecture-flows.json/html moved to docs/dev/BACKBURNER-* and untracked (see .gitignore). Auto-refresh disabled \u2014 implementation approach undecided and the cost of frequent heavy swarm refresh sessions to troubleshoot is too high. flows-explainer.html remains tracked at repo root. Do NOT spawn refresh sessions for this artifact until the backburner is lifted.",
       "purpose": "Continuously-current architecture view: html for humans; the json doubles as fast agent onboarding/reminder context for the ACT codebase \u2014 which is exactly why it must stay trustworthy"
     },
     "planner-prompts": {
