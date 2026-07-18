@@ -330,6 +330,8 @@ func Load(workingDir string, debug bool) (*Config, error) {
 		return cfg, nil
 	}
 
+	loadDotEnv(workingDir)
+
 	cfg = &Config{
 		WorkingDir: workingDir,
 		MCPServers: make(map[string]MCPServer),
@@ -720,4 +722,71 @@ func UpdateTheme(themeName string) error {
 		config.TUI.Theme = themeName
 	})
 }
+
+// loadDotEnv attempts to find and parse a .env file from the working directory,
+// parent directories, or the configured actRoot, injecting keys into the environment.
+func loadDotEnv(workingDir string) {
+	candidates := []string{
+		filepath.Join(workingDir, ".env"),
+	}
+
+	// Walk up parent directories to find a .env file
+	curr := workingDir
+	for {
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		candidates = append(candidates, filepath.Join(parent, ".env"))
+		curr = parent
+	}
+
+	// Try actRoot from ~/.act/config.json
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		if data, err := os.ReadFile(filepath.Join(home, ".act", "config.json")); err == nil {
+			var actRootCfg struct {
+				ActRoot string `json:"actRoot"`
+			}
+			if err := json.Unmarshal(data, &actRootCfg); err == nil && actRootCfg.ActRoot != "" {
+				candidates = append(candidates, filepath.Join(actRootCfg.ActRoot, ".env"))
+			}
+		}
+	}
+
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				v := strings.TrimSpace(parts[1])
+				// Strip surrounding quotes
+				if (strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"")) ||
+					(strings.HasPrefix(v, "'") && strings.HasSuffix(v, "'")) {
+					if len(v) >= 2 {
+						v = v[1 : len(v)-1]
+					}
+				}
+				if os.Getenv(k) == "" {
+					os.Setenv(k, v)
+				}
+			}
+		}
+		// Stop after loading the first found .env file
+		break
+	}
+}
+
 

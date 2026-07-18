@@ -127,7 +127,8 @@ func NewACPAgent(
 
 	// Process group: kill the whole subtree on Close. The npx → node → agent
 	// chain spawns descendants; without Setpgid the npx wrapper would survive.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	setProcGroup(cmd.SysProcAttr)
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("acp: start subprocess: %w", err)
@@ -526,7 +527,9 @@ func (a *ACPAgent) Close() error {
 	if a.cmd != nil && a.cmd.Process != nil {
 		// Best-effort: SIGTERM the whole process group so npx/node descendants
 		// die with us. Setpgid was set at spawn time.
-		_ = syscall.Kill(-a.cmd.Process.Pid, syscall.SIGTERM)
+		if err := killProcessGroup(a.cmd.Process.Pid); err != nil {
+			_ = a.cmd.Process.Kill()
+		}
 		_ = a.cmd.Wait()
 	}
 	return closeErr
