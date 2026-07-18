@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/compat"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/diff"
@@ -54,19 +53,7 @@ func toPlainText(content string, width int) string {
 }
 
 func roleColor(role string) color.Color {
-	t := theme.CurrentTheme()
-	switch role {
-	case "planner":
-		return t.Primary()
-	case "observer":
-		return t.TextMuted()
-	case "assurance":
-		return compat.AdaptiveColor{Dark: lipgloss.Color("#8a7755"), Light: lipgloss.Color("#9a8a60")}
-	case "qa", "qa_synthesizer":
-		return compat.AdaptiveColor{Dark: lipgloss.Color("#5a8a60"), Light: lipgloss.Color("#4a7a50")}
-	default:
-		return t.Primary()
-	}
+	return styles.AgentColor(role)
 }
 
 func roleLabel(role string, width int) string {
@@ -94,7 +81,7 @@ func roleLabel(role string, width int) string {
 }
 
 func renderMessage(msg string, isUser bool, isFocused bool, width int, role string, info ...string) string {
-	return renderMessageBody(msg, isUser, isFocused, width, role, true, info...)
+	return renderMessageBody(msg, isUser, isFocused, width, role, true, false, "", info...)
 }
 
 // renderMessageBody is renderMessage with an explicit useMarkdown switch. When
@@ -102,7 +89,7 @@ func renderMessage(msg string, isUser bool, isFocused bool, width int, role stri
 // rendered as plain text inside the same border/padding treatment. Used for
 // streaming assistant messages (see KI-01 in KNOWN_ISSUES.md) where Glamour's
 // per-token re-render was blocking the Bubbletea Update loop for seconds.
-func renderMessageBody(msg string, isUser bool, isFocused bool, width int, role string, useMarkdown bool, info ...string) string {
+func renderMessageBody(msg string, isUser bool, isFocused bool, width int, role string, useMarkdown bool, isAwaitingInput bool, userPrompt string, info ...string) string {
 	t := theme.CurrentTheme()
 
 	style := styles.BaseStyle().
@@ -114,9 +101,25 @@ func renderMessageBody(msg string, isUser bool, isFocused bool, width int, role 
 
 	if isUser {
 		style = style.BorderForeground(t.Secondary())
+	} else if isAwaitingInput {
+		style = style.BorderForeground(t.Accent()) // Highlight with Accent color!
 	} else if role != "" {
 		style = style.BorderForeground(roleColor(role))
 	}
+
+	// Sanitize content before rendering: rewrite file:/// links to relative
+	// paths, truncate long unbreakable tokens, convert tabs to spaces, and
+	// apply safe pre-render question/option highlights.
+	// This prevents Glamour's word-wrapper from overflowing on spaceless
+	// tokens that exceed the box width. Border + padding consume 4 cols.
+	msg = styles.SanitizeForTUI(msg, width-4, "", isAwaitingInput, userPrompt)
+
+	// Cap content height using configurable limit (default 80 lines).
+	maxLines := config.Get().TUI.MaxMessageLines
+	if maxLines <= 0 {
+		maxLines = 80
+	}
+	msg = styles.CapContentHeight(msg, maxLines)
 
 	var body string
 	if useMarkdown {
@@ -221,6 +224,7 @@ func renderAssistantMessage(
 	width int,
 	position int,
 	useMarkdown bool,
+	isLastAssistantAndIdle bool,
 ) []uiMessage {
 	messages := []uiMessage{}
 	content := msg.Content().String()
@@ -228,10 +232,20 @@ func renderAssistantMessage(
 	thinkingContent := msg.ReasoningContent().Thinking
 	finished := msg.IsFinished()
 	finishData := msg.FinishPart()
+	userPrompt := ""
+	for i := msgIndex - 1; i >= 0; i-- {
+		if allMessages[i].Role == message.User {
+			userPrompt = allMessages[i].Content().String()
+			break
+		}
+	}
+
 	info := []string{}
 
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
+
+	isAwaitingInput := isLastAssistantAndIdle && (role == "planner")
 
 	// Add finish info if available
 	if finished {
@@ -278,7 +292,7 @@ func renderAssistantMessage(
 		// that re-enters this function with useMarkdown=true and posts the
 		// rendered result back as a markdownRenderedMsg — keeping Glamour off
 		// the Update goroutine entirely.
-		body := renderMessageBody(content, false, true, width, role, useMarkdown, info...)
+		body := renderMessageBody(content, false, true, width, role, useMarkdown, isAwaitingInput, userPrompt, info...)
 		if label := roleLabel(role, width-1); label != "" {
 			content = lipgloss.JoinVertical(lipgloss.Left, label, body)
 		} else {
@@ -297,7 +311,7 @@ func renderAssistantMessage(
 		// Thinking/reasoning tokens stream in real time — same Glamour-cost
 		// issue as regular streaming content above. Plain text until it
 		// settles.
-		content = renderMessageBody(thinkingContent, false, msg.ID == focusedUIMessageId, width, role, false)
+		content = renderMessageBody(thinkingContent, false, msg.ID == focusedUIMessageId, width, role, false, false, "")
 	}
 
 	for i, toolCall := range msg.ToolCalls() {

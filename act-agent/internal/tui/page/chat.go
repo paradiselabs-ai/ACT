@@ -143,6 +143,9 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case chat.SessionSelectedMsg:
 		p.session = msg
+		if msg.ID != "" && p.app.Orchestrator != nil {
+			p.app.Orchestrator.Start(context.Background(), msg.ID)
+		}
 	case tea.KeyPressMsg:
 		// Tab toggles scroll-focus mode — gives arrow keys to the viewport.
 		// Available even while Tier 1 agents are busy so the user can scroll
@@ -174,6 +177,12 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Swallow all other keys while scroll-focused.
 			return p, nil
+		}
+		if msg.String() == "ctrl+up" || msg.String() == "alt+up" {
+			return p, util.CmdHandler(chat.ScrollMsg{Lines: -1})
+		}
+		if msg.String() == "ctrl+down" || msg.String() == "alt+down" {
+			return p, util.CmdHandler(chat.ScrollMsg{Lines: 1})
 		}
 		switch {
 		case key.Matches(msg, keyMap.ShowCompletionDialog):

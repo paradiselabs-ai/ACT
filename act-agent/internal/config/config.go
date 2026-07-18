@@ -232,8 +232,9 @@ type LSPConfig struct {
 
 // TUIConfig defines the configuration for the Terminal User Interface.
 type TUIConfig struct {
-	Theme   string        `json:"theme,omitempty"`
-	AutoFit *AutoFitConfig `json:"autoFit,omitempty"`
+	Theme           string         `json:"theme,omitempty"`
+	AutoFit         *AutoFitConfig `json:"autoFit,omitempty"`
+	MaxMessageLines int            `json:"maxMessageLines,omitempty"` // max lines per assistant message before truncation; 0 = default (80)
 }
 
 // AutoFitConfig controls the startup terminal-window resize. On by default —
@@ -452,32 +453,34 @@ func setDefaults(debug bool) {
 // setProviderDefaults configures LLM provider defaults based on provider provided by
 // environment variables and configuration file.
 func setProviderDefaults() {
-	// Set all API keys we can find in the environment
-	// Note: Viper does not default if the json apiKey is ""
+	// Set all API keys we can find in the environment.
+	// We use viper.Set instead of SetDefault because if the JSON config contains
+	// a provider block with an empty apiKey (e.g. "openrouter": {}), the parsed
+	// empty string takes precedence over SetDefault.
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.anthropic.apiKey", apiKey)
+		viper.Set("providers.anthropic.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.openai.apiKey", apiKey)
+		viper.Set("providers.openai.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.gemini.apiKey", apiKey)
+		viper.Set("providers.gemini.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("GROQ_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.groq.apiKey", apiKey)
+		viper.Set("providers.groq.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("NVIDIA_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.nvidia.apiKey", apiKey)
+		viper.Set("providers.nvidia.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.openrouter.apiKey", apiKey)
+		viper.Set("providers.openrouter.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("XAI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.xai.apiKey", apiKey)
+		viper.Set("providers.xai.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("AZURE_OPENAI_ENDPOINT"); apiKey != "" {
 		// api-key may be empty when using Entra ID credentials – that's okay
-		viper.SetDefault("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
+		viper.Set("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
 	}
 
 	// NesTTY uses its own four Tier 1 agents (planner/observer/assurance/

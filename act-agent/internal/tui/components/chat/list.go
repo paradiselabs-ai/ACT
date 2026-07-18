@@ -352,6 +352,15 @@ func (m *messagesCmp) renderView() {
 			// before. queueAsyncGlamour (called from Update before renderView
 			// runs) populates asyncGlamour so the first sync render after a
 			// finish-transition is already fast.
+			lastAssistantIdx := -1
+			for i := len(m.messages) - 1; i >= 0; i-- {
+				if m.messages[i].Role == message.Assistant {
+					lastAssistantIdx = i
+					break
+				}
+			}
+			anyBusy := m.app.Orchestrator.IsAnyBusy("")
+			isLastAssistantAndIdle := (inx == lastAssistantIdx) && !anyBusy
 			useMarkdown := finished && !m.asyncGlamour[msg.ID]
 
 			assistantMessages := renderAssistantMessage(
@@ -365,6 +374,7 @@ func (m *messagesCmp) renderView() {
 				m.width,
 				pos,
 				useMarkdown,
+				isLastAssistantAndIdle,
 			)
 			for _, msg := range assistantMessages {
 				m.uiMessages = append(m.uiMessages, msg)
@@ -678,6 +688,15 @@ func (m *messagesCmp) asyncGlamourCmd(msg message.Message, msgIndex int) tea.Cmd
 	allMessages := append([]message.Message(nil), m.messages...)
 	currentMsgID := m.currentMsgID
 	messagesService := m.app.Messages
+	lastAssistantIdx := -1
+	for i := len(allMessages) - 1; i >= 0; i-- {
+		if allMessages[i].Role == message.Assistant {
+			lastAssistantIdx = i
+			break
+		}
+	}
+	anyBusy := m.app.Orchestrator.IsAnyBusy("")
+	isLastAssistantAndIdle := (msgIndex == lastAssistantIdx) && !anyBusy
 	isSummary := m.session.SummaryMessageID == msg.ID
 	return func() tea.Msg {
 		rendered := renderAssistantMessage(
@@ -691,6 +710,7 @@ func (m *messagesCmp) asyncGlamourCmd(msg message.Message, msgIndex int) tea.Cmd
 			width,
 			0, // position recomputed by renderView; cacheItem.content uses it as a no-op
 			true,
+			isLastAssistantAndIdle,
 		)
 		return markdownRenderedMsg{
 			sessionID: sessionID,

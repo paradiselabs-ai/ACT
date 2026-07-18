@@ -154,3 +154,19 @@ func BorderFocusedColor() compat.AdaptiveColor {
 func BorderDimColor() compat.AdaptiveColor {
 	return theme.CurrentTheme().BorderDim()
 }
+
+// AgentColor returns the adaptive color for the given agent role.
+func AgentColor(role string) compat.AdaptiveColor {
+	switch role {
+	case "planner":
+		return compat.AdaptiveColor{Dark: lipgloss.Color("39"), Light: lipgloss.Color("31")} // Cyan
+	case "observer":
+		return compat.AdaptiveColor{Dark: lipgloss.Color("141"), Light: lipgloss.Color("99")} // Purple
+	case "assurance":
+		return compat.AdaptiveColor{Dark: lipgloss.Color("42"), Light: lipgloss.Color("28")} // Green
+	case "qa", "qa_synthesizer":
+		return compat.AdaptiveColor{Dark: lipgloss.Color("212"), Light: lipgloss.Color("163")} // Magenta
+	default:
+		return compat.AdaptiveColor{Dark: lipgloss.Color("244"), Light: lipgloss.Color("244")} // Gray
+	}
+}

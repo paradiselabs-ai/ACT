@@ -35,6 +35,7 @@ type keyMap struct {
 	Filepicker    key.Binding
 	Models        key.Binding
 	SwitchTheme   key.Binding
+	RenameSession key.Binding
 }
 
 type startCompactSessionMsg struct{}
@@ -86,6 +87,10 @@ var keys = keyMap{
 	SwitchTheme: key.NewBinding(
 		key.WithKeys("ctrl+t"),
 		key.WithHelp("ctrl+t", "switch theme"),
+	),
+	RenameSession: key.NewBinding(
+		key.WithKeys("ctrl+e"),
+		key.WithHelp("ctrl+e", "rename session"),
 	),
 }
 
@@ -147,6 +152,9 @@ type appModel struct {
 	showThemeDialog bool
 	themeDialog     dialog.ThemeDialog
 
+	showRenameDialog bool
+	renameDialog     dialog.RenameDialog
+
 	showMultiArgumentsDialog bool
 	multiArgumentsDialog     dialog.MultiArgumentsDialogCmp
 
@@ -186,6 +194,14 @@ func (a appModel) Init() tea.Cmd {
 	cmds = append(cmds, func() tea.Msg {
 		if config.IsFirstRun() && !config.HasConfigFile() {
 			return dialog.ShowOnboardingDialogMsg{Show: true}
+		}
+		return nil
+	})
+
+	cmds = append(cmds, func() tea.Msg {
+		sessions, err := a.app.Sessions.List(context.Background())
+		if err == nil && len(sessions) > 0 {
+			return chat.SessionSelectedMsg(sessions[0])
 		}
 		return nil
 	})
@@ -315,6 +331,28 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.showSessionDialog = false
 		return a, nil
 
+	case dialog.CloseRenameDialogMsg:
+		a.showRenameDialog = false
+		return a, nil
+
+	case dialog.RenameCompletedMsg:
+		a.showRenameDialog = false
+		newTitle := strings.TrimSpace(msg.NewTitle)
+		if newTitle != "" && a.selectedSession.ID != "" {
+			a.selectedSession.Title = newTitle
+			// Save the renamed session to the database
+			_, err := a.app.Sessions.Save(context.Background(), a.selectedSession)
+			if err != nil {
+				return a, util.ReportError(err)
+			}
+			// Update the session in the session dialog list so it shows the new name
+			sessions, err := a.app.Sessions.List(context.Background())
+			if err == nil {
+				a.sessionDialog.SetSessions(sessions)
+			}
+		}
+		return a, nil
+
 	case dialog.CloseCommandDialogMsg:
 		a.showCommandDialog = false
 		a.cmdSlideOffset = 0
@@ -423,6 +461,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chat.SessionSelectedMsg:
 		a.selectedSession = msg
 		a.sessionDialog.SetSelectedSession(msg.ID)
+		if msg.ID != "" && a.app.Orchestrator != nil {
+			a.app.Orchestrator.Start(context.Background(), msg.ID)
+		}
 
 	case pubsub.Event[session.Session]:
 		if msg.Type == pubsub.UpdatedEvent && msg.Payload.ID == a.selectedSession.ID {
@@ -552,6 +593,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.themeDialog.Init()
 			}
 			return a, nil
+		case key.Matches(msg, keys.RenameSession):
+			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog && !a.showThemeDialog && !a.showFilepicker {
+				if a.selectedSession.ID != "" {
+					a.renameDialog.SetTitle(a.selectedSession.Title)
+					a.showRenameDialog = true
+					return a, nil
+				}
+			}
+			return a, nil
 		case key.Matches(msg, returnKey) || key.Matches(msg):
 			if msg.String() == quitKey {
 				if a.currentPage == page.LogsPage {
@@ -576,6 +626,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if a.showFilepicker {
 					a.showFilepicker = false
 					a.filepicker.ToggleFilepicker(a.showFilepicker)
+					return a, nil
+				}
+				if a.showRenameDialog {
+					a.showRenameDialog = false
 					return a, nil
 				}
 				if a.currentPage == page.LogsPage {
@@ -702,6 +756,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.themeDialog = d.(dialog.ThemeDialog)
 		cmds = append(cmds, themeCmd)
 		// Only block key messages send all other messages down
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+	}
+
+	if a.showRenameDialog {
+		d, renameCmd := a.renameDialog.Update(msg)
+		a.renameDialog = d.(dialog.RenameDialog)
+		cmds = append(cmds, renameCmd)
 		if _, ok := msg.(tea.KeyPressMsg); ok {
 			return a, tea.Batch(cmds...)
 		}
@@ -931,6 +994,21 @@ func (a appModel) View() tea.View {
 		)
 	}
 
+	if a.showRenameDialog {
+		overlay := a.renameDialog.View()
+		row := lipgloss.Height(appView) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
+		col := lipgloss.Width(appView) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
+		appView = layout.PlaceOverlay(
+			col,
+			row,
+			overlay.Content,
+			appView,
+			true,
+		)
+	}
+
 	if a.showMultiArgumentsDialog {
 		overlay := a.multiArgumentsDialog.View()
 		row := lipgloss.Height(appView) / 2
@@ -962,7 +1040,7 @@ func New(app *app.App) tea.Model {
 	model := &appModel{
 		currentPage:      startPage,
 		loadedPages:      make(map[page.PageID]bool),
-		status:           core.NewStatusCmp(app.LSPClients),
+		status:           core.NewStatusCmp(app),
 		help:             dialog.NewHelpCmp(),
 		quit:             dialog.NewQuitCmp(),
 		sessionDialog:    dialog.NewSessionDialogCmp(),
@@ -971,6 +1049,7 @@ func New(app *app.App) tea.Model {
 		permissions:      dialog.NewPermissionDialogCmp(),
 		onboardingDialog: dialog.NewOnboardingCmp(),
 		themeDialog:      dialog.NewThemeDialogCmp(),
+		renameDialog:     dialog.NewRenameCmp(""),
 		app:              app,
 		commands:         []dialog.Command{},
 		pages: map[page.PageID]tea.Model{
