@@ -33,6 +33,21 @@ code should have rejected at creation.
 - Live e2e: same README task shape gets rejected at creation and the Planner
   re-emits with valid capabilities in the next turn.
 
+## Design (owner input, 2026-08-08)
+Current matching (verified): AgentRegistry.getOptimalAgent filters
+`requiredCapabilities.some(cap => agent.capabilities.includes(cap))` — exact
+string overlap with the runner's registered tag list, no semantics ("documentation"
+matches nothing even though any file-writing agent can document). Two-layer fix:
+- A (default, cheap): closed vocabulary — Planner picks ONLY from the registered
+  capability union, code gate rejects everything else (this ticket's criteria).
+- B (escape hatch, prompt-level): when the Planner believes a capability outside
+  the vocab is genuinely needed, it must reason stepwise BEFORE emitting: define
+  the capability → what tools does it reduce to → which roles have those tools →
+  "is a new capability term necessary, or does an existing role serve this?" —
+  usually collapsing to an existing tag. Keeps door open for future specialized
+  roles (e.g. a real documentation agent) without letting casual synonyms strand
+  tasks.
+
 ## Constraints
 - Deterministic orchestrator/server code, not prompt-only (Observer rescue stays
   as the backstop, not the mechanism).
