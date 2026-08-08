@@ -322,7 +322,11 @@ async function runAgentClaudeCode(prompt, attempt = 1) {
     // kills it. Passing empty input cleanly tells claude "no piped input".
     const { stdout, stderr } = await execFileAsync(
       CLAUDE_PATH,
-      ['--print', '--dangerously-skip-permissions', ...restrictionArgs, prompt],
+      // --setting-sources '' clean-rooms the one-shot: without it claude loads
+      // the OPERATOR's user/project/local config (global CLAUDE.md, persona
+      // plugins, hooks) into every swarm task — same leak class as the Tier-1
+      // ACP settingSources:[] fix. Verified live: flag accepts empty string.
+      ['--print', '--dangerously-skip-permissions', '--setting-sources', '', ...restrictionArgs, prompt],
       { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024, input: '' }
     );
     if (stderr) log(`  [claude stderr] ${stderr.trim().split('\n')[0]}`);
