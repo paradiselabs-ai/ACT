@@ -133,6 +133,27 @@ type NewSessionParams struct {
 // SessionMeta carries host-specific extensions on session/new.
 type SessionMeta struct {
 	SystemPrompt *SystemPromptMeta `json:"systemPrompt,omitempty"`
+	ClaudeCode   *ClaudeCodeMeta   `json:"claudeCode,omitempty"`
+}
+
+// ClaudeCodeMeta is `_meta.claudeCode`: bridge-specific SDK options. The
+// bridge spreads Options AFTER its own defaults, so fields here override.
+type ClaudeCodeMeta struct {
+	Options ClaudeCodeOptions `json:"options"`
+}
+
+// ClaudeCodeOptions overrides for the Claude Agent SDK session the bridge
+// creates. SettingSources deliberately has NO omitempty: the empty slice must
+// serialize as [] to override the bridge's ["user","project","local"] default.
+// Without the override, every ACT Tier-1 claude session loads the OPERATOR's
+// personal Claude Code config — global CLAUDE.md, plugins/hooks (persona modes
+// like a "lazy dev" style), and auto-memory. Live bug 2026-08-08 (lido run):
+// the Planner opened with "Plan (lazy default, correct me)" — the operator's
+// persona plugin speaking — skipped mandatory intake questions, and offered to
+// write rules into the operator's personal memory. ACT roles must be
+// clean-room: role prompt only.
+type ClaudeCodeOptions struct {
+	SettingSources []string `json:"settingSources"`
 }
 
 // SystemPromptMeta is the object form of `_meta.systemPrompt`. The Claude

@@ -238,6 +238,13 @@ func TestEnsureACPSession_ClaudeCodeSendsSystemAppendAndSkipsPriming(t *testing.
 	if strings.Contains(raw, internalPromptMarker) {
 		t.Fatalf("InternalPromptMarker leaked onto the wire: %s", raw)
 	}
+	// Clean-room check: settingSources must serialize as an EMPTY ARRAY (not
+	// be omitted) so the bridge's ["user","project","local"] default is
+	// overridden and the spawned claude never loads the operator's personal
+	// Claude Code config (persona plugins, global CLAUDE.md, auto-memory).
+	if !strings.Contains(raw, `"settingSources":[]`) {
+		t.Fatalf("wire params missing settingSources:[] override: %s", raw)
+	}
 }
 
 func TestEnsureACPSession_GeminiPrimesWithoutMeta(t *testing.T) {

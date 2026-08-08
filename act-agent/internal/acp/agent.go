@@ -363,7 +363,14 @@ func (a *ACPAgent) ensureACPSession(ctx context.Context, sessionID string) (stri
 	plan := planPriming(a.host, a.primingFor())
 	var meta *SessionMeta
 	if plan.SystemAppend != "" {
-		meta = &SessionMeta{SystemPrompt: &SystemPromptMeta{Append: plan.SystemAppend}}
+		meta = &SessionMeta{
+			SystemPrompt: &SystemPromptMeta{Append: plan.SystemAppend},
+			// settingSources: [] — clean-room the spawned claude. Without this
+			// it loads the operator's personal Claude Code config (global
+			// CLAUDE.md, persona plugins, auto-memory) and the role drifts
+			// off-script. See ClaudeCodeOptions doc in types.go.
+			ClaudeCode: &ClaudeCodeMeta{Options: ClaudeCodeOptions{SettingSources: []string{}}},
+		}
 	}
 
 	id, err := a.client.NewSession(ctx, cwd, nil, meta)
