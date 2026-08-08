@@ -15,6 +15,7 @@ This is the canonical "what shipped" record. Entries below the seed line were ba
 
 ---
 
+- 2026-08-08 · coordination-graph-mvp-2026-08-08 · uncommitted (feat/coordination-graph) · temporal edge layer over ChronLog: `GraphStore`/`GraphIndexer` (server/src/services/), rule-derived bi-temporal edges → append-only `data/graph-edges.jsonl`, invalidate-never-delete, `/api/graph/node/:key` + `/api/graph/status`, CLI `graph node`, optional `causedBy` on events; 22 new jest tests, suite 76/76, tsc clean; replay evidence: 1158 events → 164 edges/104 nodes; live HTTP probe owed (needs server restart)
 - 2026-06-12 · arch-flows-v7 + auto-refresh loop · `f729330` (+ loop commit prior) · baseline rebuild (183 components/36 flows/0 bluffed-ok, findings ×15, new ticket acp-planner-prompt-section-dead-path); auto_refresh loop live: stale-transition spawns debounced headless Opus delta-refresh (`scripts/freshness-autorefresh.sh`, UPDATE_LOOPS §2a)
 - 2026-06-12 · janitorial-sweep · `6b5c13c` · untracked 205 sandbox run-outputs (gitignore path fix), root HTMLs → docs/, architecture-diagrams.md → _archive (superseded by flows artifacts), code_improvements audit → docs/audits/, tests/ swarm junk → ../act-archive/, pub/ + docs/refactor/ removed
 - 2026-06-11 · nvidia-nim-provider · `e56daaa` · provider `nvidia` (OpenAI-compatible, base integrate.api.nvidia.com/v1) in models.go/provider.go/config.go; live-verified incl. `moonshotai/kimi-k2.6` completion; keys in ~/.act.json only

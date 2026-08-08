@@ -12,6 +12,8 @@ import { SelfImprovementEngine } from './services/SelfImprovementEngine';
 import { ChronologicalLog } from './services/ChronologicalLog';
 import { LocalEmbeddingVectorStore } from './services/LocalEmbeddingVectorStore';
 import { PVMIndexer } from './services/PVMIndexer';
+import { GraphStore } from './services/GraphStore';
+import { GraphIndexer } from './services/GraphIndexer';
 import { extractSuccessCriteria } from './services/SPILParser';
 import { logger } from './utils/logger';
 
@@ -41,6 +43,11 @@ const agentRegistry = new AgentRegistry();
 const chronologicalLog = new ChronologicalLog();
 const vectorStore = new LocalEmbeddingVectorStore();
 const pvmIndexer = new PVMIndexer(chronologicalLog, vectorStore);
+// Coordination graph: a second derived projection of the same event log —
+// vector search answers "what looks like this", the graph answers multi-hop,
+// causal, and point-in-time questions. Both read the log; neither writes to it.
+const graphStore = new GraphStore();
+const graphIndexer = new GraphIndexer(chronologicalLog, graphStore);
 const taskCoordinator = new TaskCoordinator(agentRegistry, pvmIndexer);
 const eventHub = new EventHub(io, agentRegistry, taskCoordinator, chronologicalLog);
 const selfImprovementEngine = new SelfImprovementEngine(agentRegistry, taskCoordinator, eventHub);
@@ -1219,6 +1226,27 @@ app.get('/api/pvm/status', (req, res) => {
   res.json(pvmIndexer.getStatus());
 });
 
+// Coordination graph — edges around one node key ("<type>:<name>", url-encoded
+// since names contain slashes and colons). ?at=<ISO> answers "what did we
+// believe at time T" (invalidated edges reappear for earlier T); ?hops=2 pulls
+// in the neighbours' edges too.
+app.get('/api/graph/node/:key', (req, res) => {
+  const key = req.params.key;
+  const at = typeof req.query.at === 'string' && req.query.at ? req.query.at : undefined;
+  const hops = req.query.hops === '2' ? 2 : 1;
+
+  const { node, edges } = graphStore.neighborhood(key, { at, hops });
+  if (!node) {
+    return res.status(400).json({ success: false, error: `invalid node key "${key}" (expected <agent|task|project|file|verdict>:<name>)` });
+  }
+  res.json({ success: true, node, hops, at: at ?? null, edges });
+});
+
+app.get('/api/graph/status', (req, res) => {
+  const stats = graphStore.stats();
+  res.json({ success: true, ...stats, ...graphIndexer.getStatus() });
+});
+
 // PVM routing brief — confidence-labeled coordination evidence for the Planner:
 // which swarm compositions worked on similar past projects, per-role track
 // records, and role-pair history. The orchestrator fetches this once at
@@ -1640,6 +1668,13 @@ chronologicalLog.initialize().then(async () => {
   // Start PVM indexing after restore
   pvmIndexer.startIndexing(10000);
   logger.info('ChronologicalLog initialized and PVM indexing started');
+
+  // Coordination graph. The full replay is idempotent (GraphStore.addEdge
+  // dedupes on src/rel/dst/episode), so this both catches up an existing edge
+  // file and rebuilds one that was deleted — the log stays the only truth.
+  await graphStore.initialize();
+  await graphIndexer.indexAllEvents();
+  graphIndexer.startIndexing(10000);
 
   // Refuse to start if another live ACT server already holds this PID file.
   // Prevents zombie-tsx stacking: when SIGKILL leaves a stale PID file behind,

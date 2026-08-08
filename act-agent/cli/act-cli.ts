@@ -500,6 +500,46 @@ async function cmdGraphConflicts(client: ACTClient): Promise<void> {
   }
 }
 
+async function cmdGraphNode(client: ACTClient, key: string, at?: string, hops?: string): Promise<void> {
+  if (!key) {
+    printError('Error: node key is required');
+    printError('Usage: act-agent graph node <type:name> [--at <ISO>] [--hops 1|2]');
+    printError('Types: agent | task | project | file | verdict');
+    process.exit(1);
+  }
+
+  const serverUrl = client.getServerUrl();
+  const params = new URLSearchParams();
+  if (at) params.set('at', at);
+  if (hops) params.set('hops', hops);
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  try {
+    const res = await fetch(`${serverUrl}/api/graph/node/${encodeURIComponent(key)}${query}`);
+    const body = await res.json() as any;
+    if (!res.ok || !body.success) {
+      throw new Error(body?.error || `HTTP ${res.status}`);
+    }
+
+    const edges = body.edges || [];
+    if (edges.length === 0) {
+      console.log(`No edges for ${key}${at ? ` as of ${at}` : ''}.`);
+      return;
+    }
+
+    console.log(`${key} — ${edges.length} edge(s)${at ? ` as of ${at}` : ''}:`);
+    for (const e of edges) {
+      const direction = e.src === key ? `-[${e.rel}]-> ${e.dst}` : `<-[${e.rel}]- ${e.src}`;
+      const window = e.invalidAt ? ` (until ${e.invalidAt})` : '';
+      console.log(`- ${direction}${window}`);
+      console.log(`  ${e.fact}`);
+    }
+  } catch (error: any) {
+    printError(`Failed to read graph node: ${error.message}`);
+    process.exit(1);
+  }
+}
+
 async function cmdStatus(client: ACTClient): Promise<void> {
   const serverUrl = client.getServerUrl();
   const project = process.env.ACT_PROJECT || basename(process.cwd());
@@ -551,8 +591,21 @@ async function cmdStatus(client: ACTClient): Promise<void> {
 const SWARM_ROLES = ['developer', 'frontend_dev', 'backend_dev', 'qa_engineer', 'researcher'];
 // Must mirror runner/swarm_roles.go::IsValidBackend — the Go spawner is the
 // enforcement layer, so anything accepted here that it rejects is a config
-// the swarm silently drops. antigravity is Tier 1 ACP only, never Tier 2.
-const VALID_BACKENDS = ['act-agent', 'claude-code', 'gemini'];
+// the swarm silently drops.
+const VALID_BACKENDS = ['act-agent', 'claude-code', 'gemini', 'antigravity'];
+
+// Mirrors runner/swarm_roles.go::BackendAllowedForRole. The researcher is
+// read-only on every other backend; the agy CLI has no read-only/plan mode
+// (--sandbox restricts the terminal only), so the pair is rejected here rather
+// than written to ~/.act.json and dropped later by the spawner.
+function backendDisallowedReason(role: string, backend: string): string | null {
+  if (role === 'researcher' && backend === 'antigravity') {
+    return 'backend "antigravity" is not allowed for the researcher role: agy has no read-only/plan mode ' +
+      '(--sandbox restricts the terminal only), so the researcher\'s read-only contract cannot be enforced. ' +
+      'Use act-agent, claude-code, or gemini for researcher.';
+  }
+  return null;
+}
 
 async function cmdSwarm(args: string[]): Promise<void> {
   // args[0] is the subcommand: list, status, set, restart
@@ -584,7 +637,7 @@ async function cmdSwarm(args: string[]): Promise<void> {
     const role = args[1];
     const backend = args[2];
     if (!role || !backend) {
-      printError('Usage: act-agent swarm set <role|all> <act-agent|claude-code>');
+      printError(`Usage: act-agent swarm set <role|all> <${VALID_BACKENDS.join('|')}>`);
       process.exit(1);
     }
     if (!VALID_BACKENDS.includes(backend)) {
@@ -594,16 +647,29 @@ async function cmdSwarm(args: string[]): Promise<void> {
 
     if (role === 'all') {
       let updated = 0;
+      const skipped: string[] = [];
       for (const r of SWARM_ROLES) {
+        const reason = backendDisallowedReason(r, backend);
+        if (reason) {
+          skipped.push(`${r}: ${reason}`);
+          continue;
+        }
         if (writeAgentBackend(r, backend)) updated++;
       }
       console.log(`Set backend=${backend} for ${updated} swarm role(s).`);
+      for (const s of skipped) console.log(`Unchanged — ${s}`);
       console.log('Restart `act` for changes to take effect (or use /swarm all in the running TUI).');
       return;
     }
 
     if (!SWARM_ROLES.includes(role)) {
       printError(`backend selection only applies to Tier 2 swarm agents (${SWARM_ROLES.join(', ')}). "${role}" is not a swarm role.`);
+      process.exit(1);
+    }
+
+    const disallowed = backendDisallowedReason(role, backend);
+    if (disallowed) {
+      printError(disallowed);
       process.exit(1);
     }
 
@@ -1019,6 +1085,7 @@ async function main(): Promise<void> {
     'graph task': 'Show task dependency tree',
     'graph unverified': 'List completed tasks not yet validated',
     'graph conflicts': 'Show file lock conflicts',
+    'graph node': 'Show coordination-graph edges for a node (e.g. task:<id>, agent:<id>)',
     status: 'Show system status overview',
     'codebase onboard': 'Draft an AGENTS.md from repo analysis (manifests, configs, git)',
   };
@@ -1269,6 +1336,16 @@ async function main(): Promise<void> {
       await cmdGraphUnverified(client);
     } else if (command === 'graph' && subcommand === 'conflicts') {
       await cmdGraphConflicts(client);
+    } else if (command === 'graph' && subcommand === 'node') {
+      // act-agent graph node <type:name> [--at <ISO>] [--hops 1|2]
+      const atIdx = args.indexOf('--at');
+      const hopsIdx = args.indexOf('--hops');
+      await cmdGraphNode(
+        client,
+        args[2] && !args[2].startsWith('--') ? args[2] : '',
+        atIdx >= 0 ? args[atIdx + 1] : undefined,
+        hopsIdx >= 0 ? args[hopsIdx + 1] : undefined
+      );
     } else if (command === 'status') {
       await cmdStatus(client);
     } else if (command === 'codebase' && subcommand === 'onboard') {

@@ -40,7 +40,11 @@ var ErrACPSubprocessExited = errors.New("acp subprocess exited")
 type ACPAgent struct {
 	*pubsub.Broker[agent.AgentEvent]
 
-	role     string
+	role string
+	// host is the user-facing backend identifier ("claude-code", "gemini",
+	// "antigravity", …). Retained past buildCommand because the priming
+	// transport is per-host — see priming.go::planPriming.
+	host     string
 	cfg      *config.ACPConfig
 	sessions session.Service
 	messages message.Service
@@ -137,6 +141,7 @@ func NewACPAgent(
 	a := &ACPAgent{
 		Broker:       pubsub.NewBroker[agent.AgentEvent](),
 		role:         role,
+		host:         host,
 		cfg:          cfg,
 		sessions:     sessions,
 		messages:     messages,
@@ -350,7 +355,18 @@ func (a *ACPAgent) ensureACPSession(ctx context.Context, sessionID string) (stri
 			cwd = d
 		}
 	}
-	id, err := a.client.NewSession(ctx, cwd, nil)
+	// Decide the priming transport BEFORE session/new — for claude-code the
+	// role prompt rides along on the session/new request itself as a real
+	// system-prompt append, which is stronger than a user message and costs
+	// one fewer API call per role at startup. Every other host keeps the
+	// user-message priming turn and gets no _meta. See priming.go.
+	plan := planPriming(a.host, a.primingFor())
+	var meta *SessionMeta
+	if plan.SystemAppend != "" {
+		meta = &SessionMeta{SystemPrompt: &SystemPromptMeta{Append: plan.SystemAppend}}
+	}
+
+	id, err := a.client.NewSession(ctx, cwd, nil, meta)
 	if err != nil {
 		return "", err
 	}
@@ -358,14 +374,19 @@ func (a *ACPAgent) ensureACPSession(ctx context.Context, sessionID string) (stri
 	a.acpSessions[sessionID] = id
 	a.mu.Unlock()
 
+	if meta != nil {
+		logging.Info("acp_system_prompt_appended", "role", a.role, "host", a.host,
+			"append_bytes", len(plan.SystemAppend))
+	}
+
 	// Lazily inject the priming prompt — the role's static system prompt plus
 	// the shim-binary instructions. We send it as a one-shot user message
-	// (ACP has no system-message channel). Audit Fix 8: we used to discard
-	// the result entirely, hiding host hallucinations / refusals. Now we
-	// log StopReason so a misbehaving host is visible in the runner log
-	// instead of silent. End_turn is the happy path; anything else gets
-	// a WARN so it surfaces in log review.
-	if prime := a.primingFor(); prime != "" {
+	// (this host's ACP bridge has no system-message channel). Audit Fix 8: we
+	// used to discard the result entirely, hiding host hallucinations /
+	// refusals. Now we log StopReason so a misbehaving host is visible in the
+	// runner log instead of silent. End_turn is the happy path; anything else
+	// gets a WARN so it surfaces in log review.
+	if prime := plan.PromptText; prime != "" {
 		stopReason, err := a.client.Prompt(ctx, id, prime)
 		switch {
 		case err != nil:
@@ -490,7 +511,9 @@ func (a *ACPAgent) Update(_ config.AgentName, _ models.ModelID) (models.Model, e
 // cached ACP sessions. The next runTurn for any ACT sessionID will call
 // ensureACPSession, which opens a fresh ACP session and fires the priming
 // injector — which calls prompt.GetAgentPrompt at invocation time and picks
-// up the freshly-invalidated AGENTS.md / ACT.md / ACT.local.md content.
+// up the freshly-invalidated AGENTS.md / ACT.md / ACT.local.md content. That
+// text reaches the host as a system-prompt append (claude-code) or a priming
+// user message (every other host); either way it's the fresh copy.
 //
 // Refuses to run while a turn is in flight so we don't yank the session out
 // from under an active prompt. The caller (orchestrator) is expected to

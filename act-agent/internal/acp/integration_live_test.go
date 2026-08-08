@@ -67,7 +67,7 @@ func TestLiveWireSmoke(t *testing.T) {
 
 	t.Log("STEP 2: session/new")
 	cwd, _ := os.Getwd()
-	sid, err := c.NewSession(ctx, cwd, nil)
+	sid, err := c.NewSession(ctx, cwd, nil, nil)
 	if err != nil {
 		t.Fatalf("session/new: %v", err)
 	}

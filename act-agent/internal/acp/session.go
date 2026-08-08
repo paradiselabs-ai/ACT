@@ -37,7 +37,11 @@ func (c *Client) Initialize(ctx context.Context) (*InitializeResult, error) {
 // directory for any tools the agent runs. mcpServers is the list of MCP
 // servers to expose to the agent — empty for the alpha (the shim-binary
 // approach replaces in-protocol tool exposure).
-func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []McpServer) (string, error) {
+//
+// meta is the optional `_meta` extension bag. Pass nil for every host except
+// claude-code; unknown _meta is host-specific and other bridges may choke on
+// it (see priming.go).
+func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []McpServer, meta *SessionMeta) (string, error) {
 	if mcpServers == nil {
 		// The agent expects an array, not null — match the live agent's
 		// strictness rather than relying on its tolerance.
@@ -46,6 +50,7 @@ func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []McpSer
 	raw, err := c.Call(ctx, MethodNewSession, NewSessionParams{
 		Cwd:        cwd,
 		McpServers: mcpServers,
+		Meta:       meta,
 	})
 	if err != nil {
 		return "", fmt.Errorf("session/new: %w", err)
