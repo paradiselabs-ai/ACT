@@ -20,6 +20,10 @@ export interface CoordinationMessage {
   // (embedded task payloads). Untagged or cross-project events are stored as
   // "__global__" and surface in every project-scoped query.
   projectName?: string;
+  // causedBy: reference key ("<timestamp>|<agent>|<type>") of the event that
+  // triggered this one. Optional and unset by most emitters; GraphIndexer
+  // carries it into the derived edge's episodeKeys so causal chains survive.
+  causedBy?: string;
 }
 
 export type MessageType =
