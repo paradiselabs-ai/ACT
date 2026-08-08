@@ -266,7 +266,6 @@ ACT/
 - **Server auto-start**: `EnsureServerRunning` wired into `cmd/root.go::RunE`. `findServerScript` and `findCLIScript` use `~/.act/config.json::actRoot` first, then walk from binary path, then cwd fallback.
 
 ### CLI
-- REPL: `create project`, `list agents/projects`, `show project`, `default agent`, `status`, `help`
 - Agent CLI (`act-agent <subcommand>` → routes to `cli/act-cli.ts`): `register`, `context`, `task complete/progress/retry/abandon/submit-for-validation`, `brief update`, `pvm search/reindex`, `validation queue`, `files claim/release`, `message`, `log`, `graph task/unverified/conflicts`, `status`, `codebase onboard`, `swarm set` — the dispatch branches in `act-cli.ts` are the source of truth for the full set
 
 ### TUI (the NesTTY window)
