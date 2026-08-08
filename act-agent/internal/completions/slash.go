@@ -1,6 +1,8 @@
 package completions
 
 import (
+	"strings"
+
 	"github.com/lithammer/fuzzysearch/fuzzy"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
 )
