@@ -1,20 +1,41 @@
 # Architecture-flows method
 
-> ## ⛔ THE MODEL: ACTORS ARE NODES, HANDOFFS ARE FLOWS (rewritten 2026-06-12)
-> The diagram exists so a HUMAN can read the flow of logic between the **agents/systems** of ACT.
-> Two earlier rebuilds failed by making **code artifacts** (REST endpoints, functions, CLI commands,
-> in-memory maps) the nodes — a call-graph, not a coordination map: granular, agent-invisible, useless.
+> ## ⛔ THE MODEL: GROUPED COMPONENTS IN SUBSYSTEM BOXES (rewritten 2026-06-14, v9)
+> The diagram exists so a HUMAN can read **how ACT's architecture flows**. Three earlier rebuilds failed:
+> (1) every function/endpoint as a node — a call-graph, granular and agent-invisible; (2) one blob per
+> subsystem — a README-surface mermaid that hid everything; (3) "actors only" (~14 flat nodes) — still
+> too coarse to show the real moving parts. The correct model is the **MIDDLE**.
 >
-> **Nodes = ACTORS only** (fixed set): `human`; Tier-1 `planner observer assurance qa`; Tier-2
-> `swarm_developer swarm_frontend swarm_backend swarm_qa swarm_researcher`; systems
-> `act_server runner acp_host tui`; stores `chronlog pvm task_store brief_store`. ~14-18 nodes.
-> **Edges = coordination handoffs.** An edge's label is the REAL MECHANISM that carries the handoff
-> (a CLI subcommand, a REST call, a parsed marker like `PROJECT_BRIEF:`/`CREATE_TASK:`, a poll, a spawn).
-> Code artifacts are NEVER nodes — they are edge labels + the `file:line` evidence in `detail`.
+> **Nodes = real architectural COMPONENTS** (~40-50), laid out in **COLUMNS — one column per subsystem**
+> (a component carries `parent` = its subsystem id). Subsystems (7, left→right):
+> `external orchestrator prompts execution swarm server memory`. Each column = one color, **same-size**
+> nodes **stacked top-down**, a column header label at the top; columns all start at the top and run
+> **independent lengths** (a column ends when it runs out of nodes). **NO literal boxes** around a column —
+> color + header is the grouping. A component is a real moving part with a distinct job in a flow (a loop,
+> a parser, an endpoint, a store, a fork twin, a convergence node) — NOT every function (collapse those)
+> and NOT a whole subsystem. Each node shows **two lines**: the friendly name + a `src` code anchor
+> (file + function/symbol, e.g. `orchestrator.go runAgentTurn`) so the node carries its code identity.
+> **Edges = coordination handoffs**, flowing **horizontally across columns**. Label = the REAL MECHANISM
+> (a CLI subcommand, a REST route, a parsed marker like `CREATE_TASK:`, a poll, a spawn, an interface
+> call); `file:line` evidence in `detail`. Edges are faint until a flow is selected.
+> **Config FORKS are first-class**: twin component nodes + a shared convergence node, tag each step
+> with `branch` (e.g. `in-process|acp|converge`). **Documented-but-unbuilt = a GAP**: a single
+> `gap-found` self-loop on the node where it would live, never a working flow.
 >
-> **Renderer = Cytoscape.js + dagre** (both inlined for the offline rule), `rankDir:LR`, click-a-flow
-> highlights its edges+nodes and dims the rest, zoom/pan/fit built in. Do NOT hand-roll a column grid
-> (that was the spaghetti failure). Node color by group; edge style by status (solid=ok, dashed=else).
+> **Build from TRACED code, not imagination.** The flows are produced by tracing each process through the
+> live code (file:line per step), verified by re-grep, then collapsed onto the fixed component set.
+> **Renderer = a custom vanilla HTML+CSS+SVG engine — NO libraries** (ported from the NesTTY-branch
+> build, which is the canonical look; do NOT reintroduce Cytoscape/dagre — they auto-zoom, allow
+> node-dragging, and scattered the layout). The structure: **CSS-grid columns** (one per subsystem,
+> header on top), **dark cards** with a subsystem-colored **left-accent** + name + the `src` code anchor
+> as a subtitle; a card's `detail` expands on click. An **SVG overlay** draws the selected flow's
+> handoffs as colored arcs (status: solid=ok, dashed=prompt-only, dotted=gap) each carrying a **numbered
+> circle badge** (step order); non-member cards dim to ~13%. **Pan by scrolling the canvas — no zoom, no
+> node-dragging** (cards are fixed grid items). Hovering a card shows a floating tooltip = its `hover`
+> field (plain-English explanation ending in a gold "From a user perspective…" line). **Column order =
+> the order of the `subsystems[]` array** (reorder that array to reorder columns). Top chips filter by subsystem. The card row within a
+> column (`slot`) is computed at render from component order — not stored. Up to 5 flows can overlay at
+> once (shift-click), each a different palette color.
 
 How to build a single-file, offline-openable visual map of this codebase (or to update the one that already exists) without bluffing.
 
@@ -57,30 +78,31 @@ The JSON is shaped to make verification easy. Stable keys, no opaque blobs.
 ```jsonc
 {
   "meta": {
-    "version": "n",
-    "generatedAt": "ISO timestamp",
-    "branch": "NesTTY",
-    "headCommit": "ab159d4...",
+    "version": 9,
+    "model": "subsystem-columns",
+    "generatedAt": "ISO date",
+    "branch": "feat/remove-nomik",
+    "headCommit": "d59785a...",
+    "summary": "one-line orientation, rendered in the sidebar",
     "findings": [
-      { "id": "F1", "title": "...", "summary": "...", "evidence": "file:line, file:line" }
+      { "id": "F1", "title": "...", "status": "gap-found|prompt-only", "summary": "...", "evidence": "file:line, file:line" }
     ]
   },
-  "categories": [
-    { "id": "server", "label": "ACT Server", "color": "#hex" }
+  "subsystems": [                                  // the 7 columns (color + header, NO box); left-to-right order
+    { "id": "orchestrator", "label": "ORCHESTRATOR · Go TUI brain", "color": "#hex" }
   ],
-  "columns": [
-    { "id": "tier1", "label": "Tier 1 (interactive)" }
-  ],
-  "components": [
-    { "id": "...", "label": "...", "categoryId": "...", "columnId": "...", "detail": "...", "tags": ["..."] }
+  "components": [                                   // real components, one per row in its subsystem column
+    { "id": "...", "label": "...", "src": "file + symbol (card's 2nd line)", "hover": "plain-English: what it is · where in code · ends 'From a user perspective, this is ...'", "parent": "<subsystem id>", "kind": "engine|parser|endpoint|store|prompt", "detail": "..." }
   ],
   "flows": [
     {
       "id": "...",
       "label": "...",
       "summary": "...",
+      "family": "lifecycle|coordination|memory|config-fork|gap",
       "steps": [
-        { "from": "componentId", "to": "componentId", "label": "...", "status": "ok|prompt-only|gap-found", "detail": "...with file:line if status==ok..." }
+        { "from": "componentId", "to": "componentId", "label": "...mechanism...", "status": "ok|prompt-only|gap-found",
+          "detail": "...with file:line if status==ok...", "branch": "optional fork tag e.g. in-process|acp|converge" }
       ]
     }
   ]
@@ -89,20 +111,20 @@ The JSON is shaped to make verification easy. Stable keys, no opaque blobs.
 
 Constraints on the JSON:
 
-- Schema keys stay stable. Adding fields is fine; renaming or removing keys is not.
-- **Columns ARE flow-stage lanes, not subsystems.** The diagram exists so humans read a flow's path left-to-right. If columns are subsystems (server/orchestrator/tier1…), intra-subsystem flows collapse into one vertical column = arc spaghetti (the v7 failure). `columns` MUST be these 10 ordered lanes: `entry, intake, plan, dispatch, execute, coord, validate, synth, store, infra`. Assign each component's `columnId` to the lane of its PRIMARY role (what it most does, not every flow it touches): REST endpoints / in-memory maps / data files / vector stores → `store`; config / bootstrap / server-launch / HTTP client / process-group / generic wiring → `infra`; everything else → the stage it performs. Target: median distinct-lanes-per-flow ≥ 3. Single-stage flows (registration, config resolution) staying in one lane is acceptable — they ARE one stage's internals.
-- **Every component MUST carry a `slot` integer** — its 0-based row position within its `columnId` lane. The renderer sets `card.style.gridRow = slot + 2`; omitting `slot` defaults every card in a column to row 2, so dense columns overlap into unreadable mush (the v7 rebuild shipped without it and had to be patched). Assign slots densely per column (0,1,2,… in display order). Verify post-render: no two cards in the same column share a top coordinate.
-- **After writing the JSON, re-render the HTML and actually look at it** (headless browser or a screenshot): confirm cards don't overlap, filter chips toggle, and selecting a flow draws arrows. Data-block parity passing is necessary but NOT sufficient — it does not prove the visual renders.
-- `meta.findings[]` surfaces the gap-found items as standalone records, so the explainer page and any later automation can pick them up without walking the entire `flows` tree.
-- Component count ≥ 70, flow count between 15 and 22. These are not hard inventory targets; they reflect the actual moving-part count of this codebase. If the real count comes out outside the band, write down why before shipping.
+- Schema keys stay stable within a version. The v8→v9 change renamed the node role (`nodes`→`components` + `parent`), replaced `categories`/`columns` with `subsystems`, and added `kind` + `src` (component), `family` + `branch` (flow/step). Positions are computed at render (column = subsystem index, row = order within the column), NOT stored per-node — the old v7 CSS-grid `slot`/`columnId` machinery stays gone.
+- **Every flow step's `from`/`to` MUST be a component id, never a subsystem id.** The renderer finds each endpoint by `.card[data-id=...]`; an unknown id means no card is found and the arc is silently dropped (`drawOverlay` skips it). The build's validation step asserts zero bad edges so this never ships.
+- **Config forks render as twin nodes + a convergence node** (both children of the same box), with a `branch` tag per step. **Gaps render as one `gap-found` self-loop** on the node where the capability would live — labelled so it reads as a hole, not a path.
+- **After writing the JSON, re-render the HTML and actually look at it** (headless browser screenshot): confirm the subsystem boxes draw with their components nested, no box overlap, selecting a flow highlights its path while boxes stay framed, a fork shows its two branches, the gap shows as a self-loop, and DevTools Network is empty. Data-block byte-parity is necessary but NOT sufficient — it does not prove the visual renders.
+- `meta.findings[]` surfaces gap-found / prompt-only items as standalone records, so the explainer page and any later automation can pick them up without walking the entire `flows` tree.
+- Component count ~40-50, flow count ~20-26. Not hard targets — they reflect the real moving-part count. Collapse two candidates into one component when no flow has a handoff between them; keep a component distinct when it's a flow target, a fork twin/convergence, or a loop with its own interval. If the count lands outside the band, write down why before shipping.
 
 ## HTML rendering rules
 
 - Single file. All CSS in a `<style>` block, all JS in a `<script>` block, the JSON in a `<script type="application/json" id="data">…</script>` block. SVG is inline.
 - Zero network requests. No external fonts, CDN scripts, images, or analytics. Open in a browser via `file://` and DevTools Network tab must be empty.
-- Filter chips toggle visibility per category. Clicking a chip hides or shows every component in that category.
-- Multi-select flow overlays: clicking a flow assigns it the next color in a fixed 5-color palette (gold, blue, green, magenta, cyan). Shift-clicking a second flow adds it to the overlay set; clicking an already-selected flow deselects it. A "Clear" button drops all overlays.
-- Step badges include a flow-color border on the side closer to the overlay so a chain of handoffs reads spatially.
+- The left sidebar lists every flow (label + summary). Clicking a flow highlights its path and dims the rest; shift-clicking adds another flow to the selection; clicking a selected flow deselects it. "Clear" resets; "Fit" re-frames.
+- Selecting a flow fills the steps panel with its ordered handoffs — `from → to`, the mechanism label, and the `detail` (with file:line for code-enforced steps). Edge color encodes status (gold=ok, orange=prompt-only, red=gap); fork branches are tinted.
+- The column header labels and node `src` second-lines stay visible at all times so the map reads as code even before a flow is picked.
 - The `architecture-flows.json` sibling file is byte-identical to the content of the `<script type="application/json">` block. Verify with a round-trip diff before shipping.
 
 ## Explainer page rules
@@ -121,11 +143,13 @@ Constraints on the JSON:
 
 ## Success criteria (verified post-completion)
 
-The plan file ships with a 22-row criteria table. Walk every row, mark pass/fail, fix any failure before declaring done. The non-negotiable rows are:
+Walk these before declaring done; fix any failure first. The non-negotiable rows:
 
-- Zero `"status": "unverified"` in shipped JSON.
-- Every `ok` step has `file:line` in its `detail`.
-- Six findings rendered on the explainer headline (Ralph prompt-only, QA partial-deliverable persistence, Socket.io vestigial, no-auth, Qdrant build-excluded, kanban-doc-mismatch).
+- Zero `"status": "unverified"` and zero bluffed `ok` (every `ok` step has `file:line` in its `detail`).
+- Zero bad edges: every step `from`/`to` is a component id (run the build validation).
+- `architecture-flows.json` is byte-identical to the HTML's inline `<script id="data">` block.
+- The render check passed (boxes draw + nest, a flow highlights while boxes stay framed, a fork shows two branches, the gap shows as a self-loop, Network tab empty).
+- The `meta.findings[]` items render on the explainer headline (currently: deferred-tools gap, unwired client methods, SQLite stub, file-locking prompt-only, QA marker-only, Socket.io vestigial, no-auth, Qdrant build-excluded).
 - `git status` matches the create/modify allow-list. No source files altered.
 
 ## Verification — single command
