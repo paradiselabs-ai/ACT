@@ -15,6 +15,7 @@
  * Environment variables:
  *   ACT_SERVER_URL   Override ACT server (default: http://localhost:8080)
  *   CLAUDE_PATH      Path to `claude` binary (default: claude, must be in PATH)
+ *   GEMINI_PATH      Path to `gemini` binary (default: gemini, must be in PATH)
  *   POLL_INTERVAL_MS Milliseconds between polls (default: 5000)
  *   MAX_ITERATIONS   Max loops before exiting (default: 100, 0 = unlimited)
  *   TASK_TIMEOUT_MS  Max ms for a single claude invocation (default: 120000)
@@ -32,6 +33,7 @@ const execFileAsync = promisify(execFile);
 const ACT_SERVER_URL = (process.env.ACT_SERVER_URL || 'http://localhost:8080').replace(/\/$/, '');
 const ACT_PROJECT    = process.env.ACT_PROJECT || '';
 const CLAUDE_PATH    = process.env.CLAUDE_PATH    || 'claude';
+const GEMINI_PATH    = process.env.GEMINI_PATH    || 'gemini';
 const AGENT_CLI      = process.env.ACTOR_CLI || process.env.AGENT_CLI || './act-agent';
 const POLL_INTERVAL  = parseInt(process.env.POLL_INTERVAL_MS || '5000',  10);
 const TASK_TIMEOUT   = parseInt(process.env.TASK_TIMEOUT_MS  || '120000', 10);
@@ -68,7 +70,7 @@ Required:
 
 Optional:
   --role <role>           Agent specialization (e.g. frontend-dev, backend-dev, developer)
-  --backend <name>         Agent execution backend: act-agent (default) or claude-code
+  --backend <name>         Agent execution backend: act-agent (default), claude-code, or gemini
   --capabilities <list>    Comma-separated capabilities (e.g. typescript,react,testing)
   --max-iterations <n>     Max coordination loops before exit (default: 100, 0 = unlimited)
   --poll-interval <ms>     Milliseconds between polls (default: 5000)
@@ -79,6 +81,7 @@ Environment variables:
   ACT_BACKEND              Default backend if --backend not passed (default: act-agent)
   ACTOR_CLI / AGENT_CLI    Agent CLI binary (fallback: ./act-agent/act-agent)
   CLAUDE_PATH              Path to claude binary (default: claude)
+  GEMINI_PATH              Path to gemini binary (default: gemini)
   POLL_INTERVAL_MS         Polling interval in ms
   MAX_ITERATIONS           Max loops
   TASK_TIMEOUT_MS          Timeout for a single claude invocation (default: 120000)
@@ -228,6 +231,9 @@ async function runAgent(prompt) {
   if (BACKEND === 'claude-code') {
     return runAgentClaudeCode(prompt);
   }
+  if (BACKEND === 'gemini') {
+    return runAgentGemini(prompt);
+  }
   return runAgentActAgent(prompt);
 }
 
@@ -325,6 +331,56 @@ async function runAgentClaudeCode(prompt, attempt = 1) {
     if (attempt === 1 && !output) {
       log(`  [claude retry] first attempt had no output; retrying once`);
       return runAgentClaudeCode(prompt, 2);
+    }
+
+    return {
+      success: false,
+      output,
+      error: errMsg,
+      code
+    };
+  }
+}
+
+// Least-privilege for the gemini backend: no per-tool deny flag in headless
+// mode, but --approval-mode plan is a native read-only mode — exactly the
+// researcher contract. Everything else runs --yolo (gemini's equivalent of
+// claude's --dangerously-skip-permissions; headless auto-rejects tool calls
+// without it).
+function geminiApprovalArgs() {
+  return AGENT_ROLE === 'researcher' ? ['--approval-mode', 'plan'] : ['--yolo'];
+}
+
+async function runAgentGemini(prompt, attempt = 1) {
+  const approvalArgs = geminiApprovalArgs();
+  log(`  [gemini invoke] path=${GEMINI_PATH} attempt=${attempt} prompt_bytes=${prompt.length} approval=${approvalArgs.join(' ')}`);
+  try {
+    // --skip-trust: gemini 0.50+ hard-refuses headless runs in untrusted
+    // folders (verified live); swarm agents run in arbitrary project dirs.
+    const { stdout, stderr } = await execFileAsync(
+      GEMINI_PATH,
+      ['--skip-trust', ...approvalArgs, '-p', prompt],
+      { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024, input: '' }
+    );
+    if (stderr) log(`  [gemini stderr] ${stderr.trim().split('\n')[0]}`);
+    log(`  [gemini result] success=true code=0 out_bytes=${stdout.length}`);
+    return {
+      success: true,
+      output: stdout.trim(),
+      code: 0
+    };
+  } catch (err) {
+    const output = err.stdout?.trim() || '';
+    const errMsg = err.stderr?.trim() || err.message;
+    const code = Number.isInteger(err.code) ? err.code : 1;
+    const firstErrLine = (errMsg || '').split('\n')[0];
+    log(`  [gemini result] success=false code=${code} stderr="${firstErrLine}" out_bytes=${output.length}`);
+
+    // Same one-shot retry contract as claude-code: process died with no
+    // output → transient (API 5xx, dropped connection); retry once fresh.
+    if (attempt === 1 && !output) {
+      log(`  [gemini retry] first attempt had no output; retrying once`);
+      return runAgentGemini(prompt, 2);
     }
 
     return {

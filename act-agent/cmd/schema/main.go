@@ -242,8 +242,8 @@ func generateSchema() map[string]any {
 				},
 				"backend": map[string]any{
 					"type":        "string",
-					"description": "Tier 2 backend selector (act-agent | claude-code)",
-					"enum":        []string{"act-agent", "claude-code"},
+					"description": "Tier 2 backend selector (act-agent | claude-code | gemini)",
+					"enum":        []string{"act-agent", "claude-code", "gemini"},
 				},
 			},
 			"required": []string{"provider", "model"},

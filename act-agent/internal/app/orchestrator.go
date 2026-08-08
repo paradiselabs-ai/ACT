@@ -446,6 +446,9 @@ func (o *Orchestrator) runResearcherEnrichment(ctx context.Context, dir, project
 	if backend == "claude-code" {
 		return runClaudeCode(ctx, dir, prompt)
 	}
+	if backend == "gemini" {
+		return runGeminiCLI(ctx, dir, prompt)
+	}
 	return runHeadlessAgent(ctx, dir, project, "onboard-researcher", "researcher", prompt)
 }
 
@@ -470,6 +473,32 @@ func runClaudeCode(ctx context.Context, dir, prompt string) (string, error) {
 		return "", errors.New("claude-code returned empty output")
 	}
 	logging.Info("brownfield_claude_done", "out_bytes", len(res))
+	return res, nil
+}
+
+// runGeminiCLI runs the Gemini CLI headlessly in dir, returning its stdout.
+// Mirrors runClaudeCode. --approval-mode plan = gemini's native read-only
+// mode — the enrichment is a researcher read, so it never needs write tools.
+func runGeminiCLI(ctx context.Context, dir, prompt string) (string, error) {
+	path := os.Getenv("GEMINI_PATH")
+	if path == "" {
+		path = "gemini"
+	}
+	logging.Info("brownfield_gemini_invoke", "path", path, "dir", dir, "prompt_bytes", len(prompt))
+	// --skip-trust: gemini 0.50+ refuses headless runs in untrusted folders.
+	cmd := exec.CommandContext(ctx, path, "--skip-trust", "--approval-mode", "plan", "-p", prompt)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		logging.Warn("brownfield_gemini_failed", "error", err, "stderr", execStderr(err))
+		return "", err
+	}
+	res := strings.TrimSpace(string(out))
+	if res == "" {
+		logging.Warn("brownfield_gemini_empty", "reason", "gemini returned empty stdout")
+		return "", errors.New("gemini returned empty output")
+	}
+	logging.Info("brownfield_gemini_done", "out_bytes", len(res))
 	return res, nil
 }
 

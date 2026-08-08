@@ -549,12 +549,21 @@ func buildCommand(role, host string, cfg *config.ACPConfig) (*exec.Cmd, error) {
 		args = cfg.Args
 	}
 	if command == "" {
-		// Default by host. Only claude-code is implemented for alpha; other
-		// hosts return an explicit unimplemented error so misconfiguration
-		// fails loudly at startup, not at the first prompt.
+		// Default by host. Unimplemented hosts return an explicit error so
+		// misconfiguration fails loudly at startup, not at the first prompt.
 		switch host {
 		case "claude-code", "":
 			command, args = claudeCodeDefaults()
+		case "gemini":
+			// Gemini CLI speaks ACP natively (same Zed spec: ndjson JSON-RPC,
+			// protocolVersion 1). Verified against gemini 0.50.0 — `--acp` is
+			// the current flag (`--experimental-acp` is its deprecated alias).
+			// Needs a logged-in gemini (`gemini` once interactively); an
+			// unauthenticated host fails at session/new, loudly, at startup.
+			// --skip-trust: gemini's folder-trust gate blocks tool calls in
+			// untrusted dirs; the ACT permission broker (permission_policy.go)
+			// is the enforcement layer here, so the extra gate only deadlocks.
+			command, args = "gemini", []string{"--acp", "--skip-trust"}
 		case "antigravity", "agy":
 			var env map[string]string
 			if cfg != nil {

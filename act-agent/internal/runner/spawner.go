@@ -102,10 +102,15 @@ func (s *Spawner) startOneLocked(nodeBin, scriptPath string, spec SwarmRoleSpec)
 		return fmt.Errorf("invalid backend %q for role %q", backend, spec.Role)
 	}
 
-	// If claude-code requested, verify the binary is available
+	// External-CLI backends need their binary on PATH — fail before spawn.
 	if backend == BackendClaudeCode {
 		if _, err := exec.LookPath("claude"); err != nil {
 			return fmt.Errorf("claude-code backend requested but `claude` not in PATH: %w", err)
+		}
+	}
+	if backend == BackendGemini {
+		if _, err := exec.LookPath("gemini"); err != nil {
+			return fmt.Errorf("gemini backend requested but `gemini` not in PATH: %w", err)
 		}
 	}
 
