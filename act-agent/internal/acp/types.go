@@ -122,9 +122,25 @@ type AgentInfo struct {
 // agent's tools should resolve relative paths against. McpServers is the list
 // of MCP servers the host wants the agent to connect to — empty for the
 // alpha (shim-binary approach replaces in-protocol tool exposure).
+// Meta is the ACP `_meta` extension bag. Only the Claude Code bridge reads
+// it (see priming.go); other hosts must never receive it.
 type NewSessionParams struct {
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	Cwd        string       `json:"cwd"`
+	McpServers []McpServer  `json:"mcpServers"`
+	Meta       *SessionMeta `json:"_meta,omitempty"`
+}
+
+// SessionMeta carries host-specific extensions on session/new.
+type SessionMeta struct {
+	SystemPrompt *SystemPromptMeta `json:"systemPrompt,omitempty"`
+}
+
+// SystemPromptMeta is the object form of `_meta.systemPrompt`. The Claude
+// Code bridge spreads it over its claude_code preset with type/preset locked,
+// so Append is added to Claude Code's own system prompt rather than replacing
+// it.
+type SystemPromptMeta struct {
+	Append string `json:"append,omitempty"`
 }
 
 // McpServer describes one MCP server the agent should connect to. Empty list
