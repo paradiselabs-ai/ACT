@@ -16,6 +16,7 @@
  *   ACT_SERVER_URL   Override ACT server (default: http://localhost:8080)
  *   CLAUDE_PATH      Path to `claude` binary (default: claude, must be in PATH)
  *   GEMINI_PATH      Path to `gemini` binary (default: gemini, must be in PATH)
+ *   AGY_PATH         Path to `agy` binary (default: agy, must be in PATH)
  *   POLL_INTERVAL_MS Milliseconds between polls (default: 5000)
  *   MAX_ITERATIONS   Max loops before exiting (default: 100, 0 = unlimited)
  *   TASK_TIMEOUT_MS  Max ms for a single claude invocation (default: 120000)
@@ -34,6 +35,7 @@ const ACT_SERVER_URL = (process.env.ACT_SERVER_URL || 'http://localhost:8080').r
 const ACT_PROJECT    = process.env.ACT_PROJECT || '';
 const CLAUDE_PATH    = process.env.CLAUDE_PATH    || 'claude';
 const GEMINI_PATH    = process.env.GEMINI_PATH    || 'gemini';
+const AGY_PATH       = process.env.AGY_PATH       || 'agy';
 const AGENT_CLI      = process.env.ACTOR_CLI || process.env.AGENT_CLI || './act-agent';
 const POLL_INTERVAL  = parseInt(process.env.POLL_INTERVAL_MS || '5000',  10);
 const TASK_TIMEOUT   = parseInt(process.env.TASK_TIMEOUT_MS  || '120000', 10);
@@ -70,7 +72,7 @@ Required:
 
 Optional:
   --role <role>           Agent specialization (e.g. frontend-dev, backend-dev, developer)
-  --backend <name>         Agent execution backend: act-agent (default), claude-code, or gemini
+  --backend <name>         Agent execution backend: act-agent (default), claude-code, gemini, or antigravity
   --capabilities <list>    Comma-separated capabilities (e.g. typescript,react,testing)
   --max-iterations <n>     Max coordination loops before exit (default: 100, 0 = unlimited)
   --poll-interval <ms>     Milliseconds between polls (default: 5000)
@@ -82,6 +84,7 @@ Environment variables:
   ACTOR_CLI / AGENT_CLI    Agent CLI binary (fallback: ./act-agent/act-agent)
   CLAUDE_PATH              Path to claude binary (default: claude)
   GEMINI_PATH              Path to gemini binary (default: gemini)
+  AGY_PATH                 Path to agy binary (default: agy)
   POLL_INTERVAL_MS         Polling interval in ms
   MAX_ITERATIONS           Max loops
   TASK_TIMEOUT_MS          Timeout for a single claude invocation (default: 120000)
@@ -98,6 +101,15 @@ const liveProcesses = new Map(); // agentId -> { pid, startedAt, taskId }
 
 if (!AGENT_ID) {
   console.error('Error: --agent-id is required');
+  process.exit(1);
+}
+
+// Least-privilege gate, mirroring runner/swarm_roles.go::BackendAllowedForRole.
+// agy has no read-only/plan mode (--sandbox restricts the terminal only), so an
+// antigravity researcher would run with full write privilege. The Go spawner
+// rejects this pair before spawn; this catches hand-rolled invocations too.
+if (AGENT_ROLE === 'researcher' && BACKEND === 'antigravity') {
+  console.error('Error: backend "antigravity" is not allowed for the researcher role — agy has no read-only/plan mode.');
   process.exit(1);
 }
 
@@ -233,6 +245,9 @@ async function runAgent(prompt) {
   }
   if (BACKEND === 'gemini') {
     return runAgentGemini(prompt);
+  }
+  if (BACKEND === 'antigravity') {
+    return runAgentAntigravity(prompt);
   }
   return runAgentActAgent(prompt);
 }
@@ -392,6 +407,59 @@ async function runAgentGemini(prompt, attempt = 1) {
   }
 }
 
+// Antigravity (agy) backend: a plain one-shot, same shape as claude-code.
+// `agy --print <prompt>` runs a single prompt non-interactively and exits; no
+// --continue/--conversation, because the swarm is stateless per task (the Runner
+// rebuilds full context into every prompt and the ACT server is the memory).
+// No least-privilege flag exists — agy's only restriction is --sandbox, which
+// limits the terminal, not file writes — so the researcher role is rejected up
+// front (see the startup gate) rather than run with more privilege than it has
+// on every other backend.
+async function runAgentAntigravity(prompt, attempt = 1) {
+  log(`  [agy invoke] path=${AGY_PATH} attempt=${attempt} prompt_bytes=${prompt.length}`);
+  try {
+    // `input: ''` closes stdin with EOF immediately — same reason as claude:
+    // a piped-but-empty stdin makes print mode wait for input it never gets.
+    const { stdout, stderr } = await execFileAsync(
+      AGY_PATH,
+      // Flag order matters: agy's --print consumes the NEXT arg as its prompt
+      // value. Boolean flags must come first or --print swallows them as the
+      // prompt and agy answers the flag name instead of the task (live bug,
+      // 2026-08-08 LinkDock e2e: every swarm task returned an explanation of
+      // --dangerously-skip-permissions and Assurance 0/100'd all of them).
+      ['--dangerously-skip-permissions', '--print', prompt],
+      { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024, input: '' }
+    );
+    if (stderr) log(`  [agy stderr] ${stderr.trim().split('\n')[0]}`);
+    log(`  [agy result] success=true code=0 out_bytes=${stdout.length}`);
+    return {
+      success: true,
+      output: stdout.trim(),
+      code: 0
+    };
+  } catch (err) {
+    const output = err.stdout?.trim() || '';
+    const errMsg = err.stderr?.trim() || err.message;
+    const code = Number.isInteger(err.code) ? err.code : 1;
+    const firstErrLine = (errMsg || '').split('\n')[0];
+    log(`  [agy result] success=false code=${code} stderr="${firstErrLine}" out_bytes=${output.length}`);
+
+    // Same one-shot retry contract as claude-code/gemini: process died with no
+    // output → transient (API 5xx, dropped connection); retry once fresh.
+    if (attempt === 1 && !output) {
+      log(`  [agy retry] first attempt had no output; retrying once`);
+      return runAgentAntigravity(prompt, 2);
+    }
+
+    return {
+      success: false,
+      output,
+      error: errMsg,
+      code
+    };
+  }
+}
+
 // ─── Parallel awareness ───────────────────────────────────────────────────────
 
 /**
@@ -412,6 +480,14 @@ async function fetchParallelContext() {
     );
 
     if (agents.length === 0) return null;
+
+    // Only worth a coordination model call if a PEER actually has work in flight.
+    // Every runner registers at spawn, so agent presence alone is not signal.
+    const peerIds = new Set(agents.map(a => a.id));
+    if (!tasks.some(t => peerIds.has(t.assignedAgent))) {
+      log(`  [coord skip] no peer tasks in flight`);
+      return null;
+    }
 
     const agentLines = agents.map(a => {
       const agentTasks = tasks.filter(t => t.assignedAgent === a.id);

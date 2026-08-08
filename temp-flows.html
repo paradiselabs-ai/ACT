@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ACT / NesTTY — Architecture &amp; Flows</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { box-sizing: border-box; }
+:root {
+  --bg: #0a0c10;
+  --fg: #e6edf3;
+  --dim: #8b949e;
+  --dimmer: #4a5560;
+  --panel: #11151b;
+  --panel2: #161b22;
+  --border: #232a33;
+  --gold: #f5b302;
+  --gold-soft: rgba(245,179,2,0.10);
+  --blue: #3498db; --green: #2ecc71; --magenta: #e91e63; --cyan: #1abc9c;
+  --ok: #f5b302; --po: #ff9f43; --gap: #e74c3c;
+}
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; }
+.app { display: grid; grid-template-rows: auto 1fr; height: 100vh; overflow: hidden; }
+.topbar { padding: 14px 22px 10px; border-bottom: 1px solid var(--border); }
+.topbar h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+.topbar p { color: var(--dim); margin: 4px 0 8px; font-size: 12px; max-width: 920px; line-height: 1.45; }
+.chips { display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 10px; cursor: pointer; user-select: none; color: var(--dim); border: 1px solid transparent; }
+.chip:hover { color: var(--fg); }
+.chip.off { opacity: 0.35; }
+.chip .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.main { display: grid; grid-template-columns: 1fr 360px; height: 100%; overflow: hidden; }
+.canvas { position: relative; overflow: auto; padding: 22px 32px 100px; }
+.columns { display: grid; grid-template-columns: repeat(8, minmax(170px, 1fr)); gap: 36px; min-width: 1600px; position: relative; }
+.col { display: grid; grid-auto-rows: minmax(40px, auto); row-gap: 28px; align-content: start; position: relative; }
+.col h3 { grid-row: 1; font-size: 10px; margin: 0 0 4px; color: var(--dimmer); text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.card { position: relative; background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--catcolor, var(--border)); border-radius: 4px; padding: 7px 10px; cursor: pointer; transition: opacity 0.18s, border-color 0.18s, background 0.18s; font-size: 11.5px; line-height: 1.3; min-height: 34px; }
+.card .lbl { font-weight: 600; color: var(--fg); font-size: 11.5px; }
+.card .sub { color: var(--dim); font-size: 10px; margin-top: 2px; }
+.card .detail { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); color: var(--dim); font-size: 10.5px; line-height: 1.45; word-break: break-word; }
+.card.open .detail { display: block; }
+.card.dim { opacity: 0.13; }
+.card.active { border-color: var(--flowcolor, var(--gold)); border-left-color: var(--flowcolor, var(--gold)); background: linear-gradient(180deg, var(--gold-soft), transparent); }
+.card.active .lbl { color: var(--flowcolor, var(--gold)); }
+.svgoverlay { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 5; }
+.flowarc { fill: none; stroke-width: 1.7; opacity: 0.92; }
+.flowarc.ok { stroke-dasharray: none; }
+.flowarc.prompt-only { stroke-dasharray: 5 3; }
+.flowarc.gap-found { stroke-dasharray: 3 3; }
+.badge-num { font-size: 9.5px; font-weight: 700; fill: #0a0c10; text-anchor: middle; }
+.sidebar { background: #0d1117; border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+.section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.section h2 { font-size: 10px; margin: 0 0 10px; color: var(--dimmer); text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600; }
+.flow { padding: 9px 11px; border: 1px solid transparent; border-left: 2px solid transparent; border-radius: 4px; margin-bottom: 4px; cursor: pointer; transition: background 0.1s; }
+.flow:hover { background: var(--panel); }
+.flow .lbl { font-weight: 600; font-size: 12px; color: var(--fg); }
+.flow .sum { color: var(--dim); font-size: 11px; margin-top: 3px; line-height: 1.4; }
+.flow.sel { background: var(--gold-soft); border-color: var(--flowcolor, var(--gold)); border-left-width: 2px; }
+.flow.sel .lbl { color: var(--flowcolor, var(--gold)); }
+.clear { width: 100%; padding: 6px 10px; background: transparent; color: var(--dim); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: 4px; }
+.clear:hover { color: var(--fg); border-color: var(--dim); }
+.step { padding: 11px 0; border-bottom: 1px dashed var(--border); }
+.step:last-child { border-bottom: none; }
+.step .num { display: inline-flex; width: 19px; height: 19px; border-radius: 50%; background: var(--flowcolor, var(--gold)); color: #0a0c10; font-size: 10px; font-weight: 700; align-items: center; justify-content: center; margin-right: 8px; vertical-align: middle; }
+.step .hdr { display: inline-block; font-size: 10.5px; color: var(--dim); vertical-align: middle; }
+.step .lbl { font-weight: 600; color: var(--fg); margin-top: 4px; font-size: 11.5px; }
+.step .det { color: var(--dim); font-size: 10.5px; line-height: 1.45; margin-top: 4px; word-break: break-word; }
+.step .badge { display: inline-block; padding: 1px 6px; font-size: 9px; border-radius: 8px; margin-left: 6px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.04em; }
+.step .badge.ok { background: rgba(245,179,2,0.15); color: var(--ok); border: 1px solid rgba(245,179,2,0.45); }
+.step .badge.prompt-only { background: rgba(255,159,67,0.15); color: var(--po); border: 1px solid rgba(255,159,67,0.45); }
+.step .badge.gap-found { background: rgba(231,76,60,0.15); color: var(--gap); border: 1px solid rgba(231,76,60,0.45); }
+.statuslegend { display: flex; gap: 12px; font-size: 10.5px; color: var(--dim); margin-top: 6px; }
+.statuslegend .item { display: inline-flex; align-items: center; gap: 4px; }
+.statuslegend .sw { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.statuslegend .ok-sw { background: var(--ok); }
+.statuslegend .po-sw { background: var(--po); }
+.statuslegend .gap-sw { background: var(--gap); }
+.tip { font-size: 10.5px; color: var(--dimmer); padding: 8px 16px 16px; line-height: 1.5; }
+.nodetip { position: fixed; z-index: 50; max-width: 340px; background: var(--panel2); color: var(--fg); border: 1px solid var(--border); border-left: 3px solid var(--gold); border-radius: 6px; padding: 10px 12px; font-size: 11.5px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,0.55); pointer-events: none; display: none; }
+.nodetip .uv { margin-top: 6px; color: var(--gold); }
+</style>
+</head>
+<body>
+<div class="nodetip" id="nodetip"></div>
+<div class="app">
+  <div class="topbar">
+    <h1>ACT / NesTTY — Architecture &amp; Flows</h1>
+    <p>Every Tier 1 agent, swarm prompt, REST endpoint, background loop, and storage backend that powers NesTTY coordination. Pick a flow on the right to highlight the path through the system and see what passes at each step. <span id="metasub" style="color:var(--dim);"></span></p>
+    <div class="chips" id="chips"></div>
+    <div class="statuslegend">
+      <span class="item"><span class="sw ok-sw"></span>ok — code-verified, cites file:line</span>
+      <span class="item"><span class="sw po-sw"></span>prompt-only — LLM compliance, no code gate</span>
+      <span class="item"><span class="sw gap-sw"></span>gap-found — doc-but-no-code, or partial</span>
+    </div>
+  </div>
+  <div class="main">
+    <div class="canvas" id="canvas">
+      <div class="columns" id="columns"></div>
+      <svg class="svgoverlay" id="overlay"></svg>
+    </div>
+    <div class="sidebar">
+      <div class="section">
+        <h2>Flows (click to select · shift-click to add)</h2>
+        <div id="flowlist"></div>
+        <button class="clear" id="clearflows">Clear selection</button>
+      </div>
+      <div class="section" id="stepsection" style="display:none;">
+        <h2>Steps</h2>
+        <div id="stepsbody"></div>
+      </div>
+      <div class="tip"><span id="counts"></span> See <code>.claude/architecture-flows-method.md</code> for the rebuild contract. JSON also carries <code>meta.externalReferences[]</code> for agent context (providers, install) — not rendered in this visual.</div>
+    </div>
+  </div>
+</div>
+<script type="application/json" id="data">{
+  "meta": {
+    "version": "proposal",
+    "model": "agent-centric",
+    "branch": "feat/remove-nomik",
+    "headCommit": "d59785a",
+    "summary": "PROPOSAL preview — agents + the real systems are the nodes; everything an agent DOES (parse, dispatch, poll, submit, validate, search) is a flow. Click a flow to trace it; hover a node for a plain-English explanation."
+  },
+  "subsystems": [
+    {
+      "id": "prompts",
+      "label": "PROMPT-ENGINEERING",
+      "color": "#b48ead"
+    },
+    {
+      "id": "server",
+      "label": "SERVER",
+      "color": "#7bd389"
+    },
+    {
+      "id": "orchestrator",
+      "label": "TIER 1 AGENTS + ORCHESTRATOR",
+      "color": "#c97bd3"
+    },
+    {
+      "id": "execution",
+      "label": "ENGINES",
+      "color": "#e0b341"
+    },
+    {
+      "id": "swarm",
+      "label": "SWARM AGENTS + RUNNER",
+      "color": "#5aa9e6"
+    },
+    {
+      "id": "memory",
+      "label": "MEMORY / PVM",
+      "color": "#56b6a4"
+    },
+    {
+      "id": "external",
+      "label": "EXTERNAL",
+      "color": "#8a909c"
+    }
+  ],
+  "components": [
+    {
+      "id": "prompt_eng",
+      "label": "Prompt-engineering system",
+      "parent": "prompts",
+      "src": "internal/llm/prompt/",
+      "hover": "Builds each agent's prompt — role instructions, project context, and extra sections pulled in only when needed. From a user perspective, this is what gives every agent its job description and project knowledge.",
+      "detail": "Builds each agent's prompt — role instructions, project context, and extra sections pulled in only when needed. From a user perspective, this is what gives every agent its job description and project knowledge."
+    },
+    {
+      "id": "server",
+      "label": "Coordination server",
+      "parent": "server",
+      "src": "server/src/index.ts",
+      "hover": "The central authority — holds every task, agent, project, and file lock, and passes messages between agents. From a user perspective, this is the shared brain that keeps the whole team in sync.",
+      "detail": "The central authority — holds every task, agent, project, and file lock, and passes messages between agents. From a user perspective, this is the shared brain that keeps the whole team in sync."
+    },
+    {
+      "id": "planner",
+      "label": "Planner",
+      "parent": "orchestrator",
+      "src": "planner.go · Tier 1",
+      "hover": "The only agent you talk to. Runs the intake conversation, decides the plan, and hands out tasks. From a user perspective, this is your project manager — it turns your request into a plan and assigns the work.",
+      "detail": "The only agent you talk to. Runs the intake conversation, decides the plan, and hands out tasks. From a user perspective, this is your project manager — it turns your request into a plan and assigns the work."
+    },
+    {
+      "id": "observer",
+      "label": "Observer",
+      "parent": "orchestrator",
+      "src": "observer.go · Tier 1",
+      "hover": "A silent watchdog that checks the project's health every couple of minutes and only speaks up when something's stuck or wrong. From a user perspective, this is the supervisor that catches problems before you have to.",
+      "detail": "A silent watchdog that checks the project's health every couple of minutes and only speaks up when something's stuck or wrong. From a user perspective, this is the supervisor that catches problems before you have to."
+    },
+    {
+      "id": "assurance",
+      "label": "Assurance",
+      "parent": "orchestrator",
+      "src": "assurance.go · Tier 1",
+      "hover": "Checks finished work against the success criteria and gives a pass/fail verdict. From a user perspective, this is quality control — it decides whether work is actually done right.",
+      "detail": "Checks finished work against the success criteria and gives a pass/fail verdict. From a user perspective, this is quality control — it decides whether work is actually done right."
+    },
+    {
+      "id": "qa_synth",
+      "label": "QA / Synthesizer",
+      "parent": "orchestrator",
+      "src": "qa_synthesizer.go · Tier 1",
+      "hover": "Takes approved pieces and assembles them into the final result. From a user perspective, this is what pulls the finished work into your deliverable.",
+      "detail": "Takes approved pieces and assembles them into the final result. From a user perspective, this is what pulls the finished work into your deliverable."
+    },
+    {
+      "id": "orchestrator",
+      "label": "Orchestrator",
+      "parent": "orchestrator",
+      "src": "orchestrator.go",
+      "hover": "The deterministic coordinator: runs each lead agent's turn, reads their instructions, runs the background loops, and spawns the workers. From a user perspective, this is the stage manager — it doesn't decide anything, it makes the agents' decisions actually happen.",
+      "detail": "The deterministic coordinator: runs each lead agent's turn, reads their instructions, runs the background loops, and spawns the workers. From a user perspective, this is the stage manager — it doesn't decide anything, it makes the agents' decisions actually happen."
+    },
+    {
+      "id": "engines",
+      "label": "LLM providers / engines",
+      "parent": "execution",
+      "src": "internal/llm/provider/",
+      "hover": "The actual AI models behind every agent — Anthropic, OpenAI, Groq, NVIDIA, local, and more. From a user perspective, this is the brain you plug into each agent, and different agents can use different brains.",
+      "detail": "The actual AI models behind every agent — Anthropic, OpenAI, Groq, NVIDIA, local, and more. From a user perspective, this is the brain you plug into each agent, and different agents can use different brains."
+    },
+    {
+      "id": "swarm_developer",
+      "label": "developer",
+      "parent": "swarm",
+      "src": "developer.go · Tier 2",
+      "hover": "A general full-stack worker agent. From a user perspective, this is a coder on the team that picks up general build tasks.",
+      "detail": "A general full-stack worker agent. From a user perspective, this is a coder on the team that picks up general build tasks."
+    },
+    {
+      "id": "swarm_frontend",
+      "label": "frontend_dev",
+      "parent": "swarm",
+      "src": "frontend_dev.go · Tier 2",
+      "hover": "A UI/front-end specialist worker. From a user perspective, this is the team member who builds the interface.",
+      "detail": "A UI/front-end specialist worker. From a user perspective, this is the team member who builds the interface."
+    },
+    {
+      "id": "swarm_backend",
+      "label": "backend_dev",
+      "parent": "swarm",
+      "src": "backend_dev.go · Tier 2",
+      "hover": "An API/database specialist worker. From a user perspective, this is the team member who builds the back-end.",
+      "detail": "An API/database specialist worker. From a user perspective, this is the team member who builds the back-end."
+    },
+    {
+      "id": "swarm_qa",
+      "label": "qa_engineer",
+      "parent": "swarm",
+      "src": "qa_engineer.go · Tier 2",
+      "hover": "A testing specialist worker. From a user perspective, this is the team member who writes and runs the tests.",
+      "detail": "A testing specialist worker. From a user perspective, this is the team member who writes and runs the tests."
+    },
+    {
+      "id": "swarm_researcher",
+      "label": "researcher",
+      "parent": "swarm",
+      "src": "researcher.go · Tier 2",
+      "hover": "An analysis/research worker that gathers information rather than writing code. From a user perspective, this is the team member who investigates and reports back.",
+      "detail": "An analysis/research worker that gathers information rather than writing code. From a user perspective, this is the team member who investigates and reports back."
+    },
+    {
+      "id": "runner",
+      "label": "Runner",
+      "parent": "swarm",
+      "src": "spawner.go + act-runner.mjs",
+      "hover": "Launches one worker process per role and keeps each fed with tasks. From a user perspective, this is what brings your worker team online and hands them jobs.",
+      "detail": "Launches one worker process per role and keeps each fed with tasks. From a user perspective, this is what brings your worker team online and hands them jobs."
+    },
+    {
+      "id": "memory_log",
+      "label": "Event log (ChronLog)",
+      "parent": "memory",
+      "src": "ChronologicalLog.ts",
+      "hover": "An append-only record of every coordination event, saved to disk. From a user perspective, this is the project's permanent history of everything that happened.",
+      "detail": "An append-only record of every coordination event, saved to disk. From a user perspective, this is the project's permanent history of everything that happened."
+    },
+    {
+      "id": "memory_pvm",
+      "label": "Vector memory (PVM)",
+      "parent": "memory",
+      "src": "PVMIndexer + LocalEmbeddingVectorStore.ts",
+      "hover": "Turns the event log into searchable memory so agents can find relevant past work. From a user perspective, this is the team's long-term memory — 'have we done something like this before?'",
+      "detail": "Turns the event log into searchable memory so agents can find relevant past work. From a user perspective, this is the team's long-term memory — 'have we done something like this before?'"
+    },
+    {
+      "id": "human",
+      "label": "Human",
+      "parent": "external",
+      "src": "you, in the terminal",
+      "hover": "You — the person typing in the terminal; the only human entry point, talking to the Planner. From a user perspective, this is you giving instructions and reading answers.",
+      "detail": "You — the person typing in the terminal; the only human entry point, talking to the Planner. From a user perspective, this is you giving instructions and reading answers."
+    },
+    {
+      "id": "ext_claude_code",
+      "label": "claude-code CLI",
+      "parent": "external",
+      "src": "claude --print (ACP)",
+      "hover": "An optional outside coding assistant an agent can run on instead of the built-in model. From a user perspective, this is the choice to power an agent with Claude Code.",
+      "detail": "An optional outside coding assistant an agent can run on instead of the built-in model. From a user perspective, this is the choice to power an agent with Claude Code."
+    },
+    {
+      "id": "ext_antigravity",
+      "label": "antigravity / agy CLI",
+      "parent": "external",
+      "src": "agy-acp.mjs (ACP)",
+      "hover": "Another optional outside engine (still being finished). From a user perspective, this is a second swappable brain for an agent.",
+      "detail": "Another optional outside engine (still being finished). From a user perspective, this is a second swappable brain for an agent."
+    }
+  ],
+  "flows": [
+    {
+      "id": "intake",
+      "label": "Intake — first message of a new project",
+      "family": "lifecycle",
+      "summary": "You describe the project; the Planner runs intake and the Orchestrator creates it.",
+      "steps": [
+        {
+          "from": "human",
+          "to": "planner",
+          "label": "types the request; answers the 5 intake questions",
+          "status": "prompt-only",
+          "detail": "planner.go intake rules (model-followed)"
+        },
+        {
+          "from": "planner",
+          "to": "orchestrator",
+          "label": "emits a PROJECT_BRIEF: marker",
+          "status": "ok",
+          "detail": "planner.go:47-50; parsed orchestrator.go:1544"
+        },
+        {
+          "from": "orchestrator",
+          "to": "server",
+          "label": "creates the project (POST /api/projects)",
+          "status": "ok",
+          "detail": "orchestrator.go:1578"
+        },
+        {
+          "from": "orchestrator",
+          "to": "prompt_eng",
+          "label": "writes the project brief, rebinds agent prompts",
+          "status": "ok",
+          "detail": "orchestrator.go:1589-1606"
+        }
+      ]
+    },
+    {
+      "id": "decompose",
+      "label": "Decompose & dispatch",
+      "family": "lifecycle",
+      "summary": "On 'go', the Planner breaks the work into tasks and the Orchestrator dispatches them + starts the swarm.",
+      "steps": [
+        {
+          "from": "human",
+          "to": "planner",
+          "label": "approves — 'go'",
+          "status": "prompt-only",
+          "detail": "planner.go build mode"
+        },
+        {
+          "from": "planner",
+          "to": "orchestrator",
+          "label": "emits CREATE_TASK: directives",
+          "status": "ok",
+          "detail": "parsed orchestrator.go:1672"
+        },
+        {
+          "from": "orchestrator",
+          "to": "server",
+          "label": "creates tasks + resolves dependencies",
+          "status": "ok",
+          "detail": "orchestrator.go:1783-1813 (POST /api/tasks)"
+        },
+        {
+          "from": "orchestrator",
+          "to": "runner",
+          "label": "first task batch → spawn the swarm",
+          "status": "ok",
+          "detail": "orchestrator.go:1737 StartSwarm"
+        }
+      ]
+    },
+    {
+      "id": "swarm_exec",
+      "label": "A swarm agent does a task",
+      "family": "lifecycle",
+      "summary": "The Runner spawns a worker; it gets context, runs on its engine, and reports back.",
+      "steps": [
+        {
+          "from": "runner",
+          "to": "swarm_developer",
+          "label": "spawns the worker; it polls for its task",
+          "status": "ok",
+          "detail": "spawner.go:58; act-runner.mjs:162"
+        },
+        {
+          "from": "prompt_eng",
+          "to": "swarm_developer",
+          "label": "builds the task prompt (brief + context)",
+          "status": "ok",
+          "detail": "act-runner.mjs:611 buildTaskPrompt"
+        },
+        {
+          "from": "memory_pvm",
+          "to": "swarm_developer",
+          "label": "injects related past work (if complex)",
+          "status": "ok",
+          "detail": "act-runner.mjs:361 GET /api/pvm/search"
+        },
+        {
+          "from": "swarm_developer",
+          "to": "engines",
+          "label": "runs the turn on its model",
+          "status": "ok",
+          "detail": "act-runner.mjs:234"
+        },
+        {
+          "from": "swarm_developer",
+          "to": "server",
+          "label": "act-cli: marks complete + submits for validation",
+          "status": "ok",
+          "detail": "act-runner.mjs:181-196"
+        }
+      ]
+    },
+    {
+      "id": "validation",
+      "label": "Validation (Assurance)",
+      "family": "lifecycle",
+      "summary": "The Orchestrator routes finished work to Assurance, which scores it pass/fail.",
+      "steps": [
+        {
+          "from": "server",
+          "to": "orchestrator",
+          "label": "validation poll every 10s",
+          "status": "ok",
+          "detail": "orchestrator.go:2553"
+        },
+        {
+          "from": "orchestrator",
+          "to": "assurance",
+          "label": "routes finished work for checking",
+          "status": "ok",
+          "detail": "orchestrator.go:2613"
+        },
+        {
+          "from": "assurance",
+          "to": "server",
+          "label": "posts the verdict (95% gate is prompt-only)",
+          "status": "prompt-only",
+          "detail": "SubmitVerdict posts; the 95% gate lives in the prompt, not code"
+        }
+      ]
+    },
+    {
+      "id": "synthesis",
+      "label": "Synthesis & delivery (QA)",
+      "family": "lifecycle",
+      "summary": "Approved work goes to QA to assemble the deliverable.",
+      "steps": [
+        {
+          "from": "server",
+          "to": "orchestrator",
+          "label": "validated-tasks poll every 10s",
+          "status": "ok",
+          "detail": "orchestrator.go:2675"
+        },
+        {
+          "from": "orchestrator",
+          "to": "qa_synth",
+          "label": "routes approved work to assemble",
+          "status": "ok",
+          "detail": "orchestrator.go:2738"
+        },
+        {
+          "from": "qa_synth",
+          "to": "server",
+          "label": "posts the synthesis (summary only — full text not saved)",
+          "status": "gap-found",
+          "detail": "server synthesis handler stores a marker+summary, not the full deliverable"
+        }
+      ]
+    },
+    {
+      "id": "observer",
+      "label": "Observer watchdog",
+      "family": "coordination",
+      "summary": "Every couple of minutes the Observer checks health and nudges the Planner if something's wrong.",
+      "steps": [
+        {
+          "from": "orchestrator",
+          "to": "observer",
+          "label": "wakes the Observer every 120s",
+          "status": "ok",
+          "detail": "orchestrator.go:2006"
+        },
+        {
+          "from": "observer",
+          "to": "planner",
+          "label": "flags anomalies → auto-routes to the Planner",
+          "status": "ok",
+          "detail": "orchestrator.go autoroute (cap 5/10min)"
+        }
+      ]
+    },
+    {
+      "id": "mem_capture",
+      "label": "Memory capture",
+      "family": "memory",
+      "summary": "Every event is logged, then turned into searchable memory.",
+      "steps": [
+        {
+          "from": "server",
+          "to": "memory_log",
+          "label": "every coordination event is appended",
+          "status": "ok",
+          "detail": "index.ts → ChronologicalLog.append"
+        },
+        {
+          "from": "memory_log",
+          "to": "memory_pvm",
+          "label": "indexed into searchable memory every 10s",
+          "status": "ok",
+          "detail": "PVMIndexer 10s"
+        }
+      ]
+    },
+    {
+      "id": "mem_query",
+      "label": "Planner memory query",
+      "family": "memory",
+      "summary": "The Planner searches past work to inform routing.",
+      "steps": [
+        {
+          "from": "planner",
+          "to": "memory_pvm",
+          "label": "searches past work for routing evidence",
+          "status": "ok",
+          "detail": "act_cli pvm search → /api/pvm/search"
+        }
+      ]
+    },
+    {
+      "id": "fork_tier1",
+      "label": "FORK · Tier-1 engine (model vs external CLI)",
+      "family": "config-fork",
+      "summary": "The same agent runs either on the built-in model or on an external CLI — your config picks which.",
+      "steps": [
+        {
+          "from": "planner",
+          "to": "engines",
+          "label": "in-process: runs on the built-in model",
+          "status": "ok",
+          "detail": "app.go default branch (NewAgent)",
+          "branch": "in-process"
+        },
+        {
+          "from": "planner",
+          "to": "ext_claude_code",
+          "label": "ACP: runs on an external CLI instead",
+          "status": "ok",
+          "detail": "app.go ACP branch (NewACPAgent)",
+          "branch": "acp"
+        }
+      ]
+    },
+    {
+      "id": "fork_swarm",
+      "label": "FORK · Swarm engine (built-in vs claude-code)",
+      "family": "config-fork",
+      "summary": "A worker runs either on the built-in binary or on Claude Code — same job, different engine.",
+      "steps": [
+        {
+          "from": "swarm_developer",
+          "to": "engines",
+          "label": "act-agent: the built-in binary",
+          "status": "ok",
+          "detail": "act-runner.mjs:234",
+          "branch": "act-agent"
+        },
+        {
+          "from": "swarm_developer",
+          "to": "ext_claude_code",
+          "label": "claude-code: an external CLI",
+          "status": "ok",
+          "detail": "act-runner.mjs:281",
+          "branch": "claude-code"
+        }
+      ]
+    }
+  ]
+}</script>
+<script>
+(function(){
+  var data = JSON.parse(document.getElementById('data').textContent);
+  var palette = ['#f5b302','#3498db','#2ecc71','#e91e63','#1abc9c'];
+  var selectedFlows = [];
+  var hiddenCats = new Set();
+  var openCards = new Set();
+  var subs = data.subsystems;
+  var tipEl = document.getElementById('nodetip');
+  function showTip(txt){
+    if (!tipEl) return;
+    if (!txt) { tipEl.style.display = 'none'; return; }
+    var i = txt.indexOf('From a user perspective');
+    tipEl.innerHTML = (i >= 0)
+      ? escapeHtml(txt.slice(0, i)).trim() + '<div class="uv">' + escapeHtml(txt.slice(i)) + '</div>'
+      : escapeHtml(txt);
+    tipEl.style.display = 'block';
+  }
+  function moveTip(ev){
+    if (!tipEl || tipEl.style.display === 'none') return;
+    var r = tipEl.getBoundingClientRect();
+    var x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + r.width > window.innerWidth - 8) x = ev.clientX - r.width - 14;
+    if (y + r.height > window.innerHeight - 8) y = ev.clientY - r.height - 14;
+    tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px';
+  }
+  function hideTip(){ if (tipEl) tipEl.style.display = 'none'; }
+
+  document.getElementById('metasub').textContent = '· branch ' + data.meta.branch + ' @ ' + data.meta.headCommit;
+  document.title = 'ACT / NesTTY — Architecture & Flows (' + data.meta.headCommit + ')';
+  var countsEl = document.getElementById('counts');
+  if (countsEl) countsEl.textContent = data.components.length + ' components · ' + data.flows.length + ' flows · ' + subs.length + ' columns · branch ' + data.meta.branch + ' @ ' + data.meta.headCommit + '.';
+
+  var catById = {};
+  subs.forEach(function(cat){ catById[cat.id] = cat; });
+  var colOf = {};
+  data.components.forEach(function(c){ colOf[c.id] = c.parent; });
+
+  var chipsEl = document.getElementById('chips');
+  subs.forEach(function(cat){
+    var chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.dataset.cat = cat.id;
+    chip.innerHTML = '<span class="sw" style="background:' + cat.color + '"></span>' + cat.label;
+    chip.addEventListener('click', function(){
+      if (hiddenCats.has(cat.id)) { hiddenCats.delete(cat.id); chip.classList.remove('off'); }
+      else { hiddenCats.add(cat.id); chip.classList.add('off'); }
+      renderColumns();
+      requestAnimationFrame(drawOverlay);
+    });
+    chipsEl.appendChild(chip);
+  });
+
+  var flowlistEl = document.getElementById('flowlist');
+  data.flows.forEach(function(flow){
+    var f = document.createElement('div');
+    f.className = 'flow';
+    f.dataset.flowId = flow.id;
+    f.innerHTML = '<div class="lbl">' + escapeHtml(flow.label) + '</div><div class="sum">' + escapeHtml(flow.summary) + '</div>';
+    f.addEventListener('click', function(ev){ toggleFlow(flow.id, ev.shiftKey); });
+    flowlistEl.appendChild(f);
+  });
+  document.getElementById('clearflows').addEventListener('click', function(){
+    selectedFlows = [];
+    syncSidebar(); applyHighlight(); drawOverlay(); renderSteps();
+  });
+
+  var slotOf = {}, rowCount = {};
+  data.components.forEach(function(c){
+    var col = c.parent;
+    var r = (rowCount[col] == null ? 0 : rowCount[col] + 1);
+    rowCount[col] = r; slotOf[c.id] = r;
+  });
+  var maxSlotByCol = {};
+  data.components.forEach(function(c){
+    var s = slotOf[c.id];
+    if ((maxSlotByCol[c.parent] || 0) < s) maxSlotByCol[c.parent] = s;
+  });
+
+  var columnsEl = document.getElementById('columns');
+  columnsEl.style.gridTemplateColumns = 'repeat(' + subs.length + ', minmax(190px, 1fr))';
+  function renderColumns(){
+    columnsEl.innerHTML = '';
+    subs.forEach(function(col){
+      var colEl = document.createElement('div');
+      colEl.className = 'col';
+      colEl.dataset.col = col.id;
+      var totalRows = (maxSlotByCol[col.id] || 0) + 2;
+      colEl.style.gridTemplateRows = 'auto repeat(' + (totalRows - 1) + ', minmax(40px, auto))';
+      var h = document.createElement('h3');
+      h.textContent = col.label;
+      h.style.gridRow = '1';
+      colEl.appendChild(h);
+      data.components.filter(function(c){ return c.parent === col.id; }).forEach(function(c){
+        if (hiddenCats.has(c.parent)) return;
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.id = c.id;
+        card.style.setProperty('--catcolor', col.color);
+        card.style.gridRow = String(slotOf[c.id] + 2);
+        var tagStr = c.src || '';
+        card.innerHTML = '<div class="lbl">' + escapeHtml(c.label) + '</div>' +
+                        (tagStr ? '<div class="sub">' + escapeHtml(tagStr) + '</div>' : '') +
+                        '<div class="detail">' + escapeHtml(c.detail) + '</div>';
+        if (openCards.has(c.id)) card.classList.add('open');
+        card.addEventListener('click', function(ev){
+          ev.stopPropagation();
+          if (openCards.has(c.id)) { openCards.delete(c.id); card.classList.remove('open'); }
+          else { openCards.add(c.id); card.classList.add('open'); }
+          requestAnimationFrame(drawOverlay);
+        });
+        card.addEventListener('mouseenter', function(){ showTip(c.hover); });
+        card.addEventListener('mousemove', function(ev){ moveTip(ev); });
+        card.addEventListener('mouseleave', hideTip);
+        colEl.appendChild(card);
+      });
+      columnsEl.appendChild(colEl);
+    });
+    applyHighlight();
+  }
+
+  function applyHighlight(){
+    document.querySelectorAll('.card').forEach(function(card){
+      card.classList.remove('active','dim');
+      card.style.removeProperty('--flowcolor');
+    });
+    if (selectedFlows.length === 0) return;
+    var memberSet = {};
+    selectedFlows.forEach(function(sel){
+      var flow = data.flows.find(function(f){ return f.id === sel.flowId; });
+      flow.steps.forEach(function(s){
+        if (!memberSet[s.from]) memberSet[s.from] = sel.color;
+        if (!memberSet[s.to]) memberSet[s.to] = sel.color;
+      });
+    });
+    document.querySelectorAll('.card').forEach(function(card){
+      var id = card.dataset.id;
+      if (memberSet[id]) {
+        card.classList.add('active');
+        card.style.setProperty('--flowcolor', memberSet[id]);
+      } else {
+        card.classList.add('dim');
+      }
+    });
+  }
+
+  function toggleFlow(flowId, multi){
+    var idx = selectedFlows.findIndex(function(s){ return s.flowId === flowId; });
+    if (idx >= 0) {
+      selectedFlows.splice(idx, 1);
+      selectedFlows = selectedFlows.map(function(s, i){ return { flowId: s.flowId, color: palette[i % palette.length] }; });
+    } else {
+      if (!multi) selectedFlows = [];
+      if (selectedFlows.length < palette.length) {
+        selectedFlows.push({ flowId: flowId, color: palette[selectedFlows.length] });
+      }
+    }
+    syncSidebar(); applyHighlight(); drawOverlay(); renderSteps();
+  }
+
+  function syncSidebar(){
+    document.querySelectorAll('.sidebar .flow').forEach(function(el){
+      var sel = selectedFlows.find(function(s){ return s.flowId === el.dataset.flowId; });
+      if (sel) {
+        el.classList.add('sel');
+        el.style.setProperty('--flowcolor', sel.color);
+        el.style.borderLeftColor = sel.color;
+      } else {
+        el.classList.remove('sel');
+        el.style.removeProperty('--flowcolor');
+        el.style.borderLeftColor = '';
+      }
+    });
+  }
+
+  // Cubic-bezier midpoint approximation
+  function bezMid(x1,y1,c1x,c1y,c2x,c2y,x2,y2){
+    return [(x1 + 3*c1x + 3*c2x + x2) / 8, (y1 + 3*c1y + 3*c2y + y2) / 8];
+  }
+
+  function drawOverlay(){
+    var svg = document.getElementById('overlay');
+    var canvas = document.getElementById('canvas');
+    var cols = document.getElementById('columns');
+    if (!cols) return;
+    var w = Math.max(cols.scrollWidth + 80, canvas.clientWidth);
+    var h = Math.max(cols.scrollHeight + 100, canvas.clientHeight);
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.innerHTML = '';
+    if (selectedFlows.length === 0) return;
+
+    var defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+    selectedFlows.forEach(function(sel, i){
+      var m = document.createElementNS('http://www.w3.org/2000/svg','marker');
+      m.setAttribute('id','arrow-' + i);
+      m.setAttribute('viewBox','0 0 10 10');
+      m.setAttribute('refX','9'); m.setAttribute('refY','5');
+      m.setAttribute('markerWidth','6'); m.setAttribute('markerHeight','6');
+      m.setAttribute('orient','auto-start-reverse');
+      var p = document.createElementNS('http://www.w3.org/2000/svg','path');
+      p.setAttribute('d','M 0 0 L 10 5 L 0 10 z');
+      p.setAttribute('fill', sel.color);
+      m.appendChild(p);
+      defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+
+    var canvasRect = canvas.getBoundingClientRect();
+    var sl = canvas.scrollLeft, st = canvas.scrollTop;
+
+    // Per-column counter to stagger same-col arc widths so they don't overlap
+    var sameColCount = {};
+
+    selectedFlows.forEach(function(sel, si){
+      var flow = data.flows.find(function(f){ return f.id === sel.flowId; });
+      flow.steps.forEach(function(step, stepIdx){
+        var fromEl = document.querySelector('.card[data-id="' + step.from + '"]');
+        var toEl = document.querySelector('.card[data-id="' + step.to + '"]');
+        if (!fromEl || !toEl) return;
+        var fr = fromEl.getBoundingClientRect();
+        var tr = toEl.getBoundingClientRect();
+        var fcx = fr.left + fr.width/2 - canvasRect.left + sl;
+        var fcy = fr.top + fr.height/2 - canvasRect.top + st;
+        var tcx = tr.left + tr.width/2 - canvasRect.left + sl;
+        var tcy = tr.top + tr.height/2 - canvasRect.top + st;
+
+        var x1, y1, x2, y2, c1x, c1y, c2x, c2y;
+        var sameCol = colOf[step.from] === colOf[step.to];
+        var selfLoop = step.from === step.to;
+
+        if (selfLoop) {
+          // Small loop on the right side of the card
+          x1 = fr.right - canvasRect.left + sl;
+          y1 = fcy - 6;
+          x2 = fr.right - canvasRect.left + sl;
+          y2 = fcy + 6;
+          c1x = x1 + 40; c1y = y1 - 20;
+          c2x = x2 + 40; c2y = y2 + 20;
+        } else if (sameCol) {
+          // Arc OUTWARD to the right of the column so the line doesn't overlap
+          // cards in between
+          var dy = Math.abs(tcy - fcy);
+          var idx = (sameColCount[colOf[step.from]] || 0);
+          sameColCount[colOf[step.from]] = idx + 1;
+          var arcOffset = 70 + (idx % 5) * 25 + dy * 0.20;
+          // Exit/enter from the right side
+          x1 = fr.right - canvasRect.left + sl;
+          y1 = fcy;
+          x2 = tr.right - canvasRect.left + sl;
+          y2 = tcy;
+          c1x = x1 + arcOffset; c1y = y1;
+          c2x = x2 + arcOffset; c2y = y2;
+        } else if (tcx > fcx + 20) {
+          // Forward (left-to-right) flow
+          x1 = fr.right - canvasRect.left + sl;
+          y1 = fcy;
+          x2 = tr.left - canvasRect.left + sl;
+          y2 = tcy;
+          var dx = x2 - x1;
+          c1x = x1 + dx * 0.45; c1y = y1;
+          c2x = x2 - dx * 0.45; c2y = y2;
+        } else if (tcx < fcx - 20) {
+          // Backward (right-to-left)
+          x1 = fr.left - canvasRect.left + sl;
+          y1 = fcy;
+          x2 = tr.right - canvasRect.left + sl;
+          y2 = tcy;
+          var dx2 = x2 - x1;
+          c1x = x1 + dx2 * 0.45; c1y = y1;
+          c2x = x2 - dx2 * 0.45; c2y = y2;
+        } else {
+          // Roughly stacked vertically
+          if (tcy > fcy) {
+            x1 = fcx; y1 = fr.bottom - canvasRect.top + st;
+            x2 = tcx; y2 = tr.top - canvasRect.top + st;
+          } else {
+            x1 = fcx; y1 = fr.top - canvasRect.top + st;
+            x2 = tcx; y2 = tr.bottom - canvasRect.top + st;
+          }
+          var dy2 = y2 - y1;
+          c1x = x1; c1y = y1 + dy2 * 0.45;
+          c2x = x2; c2y = y2 - dy2 * 0.45;
+        }
+
+        var d = 'M ' + x1 + ' ' + y1 + ' C ' + c1x + ' ' + c1y + ', ' + c2x + ' ' + c2y + ', ' + x2 + ' ' + y2;
+        var p = document.createElementNS('http://www.w3.org/2000/svg','path');
+        p.setAttribute('d', d);
+        p.setAttribute('class', 'flowarc ' + step.status);
+        p.setAttribute('stroke', sel.color);
+        p.setAttribute('marker-end', 'url(#arrow-' + si + ')');
+        svg.appendChild(p);
+
+        var mid = bezMid(x1,y1,c1x,c1y,c2x,c2y,x2,y2);
+        var g = document.createElementNS('http://www.w3.org/2000/svg','g');
+        var circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        circle.setAttribute('cx', mid[0]); circle.setAttribute('cy', mid[1]);
+        circle.setAttribute('r', 9); circle.setAttribute('fill', sel.color);
+        circle.setAttribute('stroke', '#0a0c10'); circle.setAttribute('stroke-width', '1.5');
+        var text = document.createElementNS('http://www.w3.org/2000/svg','text');
+        text.setAttribute('x', mid[0]); text.setAttribute('y', mid[1] + 3.5);
+        text.setAttribute('class','badge-num');
+        text.textContent = String(stepIdx + 1);
+        g.appendChild(circle); g.appendChild(text);
+        svg.appendChild(g);
+      });
+    });
+  }
+
+  function renderSteps(){
+    var sec = document.getElementById('stepsection');
+    var body = document.getElementById('stepsbody');
+    if (selectedFlows.length === 0) { sec.style.display = 'none'; body.innerHTML = ''; return; }
+    sec.style.display = 'block';
+    var html = '';
+    selectedFlows.forEach(function(sel){
+      var flow = data.flows.find(function(f){ return f.id === sel.flowId; });
+      if (selectedFlows.length > 1) {
+        html += '<div style="margin:6px 0 4px; font-weight:600; color:' + sel.color + ';">' + escapeHtml(flow.label) + '</div>';
+      }
+      flow.steps.forEach(function(s, i){
+        var fromComp = data.components.find(function(c){ return c.id === s.from; });
+        var toComp = data.components.find(function(c){ return c.id === s.to; });
+        html += '<div class="step" style="--flowcolor:' + sel.color + '">' +
+          '<span class="num">' + (i+1) + '</span>' +
+          '<span class="hdr">' + escapeHtml(fromComp ? fromComp.label : s.from) + ' → ' + escapeHtml(toComp ? toComp.label : s.to) + '</span>' +
+          '<span class="badge ' + s.status + '">' + s.status + '</span>' +
+          '<div class="lbl">' + escapeHtml(s.label) + '</div>' +
+          '<div class="det">' + escapeHtml(s.detail) + '</div>' +
+          '</div>';
+      });
+    });
+    body.innerHTML = html;
+  }
+
+  function escapeHtml(s){
+    if (s == null) return '';
+    return String(s).replace(/[&<>"\']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
+  renderColumns();
+  if (data.flows.length > 0) {
+    toggleFlow(data.flows[0].id, false);
+  }
+  document.getElementById('canvas').addEventListener('scroll', function(){ requestAnimationFrame(drawOverlay); });
+  window.addEventListener('resize', function(){ requestAnimationFrame(drawOverlay); });
+  setTimeout(drawOverlay, 80);
+})();
+</script>
+</body>
+</html>

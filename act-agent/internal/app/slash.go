@@ -60,8 +60,9 @@ func slashHelp() string {
 		"",
 		"  /swarm                                 List swarm roles, backends, models",
 		"  /swarm list                            (alias)",
-		"  /swarm <role> <act-agent|claude-code|gemini>  Set backend for one swarm role (Tier 2 only)",
-		"  /swarm all <act-agent|claude-code|gemini>     Set backend for ALL swarm roles",
+		"  /swarm <role> <act-agent|claude-code|gemini|antigravity>  Set backend for one swarm role (Tier 2 only)",
+		"  /swarm all <act-agent|claude-code|gemini|antigravity>     Set backend for ALL swarm roles",
+		"                                         (antigravity is rejected for researcher — agy has no read-only mode)",
 		"  /swarm restart <role>                  Restart one runner",
 		"  /swarm restart all                     Restart the whole swarm",
 		"  /swarm status                          Show live runner PIDs and state",
@@ -187,14 +188,22 @@ func (a *App) swarmRestart(target string) string {
 
 func (a *App) swarmSetBackend(role, backend string) string {
 	if !runner.IsValidBackend(backend) {
-		return fmt.Sprintf("invalid backend %q (valid: %s, %s, %s)", backend, runner.BackendActAgent, runner.BackendClaudeCode, runner.BackendGemini)
+		return fmt.Sprintf("invalid backend %q (valid: %s, %s, %s, %s)", backend,
+			runner.BackendActAgent, runner.BackendClaudeCode, runner.BackendGemini, runner.BackendAntigravity)
 	}
 
 	// Bulk operation
 	if role == "all" {
 		updated := 0
+		var skipped []string
 		for i, spec := range a.SwarmSpecs {
 			if !runner.IsSwarmRole(spec.Role) {
+				continue
+			}
+			// Roles whose privilege contract this backend can't honor keep their
+			// current backend instead of being silently downgraded.
+			if err := runner.BackendAllowedForRole(spec.Role, backend); err != nil {
+				skipped = append(skipped, fmt.Sprintf("%s (%v)", spec.Role, err))
 				continue
 			}
 			a.SwarmSpecs[i].Backend = backend
@@ -208,13 +217,22 @@ func (a *App) swarmSetBackend(role, backend string) string {
 			a.Orchestrator.runnerSpawner.Stop()
 			_ = a.Orchestrator.runnerSpawner.StartSwarm(a.SwarmSpecs)
 		}
-		return fmt.Sprintf("Set backend=%s for %d swarm roles. Restarting swarm...", backend, updated)
+		msg := fmt.Sprintf("Set backend=%s for %d swarm roles. Restarting swarm...", backend, updated)
+		if len(skipped) > 0 {
+			msg += "\nUnchanged: " + strings.Join(skipped, "; ")
+		}
+		return msg
 	}
 
 	// Tier 1 rejection
 	if !runner.IsSwarmRole(role) {
 		return fmt.Sprintf("backend selection only applies to Tier 2 swarm agents (%s). %q is not a swarm role.",
 			strings.Join(runner.AllSwarmRoles, ", "), role)
+	}
+
+	// Least-privilege gate: reject role/backend pairs the backend can't honor.
+	if err := runner.BackendAllowedForRole(role, backend); err != nil {
+		return err.Error()
 	}
 
 	// Single role

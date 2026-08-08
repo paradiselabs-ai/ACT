@@ -1259,7 +1259,7 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 					intake := o.intakeMode
 					o.mu.RUnlock()
 					if intake {
-						go o.handleProjectBrief(ctx, content)
+						go o.handleProjectBrief(ctx, msg.ID, content)
 						continue
 					}
 					go o.handlePlannerTaskDirectives(ctx, content)
@@ -1582,7 +1582,11 @@ func defaultStr(s, fallback string) string {
 // handleProjectBrief parses a PROJECT_BRIEF directive from a Planner intake-mode
 // response and POSTs it to the ACT server. On success, clears intakeMode so the
 // next Planner turn falls back to normal task-decomposition behavior.
-func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
+//
+// briefMsgID identifies the Planner message the directive arrived in — the
+// confirmation gate walks backwards from it to find the human turn that
+// preceded the brief.
+func (o *Orchestrator) handleProjectBrief(ctx context.Context, briefMsgID, content string) {
 	markerFound := strings.Contains(content, "PROJECT_BRIEF:")
 	brief := parseProjectBrief(content)
 	descBytes := 0
@@ -1602,6 +1606,10 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 	}
 	if brief == nil {
 		return // still gathering — Planner hasn't summarized yet
+	}
+
+	if !o.confirmationGatePassed(ctx, briefMsgID) {
+		return // human never said yes — project NOT created, intakeMode stays true
 	}
 
 	o.mu.RLock()
@@ -1693,6 +1701,142 @@ func (o *Orchestrator) handleProjectBrief(ctx context.Context, content string) {
 
 	o.armBuildContract()
 	go o.fireWhenPlannerIdle(ctx, sid, buildPrompt, "build_mode_trigger")
+}
+
+// confirmationGatePassed decides — at the orchestrator boundary, never in the
+// LLM's judgement — whether the human actually confirmed the intake summary
+// before the Planner emitted PROJECT_BRIEF. Same philosophy as the fail-closed
+// empty-criteria verdict gate: the "Ready to start?" hard stop was prompt-wished
+// only, so any non-empty reply after the summary worked as a yes (live bug,
+// 2026-08-08 LinkDock e2e: the human pasted a description paragraph, the brief
+// was accepted and 4 tasks dispatched).
+//
+// On a non-affirmative reply the project is NOT created: the human sees a system
+// message and the Planner is re-prompted to fold the reply in as updated intake
+// information and re-ask. intakeMode is left untouched (still true), so the next
+// PROJECT_BRIEF runs the same gate. Applies identically to greenfield and
+// brownfield intake — both reach here through the same parse path.
+func (o *Orchestrator) confirmationGatePassed(ctx context.Context, briefMsgID string) bool {
+	o.mu.RLock()
+	sid := o.sessionID
+	o.mu.RUnlock()
+
+	reply := o.lastHumanTurnBefore(ctx, sid, briefMsgID)
+	if isAffirmative(reply) {
+		return true
+	}
+
+	logging.Warn("project_brief_unconfirmed",
+		"reason", "human turn preceding PROJECT_BRIEF is not an explicit confirmation — project not created",
+		"reply_bytes", len(reply),
+		"reply_preview", truncate(reply, 200),
+	)
+	o.emitSystemMessage(ctx, sid, "⚠  PROJECT_BRIEF held — your last reply wasn't an explicit confirmation. The Planner will restate the summary and ask again.")
+
+	if sid == "" {
+		return false
+	}
+	rePrompt := "The human has NOT confirmed the project brief. Their last reply was:\n\n" +
+		truncate(reply, 1000) + "\n\n" +
+		"That is not an explicit yes, so the brief was NOT saved. Treat the reply as updated intake " +
+		"information: fold it into what you already have, restate the summary as a bullet list, and ask " +
+		`"Ready to start?" again. Do NOT emit PROJECT_BRIEF until the human replies with an explicit ` +
+		"confirmation in a later turn."
+	go o.fireWhenPlannerIdle(ctx, sid, rePrompt, "intake_confirmation_gate")
+	return false
+}
+
+// lastHumanTurnBefore returns the content of the most recent real human turn
+// that precedes beforeMsgID in the session. Orchestrator-injected prompts are
+// User-role messages too (autoroute, build/intake triggers) — they carry
+// InternalPromptMarker and are skipped here, since only a message the human
+// actually typed can count as confirmation. Returns "" when there is none.
+func (o *Orchestrator) lastHumanTurnBefore(ctx context.Context, sessionID, beforeMsgID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	msgs, err := o.app.Messages.List(ctx, sessionID)
+	if err != nil {
+		logging.Warn("confirmation_gate_history_unavailable", "error", err)
+		return ""
+	}
+	start := len(msgs) - 1
+	for i, m := range msgs {
+		if m.ID == beforeMsgID {
+			start = i - 1
+			break
+		}
+	}
+	for i := start; i >= 0; i-- {
+		if msgs[i].Role != message.User {
+			continue
+		}
+		content := msgs[i].Content().String()
+		if strings.HasPrefix(content, InternalPromptMarker) {
+			continue
+		}
+		return content
+	}
+	return ""
+}
+
+// isAffirmative reports whether a human reply to "Ready to start?" is an
+// explicit confirmation. Pure function, no LLM call — this is the enforcement
+// the prompt line only supports.
+//
+// Rules, deliberately conservative (a false negative costs one extra "yes", a
+// false positive spins up the swarm on an unapproved brief):
+//   - trimmed, case-insensitive, apostrophes dropped ("let's" → "lets"), all
+//     other punctuation treated as a separator
+//   - a question is never a confirmation ("should we start?")
+//   - a long reply is never a confirmation, whatever words it contains: over
+//     maxConfirmChars (a pasted paragraph) or over maxConfirmWords (a sentence
+//     doing more than agreeing). "yes, ready to start" is fine; a description
+//     paste containing "yes" is not.
+//   - any negation token anywhere ("no", "not", "dont", "wait", "hold", …) fails
+//   - one affirmative token or phrase must appear as whole words
+func isAffirmative(s string) bool {
+	const (
+		maxConfirmChars = 200
+		maxConfirmWords = 10
+	)
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > maxConfirmChars || strings.Contains(s, "?") {
+		return false
+	}
+	s = strings.ToLower(s)
+	s = strings.NewReplacer("'", "", "’", "").Replace(s)
+	words := strings.FieldsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	})
+	if len(words) == 0 || len(words) > maxConfirmWords {
+		return false
+	}
+	for _, w := range words {
+		switch w {
+		case "no", "nope", "nah", "not", "dont", "cant", "wait", "hold", "stop", "cancel", "never", "unless":
+			return false
+		}
+	}
+	normalized := " " + strings.Join(words, " ") + " "
+	for _, phrase := range affirmativePhrases {
+		if strings.Contains(normalized, " "+phrase+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// affirmativePhrases are matched as whole-word sequences against the normalized
+// reply (see isAffirmative). Multi-word entries are already space-joined.
+var affirmativePhrases = []string{
+	"y", "yes", "yep", "yup", "yeah", "ya", "yea",
+	"ok", "okay", "sure", "correct", "affirmative",
+	"go", "go ahead", "goahead", "lets go", "lets do it", "lets roll",
+	"ready", "start", "begin", "proceed", "continue",
+	"confirm", "confirmed", "approved", "approve",
+	"do it", "ship it", "send it", "make it so",
+	"sounds good", "looks good", "lgtm", "perfect",
 }
 
 // buildContractCorrectivePrompt is the re-prompt sent when an armed build
@@ -2773,10 +2917,18 @@ func (o *Orchestrator) routeToAssurance(ctx context.Context, client *act.Client,
 		logging.Warn("submit_verdict_failed", "task_id", t.ID, "error", err)
 		return
 	}
-	// Only mark seen once the verdict has been accepted by the server. A failed
-	// verdict that routed the task back to 'assigned' will surface again in a
-	// future poll under a new key lifecycle — the seen-key is per submission.
-	o.markSeen("validation:" + t.ID)
+	// Mark seen only on a PASSING verdict. The seen-key is validation:<taskID>
+	// and task IDs are stable across resubmissions, so marking a failed verdict
+	// seen makes every rework-and-resubmit of that task permanently invisible to
+	// this poller — the task strands in submitted_for_validation forever (live
+	// bug, 2026-08-08 LinkDock e2e: 4 rejected tasks resubmitted, never
+	// re-validated, tier1_watchdog fired). A failed verdict routes the task back
+	// to 'assigned' server-side, so it leaves the pending list immediately; when
+	// it is resubmitted, the attempt counter above (maxValidationAttempts) still
+	// bounds total validation cycles before escalating to the Planner.
+	if verdict.Passed {
+		o.markSeen("validation:" + t.ID)
+	}
 	logging.Info("verdict_submitted", "task_id", t.ID, "passed", verdict.Passed, "score", verdict.OverallScore)
 }
 

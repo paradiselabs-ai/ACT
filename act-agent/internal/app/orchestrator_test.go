@@ -1039,3 +1039,65 @@ func TestBuildContractGate(t *testing.T) {
 		t.Fatalf("successful retry should be silent, got %q", got)
 	}
 }
+
+// The intake confirmation gate's matcher: only an explicit yes may unlock
+// project creation from a PROJECT_BRIEF. A false positive spins up the swarm
+// on an unapproved brief (live bug, 2026-08-08 LinkDock e2e — a pasted
+// description paragraph was taken as confirmation), so the bar is high.
+func TestIsAffirmative(t *testing.T) {
+	// The verbatim LinkDock e2e paste (session db, 2026-08-08): the human
+	// answered "Ready to start?" with this description paragraph, not a yes —
+	// and the ungated orchestrator accepted the brief. This exact string must
+	// never pass the gate.
+	linkDockPaste := "LinkDock: a local link shortener. A JSON HTTP API creates short codes " +
+		"for URLs, redirects visitors, and counts clicks. A single static web page lets me " +
+		"add links and see a table of all links with their click counts. Data persists to " +
+		"one JSON file on disk."
+
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"bare yes", "yes", true},
+		{"single letter", "y", true},
+		{"uppercase with bang", "YES!", true},
+		{"yep", "yep", true},
+		{"yeah padded", "  yeah  ", true},
+		{"go", "go", true},
+		{"go ahead", "go ahead", true},
+		{"ready", "ready", true},
+		{"start", "start", true},
+		{"confirm", "confirm", true},
+		{"confirmed", "confirmed.", true},
+		{"do it", "do it", true},
+		{"ship it", "ship it!", true},
+		{"lets go apostrophe", "let's go", true},
+		{"sounds good", "sounds good", true},
+		{"lgtm", "LGTM", true},
+		{"few surrounding words", "yes, ready to start", true},
+		{"short sentence yes", "Yes — go ahead and start building.", true},
+
+		{"empty", "", false},
+		{"whitespace only", "   \n\t ", false},
+		{"question", "should we start?", false},
+		{"question with yes", "yes? or should I add more?", false},
+		{"linkdock description paste", linkDockPaste, false},
+		{"long paragraph containing yes", "yes " + strings.Repeat("more detail about the project ", 10), false},
+		{"negation", "no, not yet", false},
+		{"negated start", "don't start yet", false},
+		{"hold on", "hold on, one more thing", false},
+		{"wait", "wait", false},
+		{"unrelated word", "hmm", false},
+		{"substring not whole word", "goliath", false},
+		{"substring yesterday", "yesterday I sketched the schema", false},
+		{"chatty non-answer", "I think the auth part might need more thought honestly", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isAffirmative(c.in); got != c.want {
+				t.Errorf("isAffirmative(%q) = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}

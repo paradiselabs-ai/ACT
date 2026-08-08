@@ -2,7 +2,7 @@
 title: Known Limitations
 status: current
 owner: project-owner
-last_verified: 2026-07-06
+last_verified: 2026-08-08
 ---
 
 # Known Limitations (v0.1.0-alpha)
@@ -53,8 +53,18 @@ JSON verdicts) is more than most free-tier models reliably produce: observed
 failures include duplicate task-list re-emission, XML envelopes inside JSON
 args, and rate-limit retry storms. This is why Tier 1 is backend-selectable
 via ACP — run Planner/Observer/Assurance/QA on an agent CLI you already trust
-(`"backend": "claude-code"` per role in `~/.act.json`), or use paid models
-for in-process Tier 1.
+(`"backend": "claude-code"`, `"gemini"`, or `"antigravity"` per role in
+`~/.act.json`), or use paid models for in-process Tier 1.
+
+## Researcher cannot run on the antigravity backend
+
+The researcher role is read-only by contract on every backend (tool subset on
+act-agent, `--disallowedTools` on claude-code, `--approval-mode plan` on
+gemini). The agy CLI has no read-only or plan mode — its only restriction flag
+limits terminal access, not file writes — so `researcher` + `antigravity` is
+rejected at config-set time (`/swarm`, `act-agent swarm set`) and again at
+runner startup. Use any other backend for researcher. This is a deliberate
+guard, not a bug.
 
 ## Validation gate hardening is partial
 
@@ -74,6 +84,14 @@ The Runner kills any single swarm invocation after 120s by default. Raise
 - Brownfield codebase notes are fenced and directive-scrubbed before prompt
   injection, but onboarding a hostile repo is still an LLM-mediated trust
   decision — review the analysis the Planner presents.
+- ACP has no system-prompt channel, so Tier 1 role priming arrives as a user
+  message with a do-not-respond header. Smaller models may still emit a short
+  acknowledgment as their first message — cosmetic noise, not a malfunction.
+- On task completion each swarm agent makes one extra model call to write its
+  completion broadcast. (The pre-task coordination call is now skipped when no
+  peer has work in flight; the broadcast call remains — replacing it with a
+  deterministic template is an open decision,
+  `swarm-coordination-call-overhead-2026-07-13`.)
 - Socket.io dashboard handlers exist but have no client consumer (clients use
   REST `/api/log`).
 - `flushToSQLite` is a no-op stub under the default `jsonl` storage.
