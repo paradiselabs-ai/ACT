@@ -3,10 +3,12 @@ package navigator
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
@@ -28,6 +30,10 @@ func NewContextNavigator(app *app.App) *ContextNavigator {
 	}
 }
 
+func (n *ContextNavigator) SetApp(app *app.App) {
+	n.app = app
+}
+
 // Init implements tea.Model
 func (n *ContextNavigator) Init() tea.Cmd {
 	return nil
@@ -43,67 +49,105 @@ func phaseString(p app.Phase) string {
 	case app.PhaseIdle:
 		return "Idle"
 	case app.PhaseIntake:
-		return "Intake questions"
+		return "Intake"
 	case app.PhaseBrownfieldAnalysis:
-		return "Analyzing codebase"
+		return "Analyzing Codebase"
 	case app.PhasePlanning:
-		return "Planning tasks"
+		return "Planning"
 	case app.PhaseExecuting:
 		return "Executing"
 	case app.PhaseValidating:
-		return "Validating changes"
+		return "Validating"
 	case app.PhaseAwaitingInput:
 		return "Awaiting input"
 	default:
-		return "Idle"
+		return "Unknown"
 	}
 }
 
-func (n *ContextNavigator) agentStatusLine(role string, phase app.Phase) string {
-	t := theme.CurrentTheme()
+func getBadge(modelStr string) string {
+	if modelStr == "" {
+		return "H3"
+	}
+	lower := strings.ToLower(modelStr)
+	switch {
+	case strings.Contains(lower, "hermes"):
+		return "H3"
+	case strings.Contains(lower, "claude-3-7-sonnet"):
+		return "S7"
+	case strings.Contains(lower, "sonnet"):
+		return "SN"
+	case strings.Contains(lower, "gpt-4") || strings.Contains(lower, "gpt4"):
+		return "G4"
+	case strings.Contains(lower, "claude-code") || strings.Contains(lower, "claude"):
+		return "CC"
+	case strings.Contains(lower, "gemini-2.0-flash"):
+		return "G2"
+	case strings.Contains(lower, "gemini-1.5-pro"):
+		return "G1P"
+	case strings.Contains(lower, "deepseek-reasoner"), strings.Contains(lower, "deepseek-r1"):
+		return "R1"
+	case strings.Contains(lower, "deepseek-chat"), strings.Contains(lower, "deepseek-v3"):
+		return "V3"
+	case strings.Contains(lower, "llama-3.3-70b"):
+		return "L70"
+	case strings.Contains(lower, "qwen2.5-coder"):
+		return "QW"
+	default:
+		parts := strings.Split(modelStr, "-")
+		if len(parts) >= 2 && len(parts[0]) > 0 && len(parts[1]) > 0 {
+			return strings.ToUpper(parts[0][:1] + parts[1][:1])
+		}
+		if len(modelStr) >= 2 {
+			return strings.ToUpper(modelStr[:2])
+		}
+		return "M1"
+	}
+}
 
+func (n *ContextNavigator) agentStatusLine(role string, phase app.Phase) (string, string, string) {
+	t := theme.CurrentTheme()
 	c := styles.AgentColor(role)
 
-	isOnline := n.app.Agents[role] != nil
+	actualRole := role
 	if role == "qa" {
-		isOnline = n.app.Agents["qa_synthesizer"] != nil
+		actualRole = "qa_synthesizer"
 	}
 
-	if !isOnline {
-		redDot := lipgloss.NewStyle().Foreground(t.Error()).Render("●")
-		mutedName := lipgloss.NewStyle().Foreground(t.TextMuted()).Render(role)
-		return fmt.Sprintf(" %s %s (offline)", redDot, mutedName)
-	}
+	isOnline := n.app != nil && (n.app.Agents[role] != nil || n.app.Agents[actualRole] != nil)
 
 	state := app.AgentStateIdle
-	if n.app.Orchestrator != nil {
-		actualRole := role
-		if role == "qa" {
-			actualRole = "qa_synthesizer"
-		}
+	if n.app != nil && n.app.Orchestrator != nil {
 		state = n.app.Orchestrator.AgentState(actualRole, phase)
 	}
 
-	var dot, nameStr string
-	switch state {
-	case app.AgentStateActive:
-		dot = lipgloss.NewStyle().Foreground(t.Success()).Render("●")
-		nameStr = lipgloss.NewStyle().Foreground(c).Bold(true).Render(role)
-	case app.AgentStateWaiting:
-		dot = lipgloss.NewStyle().Foreground(t.Warning()).Render("●")
-		nameStr = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(role)
-	default:
-		dot = lipgloss.NewStyle().Foreground(t.BorderDim()).Render("●")
-		nameStr = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(role)
+	bgStyle := lipgloss.NewStyle().Background(t.Background())
+	var glyph string
+	if !isOnline {
+		glyph = bgStyle.Foreground(t.Error()).Render("✕")
+	} else {
+		switch state {
+		case app.AgentStateActive:
+			glyph = bgStyle.Foreground(t.Success()).Bold(true).Render("●")
+		case app.AgentStateWaiting:
+			glyph = bgStyle.Foreground(t.Warning()).Render("◐")
+		case app.AgentStateFailed:
+			glyph = bgStyle.Foreground(t.Error()).Bold(true).Render("✕")
+		default:
+			glyph = bgStyle.Foreground(t.TextMuted()).Render("○")
+		}
 	}
 
-	modelStr := ""
+	nameStr := bgStyle.Foreground(c).Render(role)
+	if state == app.AgentStateActive {
+		nameStr = bgStyle.Foreground(c).Bold(true).Render(role)
+	} else if state == app.AgentStateFailed {
+		nameStr = bgStyle.Foreground(t.Error()).Bold(true).Render(role)
+	}
+
+	modelStr := "hermes-3-llama-3.1-8b"
 	cfg := config.Get()
 	if cfg != nil {
-		actualRole := role
-		if role == "qa" {
-			actualRole = "qa_synthesizer"
-		}
 		roleConfigName := config.AgentConfigForRole(actualRole)
 		if agentCfg, ok := cfg.Agents[roleConfigName]; ok {
 			if agentCfg.Backend == "claude-code" {
@@ -115,37 +159,12 @@ func (n *ContextNavigator) agentStatusLine(role string, phase app.Phase) string 
 		}
 	}
 
-	modelSuffix := ""
-	if truncated := truncateModelName(modelStr, n.width); truncated != "" {
-		modelSuffix = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(fmt.Sprintf(" (%s)", truncated))
-	}
+	badge := getBadge(modelStr)
+	badgeStyle := bgStyle.Foreground(t.TextMuted()).Render(fmt.Sprintf("[%s]", badge))
 
-	return fmt.Sprintf(" %s %s%s", dot, nameStr, modelSuffix)
-}
-
-// truncateModelName computes how much of a model name can fit in the sidebar
-// after accounting for all fixed-width overhead:
-//   - Padding: 1 left + 1 right = 2
-//   - Left border: 1
-//   - Line prefix " ● rolename": space(1) + dot(1) + space(1) + longest_role("assurance"=9) = 12
-//   - Suffix wrapper " (" + model + ")": 3 chars
-//
-// Total overhead = 2 + 1 + 12 + 3 = 18 characters.
-// Using the longest role name ("assurance") as a fixed budget ensures all rows
-// truncate to the same visual width, avoiding per-row inconsistency.
-func truncateModelName(modelStr string, width int) string {
-	if modelStr == "" {
-		return ""
-	}
-	const overhead = 18 // padding(2) + border(1) + " ● assurance"(12) + " ()"(3)
-	avail := width - overhead
-	if avail > 3 {
-		if len(modelStr) > avail {
-			return modelStr[:avail-2] + ".."
-		}
-		return modelStr
-	}
-	return ""
+	sp := bgStyle.Render(" ")
+	line := fmt.Sprintf("%s%s%s%s%s%s", sp, glyph, sp, nameStr, sp, badgeStyle)
+	return line, badge, modelStr
 }
 
 // View implements tea.Model
@@ -161,8 +180,8 @@ func (n *ContextNavigator) View() tea.View {
 		BorderBackground(t.Background())
 
 	// Header
-	b := styles.BaseStyle()
-	headerStyle := styles.Bold().Foreground(t.Primary()).Background(t.Background())
+	b := lipgloss.NewStyle()
+	headerStyle := b.Bold(true).Foreground(t.Primary())
 	mutedStyle := b.Foreground(t.TextMuted())
 	textStyle := b.Foreground(t.Text())
 
@@ -172,33 +191,75 @@ func (n *ContextNavigator) View() tea.View {
 	// Current Phase
 	phaseStr := "Idle"
 	var currentPhase app.Phase = app.PhaseIdle
-	if n.app.Orchestrator != nil {
+	if n.app != nil && n.app.Orchestrator != nil {
 		currentPhase = n.app.Orchestrator.CurrentPhase()
 		phaseStr = phaseString(currentPhase)
 	}
 	lines = append(lines, mutedStyle.Render("Phase"))
-	lines = append(lines, textStyle.Render("• "+phaseStr), "")
+	lines = append(lines, textStyle.Render(phaseStr), "")
 
-	// Active agent
-	lines = append(lines, mutedStyle.Render("Active"))
-	if n.app.Orchestrator != nil {
+	// Unified Last run: [time] role · event
+	nowStr := time.Now().Format("15:04")
+	lastRunStr := fmt.Sprintf("%s · idle", nowStr)
+	if n.app != nil && n.app.Orchestrator != nil {
 		speaker := n.app.Orchestrator.CurrentSpeaker()
 		if speaker != "" {
-			lines = append(lines, textStyle.Render("• "+speaker))
-		} else {
-			lines = append(lines, textStyle.Render("• None"))
+			label := speaker
+			if speaker == "qa_synthesizer" {
+				label = "qa"
+			}
+			lastRunStr = fmt.Sprintf("%s · %s %s", nowStr, label, strings.ToLower(phaseStr))
 		}
 	}
-	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("Last run"))
+	lines = append(lines, textStyle.Render(lastRunStr), "")
 
-	// Registered agents
+	// Registered agents & collecting badge legend map
 	lines = append(lines, mutedStyle.Render("Agents"))
+	badgeMap := make(map[string]string)
+	var badgeOrder []string
+
 	for _, role := range []string{"planner", "observer", "assurance", "qa"} {
-		lines = append(lines, n.agentStatusLine(role, currentPhase))
+		statusLine, badge, modelStr := n.agentStatusLine(role, currentPhase)
+		lines = append(lines, statusLine)
+		if _, exists := badgeMap[badge]; !exists {
+			badgeMap[badge] = modelStr
+			badgeOrder = append(badgeOrder, badge)
+		}
+	}
+
+	// Unconditional Legend at bottom
+	lines = append(lines, "", mutedStyle.Render("Legend"))
+	for _, badge := range badgeOrder {
+		modelStr := badgeMap[badge]
+		budget := n.width - len(badge) - 6
+		if budget < 1 {
+			modelStr = ""
+		} else {
+			modelStr = ansi.Truncate(modelStr, budget, "..")
+		}
+		var legendLine string
+		if modelStr != "" {
+			legendLine = fmt.Sprintf(" [%s] %s", badge, modelStr)
+		} else {
+			legendLine = fmt.Sprintf(" [%s]", badge)
+		}
+		lines = append(lines, textStyle.Render(legendLine))
 	}
 
 	content := strings.Join(lines, "\n")
-	return tea.NewView(baseStyle.Render(content))
+	rendered := baseStyle.Render(content)
+	if n.height > 0 {
+		rLines := strings.Split(rendered, "\n")
+		if len(rLines) > n.height {
+			rendered = strings.Join(rLines[:n.height], "\n")
+		}
+	}
+	bgSeq := lipgloss.NewStyle().Background(t.Background()).Render("")
+	if bgSeq != "" {
+		rendered = strings.ReplaceAll(rendered, "\x1b[0m", "\x1b[0m"+bgSeq)
+	}
+	return tea.NewView(rendered)
 }
 
 // SetSize implements layout.Sizeable

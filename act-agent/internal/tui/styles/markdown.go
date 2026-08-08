@@ -45,6 +45,7 @@ func GetMarkdownRenderer(width int) *glamour.TermRenderer {
 // InvalidateMarkdownRendererCache drops all cached renderers. Called on theme
 // change so the next GetMarkdownRenderer rebuilds with the new style config.
 func InvalidateMarkdownRendererCache() {
+	resetDarkBackgroundCache()
 	markdownRendererCache.Range(func(k, _ any) bool {
 		markdownRendererCache.Delete(k)
 		return true
@@ -92,42 +93,42 @@ func generateMarkdownStyleConfig() ansi.StyleConfig {
 		},
 		H1: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "# ",
+				Prefix: "█ ",
 				Color:  stringPtr(adaptiveColorToString(t.MarkdownHeading())),
 				Bold:   boolPtr(true),
 			},
 		},
 		H2: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "## ",
+				Prefix: "■ ",
 				Color:  stringPtr(adaptiveColorToString(t.MarkdownHeading())),
 				Bold:   boolPtr(true),
 			},
 		},
 		H3: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "### ",
+				Prefix: "▪ ",
 				Color:  stringPtr(adaptiveColorToString(t.MarkdownHeading())),
 				Bold:   boolPtr(true),
 			},
 		},
 		H4: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "#### ",
+				Prefix: "    ",
 				Color:  stringPtr(adaptiveColorToString(t.MarkdownHeading())),
 				Bold:   boolPtr(true),
 			},
 		},
 		H5: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "##### ",
+				Prefix: "      ",
 				Color:  stringPtr(adaptiveColorToString(t.MarkdownHeading())),
 				Bold:   boolPtr(true),
 			},
 		},
 		H6: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
-				Prefix: "###### ",
+				Prefix: "        ",
 				Color:  stringPtr(adaptiveColorToString(t.MarkdownHeading())),
 				Bold:   boolPtr(true),
 			},

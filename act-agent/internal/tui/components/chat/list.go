@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -276,17 +275,7 @@ func (m *messagesCmp) IsAgentWorking() bool {
 	return m.app.Orchestrator.IsAnyBusy(m.session.ID)
 }
 
-func formatTimeDifference(unixTime1, unixTime2 int64) string {
-	diffSeconds := float64(math.Abs(float64(unixTime2 - unixTime1)))
 
-	if diffSeconds < 60 {
-		return fmt.Sprintf("%.1fs", diffSeconds)
-	}
-
-	minutes := int(diffSeconds / 60)
-	seconds := int(diffSeconds) % 60
-	return fmt.Sprintf("%dm%ds", minutes, seconds)
-}
 
 func (m *messagesCmp) renderView() {
 	start := time.Now()
@@ -432,15 +421,13 @@ func (m *messagesCmp) renderView() {
 }
 
 func (m *messagesCmp) View() tea.View {
-	baseStyle := styles.BaseStyle()
+	t := theme.CurrentTheme()
+	baseStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Height(m.height).
+		Background(t.Background())
 
 	if len(m.messages) == 0 {
-		// Hard-truncate the splash to fit in m.height-3 rows so the editor
-		// pane below it stays visible. lipgloss Height() pads up but does
-		// NOT clip content that's already taller — on windows shorter than
-		// the full splash (~42 rows), the overflow was pushing the editor
-		// off-screen entirely. Manual line-slice gives guaranteed fit.
-		// -3: 2 help lines + 1 blank separator.
 		splashHeight := m.height - 3
 		if splashHeight < 1 {
 			splashHeight = 1
@@ -452,26 +439,25 @@ func (m *messagesCmp) View() tea.View {
 		}
 		content := strings.Join(lines, "\n")
 
-		return tea.NewView(baseStyle.
-			Width(m.width).
-			Render(lipgloss.JoinVertical(
-				lipgloss.Top,
-				content,
-				"",
-				m.help(),
-			)))
+		return tea.NewView(baseStyle.Render(lipgloss.JoinVertical(
+			lipgloss.Top,
+			content,
+			"",
+			m.help(),
+		)))
 	}
 
-	return tea.NewView(baseStyle.
-		Width(m.width).
-		Render(
-			lipgloss.JoinVertical(
-				lipgloss.Top,
-				m.viewport.View(),
-				m.working(),
-				m.help(),
-			),
-		))
+	contentView := lipgloss.JoinVertical(
+		lipgloss.Top,
+		m.viewport.View(),
+		m.working(),
+		m.help(),
+	)
+	lines := strings.Split(contentView, "\n")
+	if m.height > 0 && len(lines) > m.height {
+		lines = lines[:m.height]
+	}
+	return tea.NewView(baseStyle.Render(strings.Join(lines, "\n")))
 }
 
 func hasToolsWithoutResponse(messages []message.Message) bool {
@@ -538,11 +524,15 @@ func (m *messagesCmp) working() string {
 
 func (m *messagesCmp) help() string {
 	t := theme.CurrentTheme()
-	plain := styles.BaseStyle()
+	plain := lipgloss.NewStyle().Background(t.Background())
 
 	key := func(k string) string { return plain.Foreground(t.Text()).Bold(true).Render(k) }
 	dim := func(s string) string { return plain.Foreground(t.TextMuted()).Render(s) }
 	hi := func(k string) string { return plain.Foreground(t.Primary()).Bold(true).Render(k) }
+
+	lineStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Background(t.Background())
 
 	if m.scrollFocused {
 		line1 := lipgloss.JoinHorizontal(lipgloss.Left,
@@ -554,8 +544,7 @@ func (m *messagesCmp) help() string {
 		line2 := lipgloss.JoinHorizontal(lipgloss.Left,
 			dim("press "), key("tab"), dim(" or "), key("esc"), dim(" to return to chat"),
 		)
-		return plain.Width(m.width).Render(line1) + "\n" +
-			plain.Width(m.width).Render(line2)
+		return lineStyle.Render(line1) + "\n" + lineStyle.Render(line2)
 	}
 
 	var line1, line2 string
@@ -566,24 +555,21 @@ func (m *messagesCmp) help() string {
 	} else {
 		line1 = lipgloss.JoinHorizontal(lipgloss.Left,
 			dim("press "), key("enter"), dim(" to send  "),
-			key(`\`), dim("+enter"), dim("  new line  "),
-			key("ctrl+k"), dim("  commands  "),
-			key("ctrl+s"), dim("  sessions"),
+			key(`\`), dim("+enter"), dim(" new line  "),
+			key("ctrl+k"), dim(" palette  "),
+			key("ctrl+s"), dim(" sessions"),
 		)
 		line2 = lipgloss.JoinHorizontal(lipgloss.Left,
-			dim("scroll  "), key("tab"), dim("  focus  "),
-			key("wheel"), dim("  or  "),
-			key("pgup"), dim("/"), key("pgdn"), dim("  •  "),
-			key("ctrl+u"), dim("/"), key("ctrl+d"), dim("  half page  •  "),
-			key("ctrl+?"), dim("  all keys"),
+			dim("scroll "), key("tab"), dim(" focus  "),
+			key("pgup"), dim("/"), key("pgdn"), dim(" page  "),
+			key("ctrl+u"), dim("/"), key("ctrl+d"), dim(" half"),
 		)
 	}
 
 	if line2 != "" {
-		return plain.Width(m.width).Render(line1) + "\n" +
-			plain.Render(ansi.Truncate(line2, m.width, ""))
+		return lineStyle.Render(line1) + "\n" + lineStyle.Render(ansi.Truncate(line2, m.width, ""))
 	}
-	return plain.Width(m.width).Render(line1)
+	return lineStyle.Render(line1)
 }
 
 func (m *messagesCmp) initialScreen() string {
@@ -609,7 +595,7 @@ func (m *messagesCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
 	m.viewport.SetWidth(width)
-	m.viewport.SetHeight(height - 3)
+	m.viewport.SetHeight(height - 2)
 	m.attachments.SetWidth(width + 40)
 	m.attachments.SetHeight(3)
 	// Width change invalidates every cached render (word-wrap is

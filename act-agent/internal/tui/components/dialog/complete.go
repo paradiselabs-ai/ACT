@@ -1,6 +1,8 @@
 package dialog
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -14,9 +16,10 @@ import (
 )
 
 type CompletionItem struct {
-	title string
-	Title string
-	Value string
+	title       string
+	Title       string
+	Value       string
+	Description string
 }
 
 type CompletionItemI interface {
@@ -31,20 +34,45 @@ func (ci *CompletionItem) Render(selected bool, width int) string {
 
 	itemStyle := baseStyle.
 		Width(width).
-		Padding(0, 1)
+		Padding(0, 1).
+		Background(t.Background())
 
 	if selected {
 		itemStyle = itemStyle.
-			Background(t.Background()).
 			Foreground(t.Primary()).
 			Bold(true)
 	}
 
-	title := itemStyle.Render(
-		ci.GetValue(),
-	)
+	displayVal := ci.Title
+	if displayVal == "" {
+		displayVal = ci.Value
+	}
 
-	return title
+	if ci.Description != "" {
+		leftStyle := baseStyle.Bold(true).Background(t.Background())
+		if selected {
+			leftStyle = leftStyle.Foreground(t.Primary())
+		} else {
+			leftStyle = leftStyle.Foreground(t.Text())
+		}
+		descStyle := baseStyle.Background(t.Background()).Foreground(t.TextMuted())
+		padStyle := baseStyle.Background(t.Background())
+
+		left := leftStyle.Render(displayVal)
+		desc := descStyle.Render(ci.Description)
+
+		leftW := lipgloss.Width(left)
+		descW := lipgloss.Width(desc)
+
+		gap := width - leftW - descW - 2
+		if gap < 2 {
+			gap = 2
+		}
+		line := left + padStyle.Render(strings.Repeat(" ", gap)) + desc
+		return itemStyle.Render(line)
+	}
+
+	return itemStyle.Render(displayVal)
 }
 
 func (ci *CompletionItem) DisplayValue() string {
@@ -158,6 +186,10 @@ func (c *completionDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						logging.Error("Failed to get child entries", err)
 					}
 
+					if len(items) == 0 && (strings.Contains(c.pseudoSearchTextArea.Value(), " ") || c.completionProvider.GetId() == "slash") {
+						return c, c.close()
+					}
+
 					c.listView.SetItems(items)
 					c.query = query
 				}
@@ -213,15 +245,31 @@ func (c *completionDialogCmp) View() tea.View {
 	completions := c.listView.GetItems()
 
 	for _, cmd := range completions {
-		title := cmd.DisplayValue()
-		if len(title) > maxWidth-4 {
-			maxWidth = len(title) + 4
+		if ci, ok := cmd.(*CompletionItem); ok && ci.Description != "" {
+			w := len(ci.Title) + len(ci.Description) + 6
+			if w > maxWidth {
+				maxWidth = w
+			}
+		} else {
+			title := cmd.DisplayValue()
+			if len(title) > maxWidth-4 {
+				maxWidth = len(title) + 4
+			}
 		}
+	}
+	if c.width > 0 && maxWidth > c.width {
+		maxWidth = c.width
 	}
 
 	c.listView.SetMaxWidth(maxWidth)
 
-	return tea.NewView(baseStyle.Padding(0, 0).
+	content := c.listView.View().Content
+	bgSeq := lipgloss.NewStyle().Background(t.Background()).Render("")
+	if bgSeq != "" {
+		content = strings.ReplaceAll(content, "\x1b[0m", "\x1b[0m"+bgSeq)
+	}
+
+	return tea.NewView(baseStyle.Background(t.Background()).Padding(0, 0).
 		Border(lipgloss.NormalBorder()).
 		BorderBottom(false).
 		BorderRight(false).
@@ -229,7 +277,7 @@ func (c *completionDialogCmp) View() tea.View {
 		BorderBackground(t.Background()).
 		BorderForeground(t.BorderFocused()).
 		Width(c.width).
-		Render(c.listView.View().Content))
+		Render(content))
 }
 
 func (c *completionDialogCmp) SetWidth(width int) {

@@ -36,7 +36,7 @@ type uiMessage struct {
 	content     string
 }
 
-func toMarkdown(content string, focused bool, width int) string {
+func toMarkdown(content string, _ bool, width int) string {
 	r := styles.GetMarkdownRenderer(width)
 	rendered, _ := r.Render(content)
 	return rendered
@@ -439,18 +439,10 @@ func renderParams(paramsWidth int, params ...string) string {
 
 func removeWorkingDirPrefix(path string) string {
 	wd := config.WorkingDirectory()
-	if strings.HasPrefix(path, wd) {
-		path = strings.TrimPrefix(path, wd)
-	}
-	if strings.HasPrefix(path, "/") {
-		path = strings.TrimPrefix(path, "/")
-	}
-	if strings.HasPrefix(path, "./") {
-		path = strings.TrimPrefix(path, "./")
-	}
-	if strings.HasPrefix(path, "../") {
-		path = strings.TrimPrefix(path, "../")
-	}
+	path = strings.TrimPrefix(path, wd)
+	path = strings.TrimPrefix(path, "/")
+	path = strings.TrimPrefix(path, "./")
+	path = strings.TrimPrefix(path, "../")
 	return path
 }
 
@@ -616,8 +608,8 @@ func renderToolResponse(toolCall message.ToolCall, response message.ToolResult, 
 func renderToolMessage(
 	toolCall message.ToolCall,
 	allMessages []message.Message,
-	messagesService message.Service,
-	focusedUIMessageId string,
+	_ message.Service,
+	_ string,
 	nested bool,
 	width int,
 	position int,

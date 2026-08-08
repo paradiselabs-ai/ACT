@@ -38,7 +38,7 @@ type keyMap struct {
 	RenameSession key.Binding
 }
 
-type startCompactSessionMsg struct{}
+type startCompactSessionMsg = dialog.StartCompactSessionMsg
 
 // runDirectCommandMsg is dispatched by palette commands that bypass the
 // Planner and shell out directly to the act CLI via Orchestrator.RunDirectCommand.
@@ -158,6 +158,9 @@ type appModel struct {
 	showMultiArgumentsDialog bool
 	multiArgumentsDialog     dialog.MultiArgumentsDialogCmp
 
+	showInfoDialog bool
+	infoDialog     dialog.InfoDialog
+
 	isCompacting      bool
 	compactingMessage string
 }
@@ -214,42 +217,50 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		msg.Height -= 1 // Make space for the status bar
-		a.width, a.height = msg.Width, msg.Height
+		windowWidth := msg.Width
+		windowHeight := msg.Height
 
-		s, _ := a.status.Update(msg)
+		a.width = windowWidth
+		a.height = windowHeight
+
+		pageHeight := max(1, windowHeight-1)
+		pageMsg := tea.WindowSizeMsg{Width: windowWidth, Height: pageHeight}
+
+		statusMsg := tea.WindowSizeMsg{Width: windowWidth, Height: 1}
+		s, _ := a.status.Update(statusMsg)
 		a.status = s.(core.StatusCmp)
-		a.pages[a.currentPage], cmd = a.pages[a.currentPage].Update(msg)
+
+		a.pages[a.currentPage], cmd = a.pages[a.currentPage].Update(pageMsg)
 		cmds = append(cmds, cmd)
 
-		prm, permCmd := a.permissions.Update(msg)
+		prm, permCmd := a.permissions.Update(pageMsg)
 		a.permissions = prm.(dialog.PermissionDialogCmp)
 		cmds = append(cmds, permCmd)
 
-		help, helpCmd := a.help.Update(msg)
+		help, helpCmd := a.help.Update(pageMsg)
 		a.help = help.(dialog.HelpCmp)
 		cmds = append(cmds, helpCmd)
 
-		session, sessionCmd := a.sessionDialog.Update(msg)
+		session, sessionCmd := a.sessionDialog.Update(pageMsg)
 		a.sessionDialog = session.(dialog.SessionDialog)
 		cmds = append(cmds, sessionCmd)
 
-		command, commandCmd := a.commandDialog.Update(msg)
+		command, commandCmd := a.commandDialog.Update(pageMsg)
 		a.commandDialog = command.(dialog.CommandDialog)
 		cmds = append(cmds, commandCmd)
 
-		filepicker, filepickerCmd := a.filepicker.Update(msg)
+		filepicker, filepickerCmd := a.filepicker.Update(pageMsg)
 		a.filepicker = filepicker.(dialog.FilepickerCmp)
 		cmds = append(cmds, filepickerCmd)
 
 		if a.showMultiArgumentsDialog {
-			a.multiArgumentsDialog.SetSize(msg.Width, msg.Height)
-			args, argsCmd := a.multiArgumentsDialog.Update(msg)
+			a.multiArgumentsDialog.SetSize(windowWidth, pageHeight)
+			args, argsCmd := a.multiArgumentsDialog.Update(pageMsg)
 			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
 			cmds = append(cmds, argsCmd, a.multiArgumentsDialog.Init())
 		}
 
-		onboard, onboardCmd := a.onboardingDialog.Update(msg)
+		onboard, onboardCmd := a.onboardingDialog.Update(pageMsg)
 		a.onboardingDialog = onboard.(dialog.OnboardingCmp)
 		cmds = append(cmds, onboardCmd)
 
@@ -427,13 +438,20 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dialog.ModelSelectedMsg:
 		a.showModelDialog = false
 
-		if err := config.UpdateAgentProvider(config.RolePlanner, msg.Model.Provider, msg.Model.ID); err != nil {
+		targetRole := msg.Role
+		if targetRole == "" {
+			targetRole = string(config.RolePlanner)
+		}
+		roleName := config.AgentConfigForRole(targetRole)
+		if err := config.UpdateAgentProvider(roleName, msg.Model.Provider, msg.Model.ID); err != nil {
 			return a, util.ReportError(err)
 		}
-		if _, err := a.app.Agents["planner"].Update(config.RolePlanner, msg.Model.ID); err != nil {
-			return a, util.ReportError(err)
+		if agent, ok := a.app.Agents[targetRole]; ok {
+			if _, err := agent.Update(roleName, msg.Model.ID); err != nil {
+				return a, util.ReportError(err)
+			}
 		}
-		return a, util.ReportInfo(fmt.Sprintf("Planner model changed to %s (%s)", msg.Model.ID, msg.Model.Provider))
+		return a, util.ReportInfo(fmt.Sprintf("%s model changed to %s (%s)", targetRole, msg.Model.ID, msg.Model.Provider))
 
 	case dialog.ShowOnboardingDialogMsg:
 		a.showOnboardingDialog = msg.Show
@@ -476,6 +494,43 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case dialog.CreateNewSessionMsg:
+		a.showSessionDialog = false
+		newSess, err := a.app.Sessions.Create(context.Background(), "New Session")
+		if err != nil {
+			return a, util.ReportError(err)
+		}
+		a.selectedSession = newSess
+		a.sessionDialog.SetSelectedSession(newSess.ID)
+		if sessions, err := a.app.Sessions.List(context.Background()); err == nil {
+			a.sessionDialog.SetSessions(sessions)
+		}
+		return a, tea.Batch(
+			util.CmdHandler(chat.SessionSelectedMsg(newSess)),
+			util.ReportInfo("Created new session"),
+		)
+
+	case dialog.ShowInfoDialogMsg:
+		a.infoDialog.SetContent(msg.Title, msg.Content)
+		a.showInfoDialog = true
+		return a, nil
+
+	case dialog.CloseInfoDialogMsg:
+		a.showInfoDialog = false
+		return a, nil
+
+	case dialog.ToggleHelpMsg:
+		a.showHelp = !a.showHelp
+		return a, nil
+
+	case dialog.ShowLogsMsg:
+		return a, a.moveToPage(page.LogsPage)
+
+	case dialog.ShowModelDialogMsg:
+		a.showModelDialog = true
+		a.modelDialog.SetRole(msg.Role)
+		return a, a.modelDialog.Init()
+
 	case dialog.CommandSelectedMsg:
 		a.showCommandDialog = false
 		// Execute the command handler if available
@@ -513,6 +568,53 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyPressMsg:
+		if msg.String() == "esc" {
+			if a.showModelDialog {
+				a.showModelDialog = false
+				return a, nil
+			}
+			if a.showSessionDialog {
+				a.showSessionDialog = false
+				return a, nil
+			}
+			if a.showThemeDialog {
+				a.showThemeDialog = false
+				return a, nil
+			}
+			if a.showRenameDialog {
+				a.showRenameDialog = false
+				return a, nil
+			}
+			if a.showInfoDialog {
+				a.showInfoDialog = false
+				return a, nil
+			}
+			if a.showQuit {
+				a.showQuit = false
+				return a, nil
+			}
+			if a.showFilepicker {
+				a.showFilepicker = false
+				a.filepicker.ToggleFilepicker(a.showFilepicker)
+				return a, nil
+			}
+			if a.showHelp {
+				a.showHelp = false
+				return a, nil
+			}
+			if a.showCommandDialog {
+				a.showCommandDialog = false
+				return a, nil
+			}
+			if a.showMultiArgumentsDialog {
+				a.showMultiArgumentsDialog = false
+				return a, nil
+			}
+			if a.currentPage == page.LogsPage {
+				return a, a.moveToPage(page.ChatPage)
+			}
+		}
+
 		// If multi-arguments dialog is open, let it handle the key press first
 		if a.showMultiArgumentsDialog {
 			args, cmd := a.multiArgumentsDialog.Update(msg)
@@ -523,6 +625,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 
 		case key.Matches(msg, keys.Quit):
+			if a.currentPage == page.LogsPage {
+				return a, a.moveToPage(page.ChatPage)
+			}
 			a.showQuit = !a.showQuit
 			if a.showHelp {
 				a.showHelp = false
@@ -603,7 +708,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(msg, returnKey) || key.Matches(msg):
-			if msg.String() == quitKey {
+			if msg.String() == quitKey || msg.String() == "esc" || msg.String() == "q" {
 				if a.currentPage == page.LogsPage {
 					return a, a.moveToPage(page.ChatPage)
 				}
@@ -712,6 +817,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if a.showInfoDialog {
+		d, infoCmd := a.infoDialog.Update(msg)
+		a.infoDialog = d.(dialog.InfoDialog)
+		cmds = append(cmds, infoCmd)
+		if _, ok := msg.(tea.KeyPressMsg); ok {
+			return a, tea.Batch(cmds...)
+		}
+	}
+
 	if a.showSessionDialog {
 		d, sessionCmd := a.sessionDialog.Update(msg)
 		a.sessionDialog = d.(dialog.SessionDialog)
@@ -782,15 +896,6 @@ func (a *appModel) RegisterCommand(cmd dialog.Command) {
 	a.commands = append(a.commands, cmd)
 }
 
-func (a *appModel) findCommand(id string) (dialog.Command, bool) {
-	for _, cmd := range a.commands {
-		if cmd.ID == id {
-			return cmd, true
-		}
-	}
-	return dialog.Command{}, false
-}
-
 func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
 	if a.app.Orchestrator.IsAnyBusy("") {
 		// For now we don't move to any page if the agent is busy
@@ -806,7 +911,11 @@ func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
 	a.previousPage = a.currentPage
 	a.currentPage = pageID
 	if sizable, ok := a.pages[a.currentPage].(layout.Sizeable); ok {
-		cmd := sizable.SetSize(a.width, a.height)
+		pageHeight := a.height
+		if pageHeight > 1 {
+			pageHeight -= 1
+		}
+		cmd := sizable.SetSize(a.width, pageHeight)
 		cmds = append(cmds, cmd)
 	}
 
@@ -816,9 +925,8 @@ func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
 func (a appModel) View() tea.View {
 	components := []string{
 		a.pages[a.currentPage].View().Content,
+		a.status.View().Content,
 	}
-
-	components = append(components, a.status.View().Content)
 
 	appView := lipgloss.JoinVertical(lipgloss.Top, components...)
 
@@ -934,6 +1042,27 @@ func (a appModel) View() tea.View {
 		)
 	}
 
+	if a.showInfoDialog {
+		overlay := a.infoDialog.View()
+		row := lipgloss.Height(appView) / 2
+		row -= lipgloss.Height(overlay.Content) / 2
+		col := lipgloss.Width(appView) / 2
+		col -= lipgloss.Width(overlay.Content) / 2
+		if row < 0 {
+			row = 0
+		}
+		if col < 0 {
+			col = 0
+		}
+		appView = layout.PlaceOverlay(
+			col,
+			row,
+			overlay.Content,
+			appView,
+			true,
+		)
+	}
+
 	if a.showSessionDialog {
 		overlay := a.sessionDialog.View()
 		row := lipgloss.Height(appView) / 2
@@ -1024,6 +1153,29 @@ func (a appModel) View() tea.View {
 		)
 	}
 
+	t := theme.CurrentTheme()
+	bgColor := t.Background()
+	bgCol := bgColor.Dark
+	if bgCol == nil {
+		bgCol = lipgloss.Color("#212121")
+	}
+	sBg := lipgloss.NewStyle().Background(bgCol).Render(" ")
+	bgAnsi := ""
+	if idx := strings.Index(sBg, " "); idx > 0 {
+		bgAnsi = sBg[:idx]
+	}
+
+	if bgAnsi != "" && a.width > 0 {
+		lines := strings.Split(appView, "\n")
+		lineStyle := lipgloss.NewStyle().Width(a.width).Background(bgColor)
+		for i, line := range lines {
+			renderedLine := lineStyle.Render(line)
+			renderedLine = strings.ReplaceAll(renderedLine, "\x1b[0m", "\x1b[0m"+bgAnsi)
+			lines[i] = renderedLine + "\x1b[0m"
+		}
+		appView = strings.Join(lines, "\n")
+	}
+
 	v := tea.NewView(appView)
 	v.AltScreen = true
 	// Enable mouse cell-motion mode so MouseWheelMsg events reach
@@ -1057,6 +1209,7 @@ func New(app *app.App) tea.Model {
 			page.LogsPage: page.NewLogsPage(),
 		},
 		filepicker: dialog.NewFilepickerCmp(app),
+		infoDialog: dialog.NewInfoDialogCmp(),
 	}
 
 	model.RegisterCommand(dialog.Command{
@@ -1092,6 +1245,15 @@ If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-ins
 			}
 		},
 	})
+
+	model.RegisterCommand(dialog.Command{
+		ID:          "act-agent:new-session",
+		Title:       "New Session",
+		Description: "Start a fresh ACT agent session",
+		Handler: func(cmd dialog.Command) tea.Cmd {
+			return util.CmdHandler(dialog.CreateNewSessionMsg{})
+		},
+	})
 	// ACT coordination commands (HITL — bypass Planner, shell out direct).
 	// Each command execs the act binary and renders stdout as a System message.
 	directCmd := func(label string, argv ...string) func(dialog.Command) tea.Cmd {
@@ -1100,6 +1262,22 @@ If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-ins
 			return util.CmdHandler(runDirectCommandMsg{label: label, argv: args})
 		}
 	}
+	model.RegisterCommand(dialog.Command{
+		ID:          "/plan",
+		Title:       "/plan <task>",
+		Description: "Plan a task with Tier 1 Planner before executing",
+		Handler: func(cmd dialog.Command) tea.Cmd {
+			return util.ReportInfo("Type '/plan <task>' in the chat prompt to plan a task")
+		},
+	})
+	model.RegisterCommand(dialog.Command{
+		ID:          "/run",
+		Title:       "/run <task>",
+		Description: "Execute a task directly with Tier 1 Planner",
+		Handler: func(cmd dialog.Command) tea.Cmd {
+			return util.ReportInfo("Type '/run <task>' in the chat prompt to execute a task directly")
+		},
+	})
 	model.RegisterCommand(dialog.Command{
 		ID:          "act-agent:status",
 		Title:       "ACT Status",

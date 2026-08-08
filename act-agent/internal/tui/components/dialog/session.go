@@ -17,6 +17,9 @@ type SessionSelectedMsg struct {
 	Session session.Session
 }
 
+// CreateNewSessionMsg is sent when the user requests creating a brand new session
+type CreateNewSessionMsg struct{}
+
 // CloseSessionDialogMsg is sent when the session dialog is closed
 type CloseSessionDialogMsg struct{}
 
@@ -28,6 +31,8 @@ type SessionDialog interface {
 	SetSelectedSession(sessionID string)
 }
 
+const NewSessionMagicID = "__new_session__"
+
 type sessionDialogCmp struct {
 	form              *huh.Form
 	sessions          []session.Session
@@ -36,13 +41,17 @@ type sessionDialogCmp struct {
 }
 
 func (s *sessionDialogCmp) buildForm() {
-	opts := make([]huh.Option[session.Session], len(s.sessions))
-	for i, sess := range s.sessions {
+	opts := make([]huh.Option[session.Session], 0, len(s.sessions)+1)
+	// Add "+ Create New Session" option as the first option
+	newSessOpt := session.Session{ID: NewSessionMagicID, Title: "+ Create New Session"}
+	opts = append(opts, huh.NewOption("+ Create New Session", newSessOpt))
+
+	for _, sess := range s.sessions {
 		label := sess.Title
 		if sess.ID == s.selectedSessionID {
 			label = "▶ " + label
 		}
-		opts[i] = huh.NewOption(label, sess)
+		opts = append(opts, huh.NewOption(label, sess))
 	}
 	s.form = huh.NewForm(huh.NewGroup(
 		huh.NewSelect[session.Session]().
@@ -68,6 +77,9 @@ func (s *sessionDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch s.form.State {
 	case huh.StateCompleted:
+		if s.selected.ID == NewSessionMagicID {
+			return s, util.CmdHandler(CreateNewSessionMsg{})
+		}
 		return s, util.CmdHandler(SessionSelectedMsg{Session: s.selected})
 	case huh.StateAborted:
 		return s, util.CmdHandler(CloseSessionDialogMsg{})
@@ -77,21 +89,26 @@ func (s *sessionDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *sessionDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.Background())
+
 	if s.form == nil || len(s.sessions) == 0 {
-		return tea.NewView(baseStyle.Padding(1, 2).
+		rendered := baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
 			BorderBackground(t.Background()).
 			BorderForeground(t.BorderFocused()).
 			Width(40).
-			Render("No sessions available"))
+			Render("No sessions available")
+		return tea.NewView(styles.ForceBackgroundOnAllLines(rendered, t.Background()))
 	}
-	return tea.NewView(baseStyle.Padding(1, 2).
+
+	boxStyle := baseStyle.Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
 		BorderForeground(t.BorderFocused()).
-		Width(54).
-		Render(s.form.View()))
+		Width(54)
+
+	rendered := boxStyle.Render(s.form.View())
+	return tea.NewView(styles.ForceBackgroundOnAllLines(rendered, t.Background()))
 }
 
 func (s *sessionDialogCmp) BindingKeys() []key.Binding {

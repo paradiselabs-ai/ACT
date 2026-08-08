@@ -3,7 +3,6 @@ package logs
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
@@ -23,6 +22,7 @@ type DetailComponent interface {
 
 type detailCmp struct {
 	width, height int
+	hOffset       int
 	currentLog    logging.LogMessage
 	viewport      viewport.Model
 }
@@ -33,85 +33,139 @@ func (i *detailCmp) Init() tea.Cmd {
 		return nil
 	}
 	i.currentLog = messages[0]
+	i.hOffset = 0
+	i.updateContent()
 	return nil
 }
 
 func (i *detailCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case selectedLogMsg:
+	case SelectedLogMsg:
 		if msg.ID != i.currentLog.ID {
 			i.currentLog = logging.LogMessage(msg)
+			i.hOffset = 0
 			i.updateContent()
+		}
+		return i, nil
+
+	case tea.KeyPressMsg:
+		k := msg.String()
+		switch k {
+		case "right", "l":
+			i.hOffset += 4
+			i.updateContent()
+			return i, nil
+		case "left", "h":
+			i.hOffset -= 4
+			if i.hOffset < 0 {
+				i.hOffset = 0
+			}
+			i.updateContent()
+			return i, nil
+		case "home":
+			i.hOffset = 0
+			i.updateContent()
+			return i, nil
 		}
 	}
 
-	return i, nil
+	var cmd tea.Cmd
+	i.viewport, cmd = i.viewport.Update(msg)
+	return i, cmd
 }
 
 func (i *detailCmp) updateContent() {
 	var content strings.Builder
 	t := theme.CurrentTheme()
+	baseStyle := styles.BaseStyle().Background(t.Background())
 
-	// Format the header with timestamp and level
-	timeStyle := lipgloss.NewStyle().Foreground(t.TextMuted())
-	levelStyle := getLevelStyle(i.currentLog.Level)
+	if i.currentLog.ID == "" {
+		i.viewport.SetContent(baseStyle.Foreground(t.TextMuted()).Render("No log entry selected"))
+		return
+	}
 
-	header := lipgloss.JoinHorizontal(
-		lipgloss.Center,
-		timeStyle.Render(i.currentLog.Time.Format(time.RFC3339)),
-		"  ",
-		levelStyle.Render(i.currentLog.Level),
-	)
+	// Format Level Badge
+	levelBg := t.Info()
+	switch strings.ToLower(i.currentLog.Level) {
+	case "warn", "warning":
+		levelBg = t.Warning()
+	case "error", "err":
+		levelBg = t.Error()
+	case "debug":
+		levelBg = t.Primary()
+	}
 
-	content.WriteString(lipgloss.NewStyle().Bold(true).Render(header))
+	badge := baseStyle.Background(levelBg).Foreground(t.Background()).Bold(true).Padding(0, 1).Render(strings.ToUpper(i.currentLog.Level))
+	timeStr := baseStyle.Foreground(t.TextMuted()).Render(i.currentLog.Time.Format("2006-01-02 15:04:05"))
+	idStr := baseStyle.Foreground(t.TextMuted()).Render("ID: " + i.currentLog.ID)
+
+	scrollInfo := ""
+	if i.hOffset > 0 {
+		scrollInfo = baseStyle.Foreground(t.Warning()).Bold(true).Render(fmt.Sprintf(" ← [H-Scroll +%d cols]", i.hOffset))
+	}
+
+	header := badge + "   " + timeStr + "   " + idStr + scrollInfo
+	content.WriteString(header)
 	content.WriteString("\n\n")
 
-	// Message with styling
-	messageStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Text())
-	content.WriteString(messageStyle.Render("Message:"))
+	// Message
+	msgHeader := baseStyle.Bold(true).Foreground(t.Primary()).Render("MESSAGE:")
+	content.WriteString(msgHeader)
 	content.WriteString("\n")
-	content.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(i.currentLog.Message))
+
+	msgStr := i.currentLog.Message
+	if i.hOffset > 0 {
+		if len(msgStr) > i.hOffset {
+			msgStr = "..." + msgStr[i.hOffset:]
+		} else {
+			msgStr = ""
+		}
+		content.WriteString(baseStyle.Foreground(t.Text()).Padding(0, 2).Render(msgStr))
+	} else {
+		w := i.width - 4
+		if w < 15 {
+			w = 15
+		}
+		msgStyle := baseStyle.Foreground(t.Text()).Width(w)
+		content.WriteString(msgStyle.Render("  " + msgStr))
+	}
 	content.WriteString("\n\n")
 
 	// Attributes section
 	if len(i.currentLog.Attributes) > 0 {
-		attrHeaderStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Text())
-		content.WriteString(attrHeaderStyle.Render("Attributes:"))
+		attrHeader := baseStyle.Bold(true).Foreground(t.Primary()).Render("ATTRIBUTES:")
+		content.WriteString(attrHeader)
 		content.WriteString("\n")
 
-		// Create a table-like display for attributes
-		keyStyle := lipgloss.NewStyle().Foreground(t.Primary()).Bold(true)
-		valueStyle := lipgloss.NewStyle().Foreground(t.Text())
+		keyStyle := baseStyle.Foreground(t.Primary()).Bold(true)
+		valStyle := baseStyle.Foreground(t.Text())
 
 		for _, attr := range i.currentLog.Attributes {
-			attrLine := fmt.Sprintf("%s: %s",
-				keyStyle.Render(attr.Key),
-				valueStyle.Render(attr.Value),
-			)
-			content.WriteString(lipgloss.NewStyle().Padding(0, 2).Render(attrLine))
-			content.WriteString("\n")
+			val := attr.Value
+			if i.hOffset > 0 {
+				if len(val) > i.hOffset {
+					val = "..." + val[i.hOffset:]
+				} else {
+					val = ""
+				}
+				attrLine := fmt.Sprintf("  %-16s %s", keyStyle.Render(attr.Key+":"), valStyle.Render(val))
+				content.WriteString(attrLine)
+				content.WriteString("\n")
+			} else {
+				kStr := keyStyle.Render("  " + attr.Key + ": ")
+				valW := i.width - lipgloss.Width(kStr) - 2
+				vStr := valStyle.Render(val)
+				if valW > 15 {
+					vStr = baseStyle.Foreground(t.Text()).Width(valW).Render(val)
+				}
+				content.WriteString(kStr)
+				content.WriteString(vStr)
+				content.WriteString("\n")
+			}
 		}
 	}
 
 	i.viewport.SetContent(content.String())
-}
-
-func getLevelStyle(level string) lipgloss.Style {
-	style := lipgloss.NewStyle().Bold(true)
-	t := theme.CurrentTheme()
-
-	switch strings.ToLower(level) {
-	case "info":
-		return style.Foreground(t.Info())
-	case "warn", "warning":
-		return style.Foreground(t.Warning())
-	case "error", "err":
-		return style.Foreground(t.Error())
-	case "debug":
-		return style.Foreground(t.Success())
-	default:
-		return style.Foreground(t.Text())
-	}
 }
 
 func (i *detailCmp) View() tea.View {

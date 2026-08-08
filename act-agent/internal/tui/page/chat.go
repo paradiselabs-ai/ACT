@@ -43,22 +43,25 @@ const flushTickCap = 240 // 60 seconds @ 250ms intervals
 var ChatPage PageID = "chat"
 
 type chatPage struct {
-	app                  *app.App
-	editor               layout.Container
-	messages             layout.Container
-	layout               layout.SplitPaneLayout
-	navigator            layout.Container
-	session              session.Session
-	completionDialog     dialog.CompletionDialog
-	showCompletionDialog bool
-	showNavigator        bool
-	firstSendDone        bool
-	scrollFocused        bool
-	flushTickCount       int
+	app                     *app.App
+	editor                  layout.Container
+	messages                layout.Container
+	layout                  layout.SplitPaneLayout
+	navigator               layout.Container
+	session                 session.Session
+	completionDialog        dialog.CompletionDialog
+	fileCompletionProvider  dialog.CompletionProvider
+	slashCompletionProvider dialog.CompletionProvider
+	showCompletionDialog    bool
+	showNavigator           bool
+	firstSendDone           bool
+	scrollFocused           bool
+	flushTickCount          int
 }
 
 type ChatKeyMap struct {
 	ShowCompletionDialog key.Binding
+	ShowSlashCommands    key.Binding
 	NewSession           key.Binding
 	Cancel               key.Binding
 	ToggleNavigator      key.Binding
@@ -67,7 +70,11 @@ type ChatKeyMap struct {
 var keyMap = ChatKeyMap{
 	ShowCompletionDialog: key.NewBinding(
 		key.WithKeys("@"),
-		key.WithHelp("@", "Complete"),
+		key.WithHelp("@", "Complete context"),
+	),
+	ShowSlashCommands: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "Slash actions"),
 	),
 	NewSession: key.NewBinding(
 		key.WithKeys("ctrl+n"),
@@ -186,11 +193,13 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(msg, keyMap.ShowCompletionDialog):
+			p.completionDialog = dialog.NewCompletionDialogCmp(p.fileCompletionProvider)
 			p.showCompletionDialog = true
-			// Continue sending keys to layout->chat
+		case key.Matches(msg, keyMap.ShowSlashCommands):
+			p.completionDialog = dialog.NewCompletionDialogCmp(p.slashCompletionProvider)
+			p.showCompletionDialog = true
 		case key.Matches(msg, keyMap.NewSession):
-			p.session = session.Session{}
-			return p, util.CmdHandler(chat.SessionClearedMsg{})
+			return p, util.CmdHandler(dialog.CreateNewSessionMsg{})
 		case key.Matches(msg, keyMap.Cancel):
 			if p.session.ID != "" {
 				// Cancel the current session's generation process
@@ -231,11 +240,71 @@ func (p *chatPage) sendMessage(text string, attachments []message.Attachment) te
 
 	trimmed := strings.TrimSpace(text)
 
-	// Slash command intercept — handle /swarm, /status, /help, etc.
-	// before routing to the Planner. Unknown commands fall through.
+	// Slash command intercept — handle TUI actions (/help, /log, /role, /clear, /init, /compact, /status, /swarm, /backend)
 	if strings.HasPrefix(trimmed, "/") {
+		cmdLower := strings.ToLower(trimmed)
+		fields := strings.Fields(cmdLower)
+		var firstWord string
+		if len(fields) > 0 {
+			firstWord = fields[0]
+		}
+
+		switch firstWord {
+		case "/help":
+			return util.CmdHandler(dialog.ToggleHelpMsg{})
+		case "/log", "/logs":
+			return util.CmdHandler(dialog.ShowLogsMsg{})
+		case "/role", "/model":
+			role := ""
+			if len(fields) > 1 {
+				role = fields[1]
+			}
+			return util.CmdHandler(dialog.ShowModelDialogMsg{Role: role})
+		case "/plan":
+			task := strings.TrimSpace(trimmed[len(fields[0]):])
+			if task == "" {
+				return util.CmdHandler(util.ReportInfo("Usage: /plan <task description> — create an implementation plan before executing"))
+			}
+			return p.sendMessage("Create a detailed implementation plan for: "+task, nil)
+		case "/run":
+			task := strings.TrimSpace(trimmed[len(fields[0]):])
+			if task == "" {
+				return util.CmdHandler(util.ReportInfo("Usage: /run <task description> — execute a task directly"))
+			}
+			return p.sendMessage("Execute this task directly: "+task, nil)
+		case "/clear":
+			p.session = session.Session{}
+			return util.CmdHandler(chat.SessionClearedMsg{})
+		case "/compact":
+			return func() tea.Msg { return dialog.StartCompactSessionMsg{} }
+		case "/init":
+			initPrompt := `Please analyze this codebase and create an ACT.md file for multi-agent coordination. Include:
+
+1. Build/lint/test commands (especially for running a single test)
+2. Code style guidelines (imports, formatting, types, naming conventions, error handling)
+3. Key architecture decisions and patterns that agents should follow
+4. File ownership or areas of concern (which directories map to which functionality)
+
+This file will be read by ACT swarm agents (developer, frontend, backend, QA, researcher) operating in this repository. Keep it about 20-30 lines.
+If there's already an ACT.md or CLAUDE.md, improve it — don't overwrite important context.
+If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-instructions.md), incorporate them.`
+			return p.sendMessage(initPrompt, nil)
+		}
+
 		if response, handled := p.app.HandleSlashCommand(text); handled {
-			return util.ReportInfo(response)
+			title := "Command Output"
+			switch firstWord {
+			case "/status":
+				title = "ACT System Status"
+			case "/swarm":
+				title = "Swarm Status & Configuration"
+			case "/backend":
+				title = "Tier 1 Backend Configuration"
+			}
+			return util.CmdHandler(dialog.ShowInfoDialogMsg{
+				Title:   title,
+				Content: response,
+			})
 		}
 	}
 
@@ -350,12 +419,13 @@ func (p *chatPage) BindingKeys() []key.Binding {
 }
 
 func NewChatPage(app *app.App) tea.Model {
-	cg := completions.NewFileAndFolderContextGroup()
-	completionDialog := dialog.NewCompletionDialogCmp(cg)
+	fileCg := completions.NewFileAndFolderContextGroup()
+	slashCg := completions.NewSlashCommandsContextGroup()
+	completionDialog := dialog.NewCompletionDialogCmp(fileCg)
 
 	messagesContainer := layout.NewContainer(
 		chat.NewMessagesCmp(app),
-		layout.WithPadding(2, 1, 1, 1),
+		layout.WithPadding(1, 1, 0, 1),
 	)
 	editorContainer := layout.NewContainer(
 		chat.NewEditorCmp(app),
@@ -364,12 +434,14 @@ func NewChatPage(app *app.App) tea.Model {
 		navigator.NewContextNavigator(app),
 	)
 	return &chatPage{
-		app:              app,
-		editor:           editorContainer,
-		messages:         messagesContainer,
-		navigator:        navigatorContainer,
-		completionDialog: completionDialog,
-		showNavigator:    true,
+		app:                     app,
+		editor:                  editorContainer,
+		messages:                messagesContainer,
+		navigator:               navigatorContainer,
+		completionDialog:        completionDialog,
+		fileCompletionProvider:  fileCg,
+		slashCompletionProvider: slashCg,
+		showNavigator:           true,
 		layout: layout.NewSplitPane(
 			layout.WithLeftPanel(messagesContainer),
 			layout.WithRightPanel(navigatorContainer),

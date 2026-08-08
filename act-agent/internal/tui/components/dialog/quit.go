@@ -1,6 +1,8 @@
 package dialog
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -17,11 +19,10 @@ type QuitDialog interface {
 	layout.Bindings
 }
 
-// quitDialogCmp is a minimal custom Yes/No dialog that avoids huh's
-// internal lipgloss.NewStyle() (no-background) button alignment, which
-// left a terminal-black rectangle next to the focused button.
+// quitDialogCmp is a minimal custom Yes/No dialog that strictly adheres
+// to STYLING_GUIDE.md to prevent black/grey strip anomalies in overlays.
 type quitDialogCmp struct {
-	// cursor: false = No focused (default/safe), true = Yes focused
+	// cursor: true = Yes focused (default), false = No focused
 	cursor bool
 }
 
@@ -31,9 +32,7 @@ func (q *quitDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "left", "h", "tab":
-			q.cursor = !q.cursor
-		case "right", "l":
+		case "left", "h", "right", "l", "tab":
 			q.cursor = !q.cursor
 		case "y", "Y":
 			return q, tea.Quit
@@ -51,39 +50,54 @@ func (q *quitDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (q *quitDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
-	b := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.Background())
+	padStyle := baseStyle.Background(t.Background())
 	const innerWidth = 36
 
-	title := b.Width(innerWidth).Foreground(t.Text()).Bold(true).Render("Are you sure you want to quit?")
+	title := baseStyle.Foreground(t.Text()).Bold(true).Render("Are you sure you want to quit?")
 
-	yesStyle := b.Foreground(t.TextMuted()).Padding(0, 1)
-	noStyle := b.Foreground(t.TextMuted()).Padding(0, 1)
+	yesStyle := baseStyle.Foreground(t.TextMuted()).Padding(0, 1)
+	noStyle := baseStyle.Foreground(t.TextMuted()).Padding(0, 1)
+
 	if q.cursor {
-		yesStyle = b.Background(t.Primary()).Foreground(t.Background()).Padding(0, 1)
+		yesStyle = baseStyle.Background(t.Primary()).Foreground(t.Background()).Bold(true).Padding(0, 1)
 	} else {
-		noStyle = b.Background(t.Primary()).Foreground(t.Background()).Padding(0, 1)
+		noStyle = baseStyle.Background(t.Primary()).Foreground(t.Background()).Bold(true).Padding(0, 1)
 	}
 
-	buttons := b.Width(innerWidth).Render(lipgloss.JoinHorizontal(lipgloss.Top,
-		yesStyle.Render("Yes"),
-		b.Render("  "),
-		noStyle.Render("No"),
-	))
+	buttons := yesStyle.Render("Yes") + padStyle.Render("  ") + noStyle.Render("No")
 
-	inner := lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		b.Width(innerWidth).Render(""),
-		buttons,
-	)
+	padLine := func(line string, width int) string {
+		w := lipgloss.Width(line)
+		if w < width {
+			return line + padStyle.Render(strings.Repeat(" ", width-w))
+		}
+		return line
+	}
 
-	dialog := b.
+	maxW := innerWidth
+	if w := lipgloss.Width(title); w > maxW {
+		maxW = w
+	}
+	if w := lipgloss.Width(buttons); w > maxW {
+		maxW = w
+	}
+
+	var bodyLines []string
+	bodyLines = append(bodyLines, padLine(title, maxW))
+	bodyLines = append(bodyLines, padLine("", maxW))
+	bodyLines = append(bodyLines, padLine(buttons, maxW))
+
+	body := strings.Join(bodyLines, "\n")
+
+	boxStyle := baseStyle.
 		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.BorderFocused()).
-		Render(inner)
+		BorderForeground(t.BorderFocused())
 
-	return tea.NewView(dialog)
+	rendered := boxStyle.Render(body)
+	return tea.NewView(styles.ForceBackgroundOnAllLines(rendered, t.Background()))
 }
 
 func (q *quitDialogCmp) BindingKeys() []key.Binding {
@@ -94,5 +108,5 @@ func (q *quitDialogCmp) BindingKeys() []key.Binding {
 }
 
 func NewQuitCmp() QuitDialog {
-	return &quitDialogCmp{}
+	return &quitDialogCmp{cursor: true}
 }

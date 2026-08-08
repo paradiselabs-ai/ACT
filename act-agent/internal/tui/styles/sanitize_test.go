@@ -132,7 +132,7 @@ func TestCapContentHeight_OverLimit(t *testing.T) {
 	if len(resultLines) != 11 {
 		t.Errorf("expected 11 lines (10 + footer), got %d", len(resultLines))
 	}
-	if !strings.Contains(got, "90 more lines") {
+	if !strings.Contains(got, "90 more ▸") {
 		t.Errorf("footer should mention 90 remaining lines, got: %q", resultLines[len(resultLines)-1])
 	}
 }

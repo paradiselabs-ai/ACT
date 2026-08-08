@@ -25,10 +25,14 @@ func actHuhTheme() huh.Theme {
 		// Focused field: primary accent on title, selector cursor, and selection
 		s.Focused.Base = s.Focused.Base.BorderForeground(t.Primary()).Background(t.Background())
 		s.Focused.Title = s.Focused.Title.Foreground(t.Primary()).Background(t.Background())
+		s.Focused.Description = s.Focused.Description.Foreground(t.TextMuted()).Background(t.Background())
 		s.Focused.SelectSelector = s.Focused.SelectSelector.Foreground(t.Primary()).Background(t.Background())
 		s.Focused.SelectedOption = s.Focused.SelectedOption.Foreground(t.Primary()).Background(t.Background())
 		s.Focused.Option = s.Focused.Option.Background(t.Background())
 		s.Focused.UnselectedOption = s.Focused.UnselectedOption.Background(t.Background())
+		s.Focused.TextInput.Prompt = s.Focused.TextInput.Prompt.Foreground(t.Primary()).Background(t.Background())
+		s.Focused.TextInput.Text = s.Focused.TextInput.Text.Foreground(t.Text()).Background(t.Background())
+		s.Focused.TextInput.Placeholder = s.Focused.TextInput.Placeholder.Foreground(t.TextMuted()).Background(t.Background())
 
 		// Confirm buttons: focused = inverted primary, blurred = muted
 		s.Focused.FocusedButton = s.Focused.FocusedButton.
@@ -41,8 +45,12 @@ func actHuhTheme() huh.Theme {
 		// Blurred field: dim border and muted title
 		s.Blurred.Base = s.Blurred.Base.BorderForeground(t.BorderDim()).Background(t.Background())
 		s.Blurred.Title = s.Blurred.Title.Foreground(t.TextMuted()).Background(t.Background())
+		s.Blurred.Description = s.Blurred.Description.Foreground(t.TextMuted()).Background(t.Background())
 		s.Blurred.Option = s.Blurred.Option.Background(t.Background())
 		s.Blurred.UnselectedOption = s.Blurred.UnselectedOption.Background(t.Background())
+		s.Blurred.TextInput.Prompt = s.Blurred.TextInput.Prompt.Foreground(t.TextMuted()).Background(t.Background())
+		s.Blurred.TextInput.Text = s.Blurred.TextInput.Text.Foreground(t.TextMuted()).Background(t.Background())
+		s.Blurred.TextInput.Placeholder = s.Blurred.TextInput.Placeholder.Foreground(t.TextMuted()).Background(t.Background())
 
 		return s
 	})

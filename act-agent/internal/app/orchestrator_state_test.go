@@ -229,6 +229,13 @@ func TestAgentState(t *testing.T) {
 			phase:     PhaseExecuting,
 			wantState: AgentStateIdle,
 		},
+		{
+			name:      "role failed -> failed",
+			roleBusy:  false,
+			anyBusy:   false,
+			phase:     PhaseIdle,
+			wantState: AgentStateFailed,
+		},
 	}
 
 	for _, c := range cases {
@@ -244,7 +251,11 @@ func TestAgentState(t *testing.T) {
 			}
 
 			o := &Orchestrator{
-				app: appInstance,
+				app:         appInstance,
+				failedRoles: make(map[string]bool),
+			}
+			if c.wantState == AgentStateFailed {
+				o.failedRoles["planner"] = true
 			}
 
 			got := o.AgentState("planner", c.phase)

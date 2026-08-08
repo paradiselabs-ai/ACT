@@ -47,21 +47,26 @@ func PlaceOverlay(
 		t := theme.CurrentTheme()
 		baseStyle := styles.BaseStyle()
 
-		var shadowbg string = ""
 		shadowchar := lipgloss.NewStyle().
 			Background(t.BackgroundDarker()).
 			Foreground(t.Background()).
 			Render("░")
 		bgchar := baseStyle.Render(" ")
+
+		var shadowbg strings.Builder
 		for i := 0; i <= fgHeight; i++ {
 			if i == 0 {
-				shadowbg += bgchar + strings.Repeat(bgchar, fgWidth) + "\n"
+				shadowbg.WriteString(bgchar)
+				shadowbg.WriteString(strings.Repeat(bgchar, fgWidth))
+				shadowbg.WriteByte('\n')
 			} else {
-				shadowbg += bgchar + strings.Repeat(shadowchar, fgWidth) + "\n"
+				shadowbg.WriteString(bgchar)
+				shadowbg.WriteString(strings.Repeat(shadowchar, fgWidth))
+				shadowbg.WriteByte('\n')
 			}
 		}
 
-		fg = PlaceOverlay(0, 0, fg, shadowbg, false, opts...)
+		fg = PlaceOverlay(0, 0, fg, shadowbg.String(), false, opts...)
 		fgLines, fgWidth = getLines(fg)
 		fgHeight = len(fgLines)
 	}

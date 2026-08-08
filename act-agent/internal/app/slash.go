@@ -39,6 +39,10 @@ func (a *App) HandleSlashCommand(input string) (response string, handled bool) {
 		return slashHelp(), true
 	case "/status":
 		return a.slashStatus(), true
+	case "/plan":
+		return "Usage: /plan <task description> — create an implementation plan before executing", true
+	case "/run":
+		return "Usage: /run <task description> — execute a task directly", true
 	case "/swarm":
 		return a.slashSwarm(args), true
 	case "/backend":
@@ -56,6 +60,8 @@ func slashHelp() string {
 		"## Slash Commands",
 		"",
 		"  /help                                  Show this help",
+		"  /plan <task>                           Plan a task with Tier 1 Planner",
+		"  /run <task>                            Execute a task directly",
 		"  /status                                Show ACT system state (Tier 1 + swarm)",
 		"",
 		"  /swarm                                 List swarm roles, backends, models",

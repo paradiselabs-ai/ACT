@@ -347,6 +347,10 @@ func (f *filepickerCmp) View() tea.View {
 		BorderForeground(t.BorderFocused()).
 		Width(lipgloss.Width(content) + 4)
 
+	// WARNING: lipgloss.JoinHorizontal here may produce black strips if the
+	// two panels have different heights. Both panels should be height-matched
+	// or the result should be line-padded with bg-styled spaces.
+	// See STYLING_GUIDE.md for the correct manual-padding pattern.
 	return tea.NewView(lipgloss.JoinHorizontal(lipgloss.Center, contentStyle.Render(content), viewportstyle))
 }
 

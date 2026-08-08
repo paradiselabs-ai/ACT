@@ -158,30 +158,11 @@ func (m statusCmp) View() tea.View {
 	}
 
 	diagnostics := styles.Padded().
-		Background(t.BackgroundDarker()).
+		Background(t.Background()).
+		Foreground(t.TextMuted()).
 		Render(m.projectDiagnostics())
 
-	tier1 := m.tier1Models()
-	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(tier1)-lipgloss.Width(diagnostics)-tokenInfoWidth)
-
-	// Status bar minimum: when the right-side widgets eat almost everything,
-	// we used to render the message into a 5-char-wide cell which forced
-	// lipgloss to wrap a 600-char OpenRouter error into an unreadable
-	// vertical waterfall. Two safety rails fix this:
-	//
-	//   1. Collapse `tier1Models` to a tiny "P/O/A/Q" glyph if there isn't
-	//      enough room left for a readable message. We never silently kill
-	//      the message — the persistent widgets yield first.
-	//   2. Truncate the message with ANSI-aware single-line truncation
-	//      BEFORE handing it to lipgloss, regardless of computed widths.
-	//      The truncation always runs; the only question is what width.
-	const minMsgRenderWidth = 24
-	if m.info.Msg != "" && availableWidht < minMsgRenderWidth {
-		// Drop the verbose tier1 widget for one render and recompute.
-		// This is a one-frame collapse — next non-error frame restores it.
-		tier1 = m.tier1ModelsCompact()
-		availableWidht = max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(tier1)-lipgloss.Width(diagnostics)-tokenInfoWidth)
-	}
+	availableWidht := max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(diagnostics)-tokenInfoWidth-4)
 
 	if m.info.Msg != "" {
 		infoStyle := styles.Padded().
@@ -213,16 +194,46 @@ func (m statusCmp) View() tea.View {
 		}
 		status += infoStyle.Render(msg)
 	} else {
-		status += styles.Padded().
-			Foreground(t.Text()).
-			Background(t.BackgroundSecondary()).
-			Width(availableWidht).
-			Render("")
+		emptyStyle := lipgloss.NewStyle().Background(t.Background())
+		status += emptyStyle.Render(strings.Repeat(" ", availableWidht))
 	}
 
-	status += diagnostics
-	status += tier1
-	return tea.NewView(status)
+	divider := lipgloss.NewStyle().Background(t.Background()).Foreground(t.BorderDim()).Render(" │ ")
+	status += divider + diagnostics
+
+	baseStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Background(t.Background())
+
+	return tea.NewView(baseStyle.Render(status))
+}
+
+func getBadge(modelStr string) string {
+	if modelStr == "" {
+		return "H3"
+	}
+	modelLower := strings.ToLower(modelStr)
+	switch {
+	case strings.Contains(modelLower, "hermes"):
+		return "H3"
+	case strings.Contains(modelLower, "sonnet"):
+		return "SN"
+	case strings.Contains(modelLower, "gpt-4") || strings.Contains(modelLower, "gpt4"):
+		return "G4"
+	case strings.Contains(modelLower, "claude-code") || strings.Contains(modelLower, "claude"):
+		return "CC"
+	case strings.Contains(modelLower, "haiku"):
+		return "HK"
+	case strings.Contains(modelLower, "opus"):
+		return "OP"
+	case strings.Contains(modelLower, "llama"):
+		return "L3"
+	default:
+		if len(modelStr) > 4 {
+			return modelStr[:4]
+		}
+		return modelStr
+	}
 }
 
 // tier1ModelsCompact renders the Tier 1 model strip in its tightest form
@@ -250,13 +261,15 @@ func (m statusCmp) tier1ModelsCompact() string {
 			parts = append(parts, lipgloss.NewStyle().Foreground(c).Bold(true).Render(label))
 		case app.AgentStateWaiting:
 			parts = append(parts, lipgloss.NewStyle().Foreground(t.Warning()).Render(label))
+		case app.AgentStateFailed:
+			parts = append(parts, lipgloss.NewStyle().Foreground(t.Error()).Bold(true).Render(label))
 		default:
 			parts = append(parts, lipgloss.NewStyle().Foreground(t.TextMuted()).Render(label))
 		}
 	}
 
 	return styles.Padded().
-		Background(t.BackgroundSecondary()).
+		Background(t.Background()).
 		Render(strings.Join(parts, "/"))
 }
 
@@ -339,13 +352,7 @@ func (m *statusCmp) projectDiagnostics() string {
 	return strings.Join(diagnostics, " ")
 }
 
-func (m statusCmp) availableFooterMsgWidth(diagnostics, tokenInfo string) int {
-	tokensWidth := 0
-	if m.session.ID != "" {
-		tokensWidth = lipgloss.Width(tokenInfo) + 2
-	}
-	return max(0, m.width-lipgloss.Width(helpWidget)-lipgloss.Width(m.tier1Models())-lipgloss.Width(diagnostics)-tokensWidth)
-}
+
 
 // tier1Models renders a compact display of all four Tier 1 agents and their
 // configured models in the form "P:Opus O:Sonnet A:Sonnet Q:Sonnet". There
@@ -376,6 +383,8 @@ func (m statusCmp) tier1Models() string {
 			styledLabel = lipgloss.NewStyle().Foreground(c).Bold(true).Render(label)
 		case app.AgentStateWaiting:
 			styledLabel = lipgloss.NewStyle().Foreground(t.Warning()).Render(label)
+		case app.AgentStateFailed:
+			styledLabel = lipgloss.NewStyle().Foreground(t.Error()).Bold(true).Render(label)
 		default:
 			styledLabel = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(label)
 		}
@@ -386,30 +395,24 @@ func (m statusCmp) tier1Models() string {
 		}
 
 		modelName := string(cfg.Model)
-		// Strip provider namespace prefix (e.g. "nousresearch/hermes..." → "hermes...")
-		if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
-			modelName = modelName[idx+1:]
-		}
-		if len(modelName) > 12 {
-			modelName = modelName[:12]
-		}
+		modelBadge := getBadge(modelName)
 
 		var styledValue string
 		switch state {
 		case app.AgentStateActive:
-			styledValue = lipgloss.NewStyle().Foreground(t.Text()).Bold(true).Render(modelName)
+			styledValue = lipgloss.NewStyle().Foreground(t.Text()).Bold(true).Render(modelBadge)
 		case app.AgentStateWaiting:
-			styledValue = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(modelName)
+			styledValue = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(modelBadge)
 		default:
-			styledValue = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(modelName)
+			styledValue = lipgloss.NewStyle().Foreground(t.TextMuted()).Render(modelBadge)
 		}
 
 		parts = append(parts, styledLabel+":"+styledValue)
 	}
 
 	return styles.Padded().
-		Background(t.BackgroundSecondary()).
-		Render(strings.Join(parts, "  "))
+		Background(t.Background()).
+		Render(strings.Join(parts, " "))
 }
 
 func NewStatusCmp(app *app.App) StatusCmp {

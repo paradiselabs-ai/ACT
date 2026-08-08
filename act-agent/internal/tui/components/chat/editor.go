@@ -38,11 +38,7 @@ type EditorKeyMaps struct {
 	OpenEditor key.Binding
 }
 
-type bluredEditorKeyMaps struct {
-	Send       key.Binding
-	Focus      key.Binding
-	OpenEditor key.Binding
-}
+
 type DeleteAttachmentKeyMaps struct {
 	AttachmentDeleteMode key.Binding
 	Escape               key.Binding
@@ -218,34 +214,52 @@ func (m *editorCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *editorCmp) View() tea.View {
 	t := theme.CurrentTheme()
+	bgColor := t.Background()
+	bgSeq := lipgloss.NewStyle().Background(bgColor).Render("")
 
-	// Style the prompt with theme colors
+	baseStyle := lipgloss.NewStyle().
+		Width(m.width).
+		Background(bgColor)
+
 	style := lipgloss.NewStyle().
+		Background(bgColor).
 		Padding(0, 0, 0, 1).
 		Bold(true).
 		Foreground(t.Primary())
 
+	var content string
 	if len(m.attachments) == 0 {
-		return tea.NewView(lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()))
+		content = lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View())
+	} else {
+		m.textarea.SetHeight(m.height - 1)
+		content = lipgloss.JoinVertical(lipgloss.Top,
+			m.attachmentsContent(),
+			lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"), m.textarea.View()),
+		)
 	}
-	m.textarea.SetHeight(m.height - 1)
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Top,
-		m.attachmentsContent(),
-		lipgloss.JoinHorizontal(lipgloss.Top, style.Render(">"),
-			m.textarea.View()),
-	))
+
+	rendered := baseStyle.Render(content)
+	if bgSeq != "" {
+		rendered = strings.ReplaceAll(rendered, "\x1b[0m", "\x1b[0m"+bgSeq)
+	}
+
+	return tea.NewView(rendered)
 }
 
 func (m *editorCmp) SetSize(width, height int) tea.Cmd {
 	m.width = width
 	m.height = height
 	m.textarea.SetWidth(width - 3) // account for the prompt and padding right
-	m.textarea.SetHeight(height)
+	m.textarea.SetHeight(1)
 	return nil
 }
 
 func (m *editorCmp) GetSize() (int, int) {
-	return m.textarea.Width(), m.textarea.Height()
+	h := m.textarea.Height()
+	if len(m.attachments) > 0 {
+		h++
+	}
+	return m.textarea.Width(), max(1, h)
 }
 
 func (m *editorCmp) attachmentsContent() string {
@@ -285,23 +299,26 @@ func CreateTextArea(existing *textarea.Model) textarea.Model {
 	textMutedColor := t.TextMuted()
 
 	ta := textarea.New()
-	baseStyle := styles.BaseStyle()
+	baseStyle := lipgloss.NewStyle().Background(bgColor)
 	ta.SetStyles(textarea.Styles{
 		Blurred: textarea.StyleState{
-			Base:        baseStyle.Background(bgColor).Foreground(textColor),
-			CursorLine:  baseStyle.Background(bgColor),
-			Placeholder: baseStyle.Background(bgColor).Foreground(textMutedColor),
-			Text:        baseStyle.Background(bgColor).Foreground(textColor),
+			Base:        baseStyle.Foreground(textColor),
+			CursorLine:  baseStyle,
+			Placeholder: baseStyle.Foreground(textMutedColor),
+			Text:        baseStyle.Foreground(textColor),
+			Prompt:      baseStyle.Foreground(textColor),
 		},
 		Focused: textarea.StyleState{
-			Base:        baseStyle.Background(bgColor).Foreground(textColor),
-			CursorLine:  baseStyle.Background(bgColor),
-			Placeholder: baseStyle.Background(bgColor).Foreground(textMutedColor),
-			Text:        baseStyle.Background(bgColor).Foreground(textColor),
+			Base:        baseStyle.Foreground(textColor),
+			CursorLine:  baseStyle,
+			Placeholder: baseStyle.Foreground(textMutedColor),
+			Text:        baseStyle.Foreground(textColor),
+			Prompt:      baseStyle.Foreground(textColor),
 		},
 	})
 
 	ta.Prompt = " "
+	ta.Placeholder = "try /plan, /run, or @planner <task>"
 	ta.ShowLineNumbers = false
 	ta.CharLimit = -1
 

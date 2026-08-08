@@ -44,6 +44,7 @@ type Orchestrator struct {
 
 	mu             sync.RWMutex
 	messageOwners  map[string]string // messageID → role name
+	failedRoles    map[string]bool   // role name → true if last turn/start failed
 	currentSpeaker string            // role currently running (for ownership tagging)
 	sessionID      string            // shared session for the NesTTY conversation
 	seenTasks      map[string]bool   // task IDs we've already routed (validation/qa)
@@ -135,6 +136,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 	return &Orchestrator{
 		app:           app,
 		messageOwners: make(map[string]string),
+		failedRoles:   make(map[string]bool),
 		seenTasks:     make(map[string]bool),
 		dispatchedMsgs: make(map[string]bool),
 		attemptCount:  make(map[string]int),
@@ -632,6 +634,10 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 	o.mu.Lock()
 	o.currentSpeaker = role
 	o.lastTurnAt[role] = time.Now()
+	if o.failedRoles == nil {
+		o.failedRoles = make(map[string]bool)
+	}
+	delete(o.failedRoles, role)
 	o.mu.Unlock()
 	o.recomputePhase()
 
@@ -649,6 +655,10 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 		o.emitSystemMessage(context.Background(), sessionID, fmt.Sprintf("⚠  %s could not start — %s", role, humanReadableAgentError(err)))
 		o.mu.Lock()
 		o.currentSpeaker = ""
+		if o.failedRoles == nil {
+			o.failedRoles = make(map[string]bool)
+		}
+		o.failedRoles[role] = true
 		o.mu.Unlock()
 		o.recomputePhase()
 		return
@@ -656,9 +666,11 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 
 	// Wait for completion or timeout.
 	var result agent.AgentEvent
+	timedOut := false
 	select {
 	case result = <-done:
 	case <-turnCtx.Done():
+		timedOut = true
 		logging.Warn("Agent turn timed out", "role", role, "timeout", agentTurnTimeout)
 		// Cancel via the agent service so any in-flight provider stream stops.
 		agentSvc.Cancel(sessionID)
@@ -671,6 +683,12 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 
 	o.mu.Lock()
 	o.currentSpeaker = ""
+	if result.Error != nil || timedOut {
+		if o.failedRoles == nil {
+			o.failedRoles = make(map[string]bool)
+		}
+		o.failedRoles[role] = true
+	}
 	o.mu.Unlock()
 	o.recomputePhase()
 
@@ -698,7 +716,7 @@ func humanReadableAgentError(err error) string {
 	case strings.Contains(lower, "rate limit") || strings.Contains(lower, "429"):
 		return "provider rate-limited — try again shortly"
 	case strings.Contains(lower, "model not found") || strings.Contains(lower, "no such model") || strings.Contains(lower, "404"):
-		return "model not available (may have been deprecated — update ~/.act.json)"
+		return "model not available (may have been deprecated — run /model or update ~/.act.json)"
 	case strings.Contains(lower, "context length") || strings.Contains(lower, "token limit"):
 		return "context too long for this model — start a new session"
 	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
@@ -1142,6 +1160,7 @@ const (
 	AgentStateIdle AgentState = iota
 	AgentStateWaiting
 	AgentStateActive
+	AgentStateFailed
 )
 
 // CurrentPhase returns the current Phase of the session.
@@ -1232,10 +1251,24 @@ func (o *Orchestrator) recomputePhase() {
 	o.mu.Unlock()
 }
 
+// IsRoleFailed returns true if the specified role failed during its last execution turn.
+func (o *Orchestrator) IsRoleFailed(role string) bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.failedRoles == nil {
+		return false
+	}
+	return o.failedRoles[role]
+}
+
 // AgentState returns the state of the given role in the current phase.
 func (o *Orchestrator) AgentState(role string, phase Phase) AgentState {
 	if o.IsRoleBusy(role) {
 		return AgentStateActive
+	}
+
+	if o.IsRoleFailed(role) {
+		return AgentStateFailed
 	}
 
 	// If the loop is actively running (Executing/Validating), other idle agents are waiting

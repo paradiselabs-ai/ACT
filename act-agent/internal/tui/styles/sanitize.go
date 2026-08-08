@@ -287,7 +287,7 @@ func CapContentHeight(content string, maxLines int) string {
 	}
 	truncated := strings.Join(lines[:maxLines], "\n")
 	remaining := len(lines) - maxLines
-	return truncated + "\n… " + fmt.Sprintf("%d", remaining) + " more lines (scroll to see full output)"
+	return truncated + fmt.Sprintf("\n +%d more ▸", remaining)
 }
 
 // JaccardSimilarity computes set similarity between normalized texts.
