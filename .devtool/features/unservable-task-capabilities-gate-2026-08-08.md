@@ -33,20 +33,30 @@ code should have rejected at creation.
 - Live e2e: same README task shape gets rejected at creation and the Planner
   re-emits with valid capabilities in the next turn.
 
-## Design (owner input, 2026-08-08)
+## Design (settled 2026-08-08 — direction A only; B dropped as token-waste)
 Current matching (verified): AgentRegistry.getOptimalAgent filters
 `requiredCapabilities.some(cap => agent.capabilities.includes(cap))` — exact
-string overlap with the runner's registered tag list, no semantics ("documentation"
-matches nothing even though any file-writing agent can document). Two-layer fix:
-- A (default, cheap): closed vocabulary — Planner picks ONLY from the registered
-  capability union, code gate rejects everything else (this ticket's criteria).
-- B (escape hatch, prompt-level): when the Planner believes a capability outside
-  the vocab is genuinely needed, it must reason stepwise BEFORE emitting: define
-  the capability → what tools does it reduce to → which roles have those tools →
-  "is a new capability term necessary, or does an existing role serve this?" —
-  usually collapsing to an existing tag. Keeps door open for future specialized
-  roles (e.g. a real documentation agent) without letting casual synonyms strand
-  tasks.
+string overlap with the runner's registered tags, no semantics.
+
+SHIP NOW: code-level rejection at task creation. Task with any capability not in
+the registered union is NOT created; Planner gets a rejection message naming the
+invalid entries + the valid vocabulary, and MUST re-emit the task VERBATIM except
+the capability fix (the rejection prompt includes the original task JSON verbatim
+to prevent sloppy/hurried lower-quality re-creation). The stepwise self-reasoning
+protocol (define→tools→roles→necessary?) was considered and REJECTED for now:
+token cost, negligible benefit.
+
+FLAG + MINE (cheap, ship with the gate): every rejection logs a distinctive
+event (capability_rejected, with the requested capability + task title) to the
+ChronLog. Post-release telemetry aggregates these: capabilities the Planner
+repeatedly reaches for (e.g. "documentation") become CANDIDATES for real new
+swarm roles — design the role by analyzing the tasks that wanted it. Lean into
+what the model wants to specify; test whether a dedicated role outperforms.
+
+UNFINISHED — note for later: whether Planner-side edit-in-place of a REJECTED
+(never-created) task beats reject+re-emit — see
+task-mutability-by-state-2026-08-08. The re-emit flow ships first because it
+needs no new server surface.
 
 ## Constraints
 - Deterministic orchestrator/server code, not prompt-only (Observer rescue stays
