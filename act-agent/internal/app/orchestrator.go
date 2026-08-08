@@ -44,6 +44,7 @@ type Orchestrator struct {
 
 	mu             sync.RWMutex
 	messageOwners  map[string]string // messageID → role name
+	failedRoles    map[string]bool   // role name → true if last turn/start failed
 	currentSpeaker string            // role currently running (for ownership tagging)
 	sessionID      string            // shared session for the NesTTY conversation
 	seenTasks      map[string]bool   // task IDs we've already routed (validation/qa)
@@ -119,6 +120,9 @@ type Orchestrator struct {
 	// from re-dispatching. Window: dispatchHashWindow. Lazily GC'd on insert.
 	dispatchHashMu       sync.Mutex
 	recentDispatchHashes map[string]time.Time
+
+	currentPhase      Phase     // Cache of computed phase to prevent hot DB reads in the TUI render tick.
+	lastRecomputeTime time.Time // Tracks when the cache was last updated.
 }
 
 // dispatchHashWindow is how long a content-hash blocks a re-dispatch of the
@@ -132,6 +136,7 @@ func NewOrchestrator(app *App) *Orchestrator {
 	return &Orchestrator{
 		app:           app,
 		messageOwners: make(map[string]string),
+		failedRoles:   make(map[string]bool),
 		seenTasks:     make(map[string]bool),
 		dispatchedMsgs: make(map[string]bool),
 		attemptCount:  make(map[string]int),
@@ -175,12 +180,25 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 	// fills the chat with runner registration logs. See
 	// handlePlannerTaskDirectives for the lazy spawn trigger.
 
-	o.loopWG.Add(5)
+	o.loopWG.Add(6)
 	go o.messageOwnershipLoop(ctx)
 	go o.observerLoop(ctx)
 	go o.validationPollLoop(ctx)
 	go o.qaPollLoop(ctx)
 	go o.coordinationEventLoop(ctx)
+	go func() {
+		defer o.loopWG.Done()
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				o.recomputePhase()
+			}
+		}
+	}()
 
 	// Tier 1 "I'm alive" pings — without these the user has no way to know
 	// Observer/Assurance/QA exist (they're event-driven and stay silent on
@@ -194,6 +212,13 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 		o.mu.RLock()
 		sid := o.sessionID
 		o.mu.RUnlock()
+
+		// Only emit if this is a brand new session (0 or 1 messages)
+		msgs, err := o.app.Messages.List(context.Background(), sid)
+		if err == nil && len(msgs) > 1 {
+			return
+		}
+
 		for _, p := range []struct{ role, online string }{
 			{"observer", "👁  Observer online — monitoring every 120s"},
 			{"assurance", "✅  Assurance online — waiting for tasks to validate"},
@@ -217,6 +242,7 @@ func (o *Orchestrator) Start(parentCtx context.Context, sessionID string) {
 		go o.runBrownfieldOnboard(ctx)
 	}
 
+	o.recomputePhase()
 	logging.Info("Orchestrator started", "session_id", sessionID, "swarm_specs", len(o.app.SwarmSpecs))
 }
 
@@ -637,7 +663,12 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 	o.mu.Lock()
 	o.currentSpeaker = role
 	o.lastTurnAt[role] = time.Now()
+	if o.failedRoles == nil {
+		o.failedRoles = make(map[string]bool)
+	}
+	delete(o.failedRoles, role)
 	o.mu.Unlock()
+	o.recomputePhase()
 
 	// Per-turn timeout: an agent that hasn't produced a response in this long
 	// is almost certainly stuck (LLM provider hanging, infinite tool loop,
@@ -653,15 +684,22 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 		o.emitSystemMessage(context.Background(), sessionID, fmt.Sprintf("⚠  %s could not start — %s", role, humanReadableAgentError(err)))
 		o.mu.Lock()
 		o.currentSpeaker = ""
+		if o.failedRoles == nil {
+			o.failedRoles = make(map[string]bool)
+		}
+		o.failedRoles[role] = true
 		o.mu.Unlock()
+		o.recomputePhase()
 		return
 	}
 
 	// Wait for completion or timeout.
 	var result agent.AgentEvent
+	timedOut := false
 	select {
 	case result = <-done:
 	case <-turnCtx.Done():
+		timedOut = true
 		logging.Warn("Agent turn timed out", "role", role, "timeout", agentTurnTimeout)
 		// Cancel via the agent service so any in-flight provider stream stops.
 		agentSvc.Cancel(sessionID)
@@ -674,7 +712,14 @@ func (o *Orchestrator) runAgentTurn(ctx context.Context, sessionID string, role 
 
 	o.mu.Lock()
 	o.currentSpeaker = ""
+	if result.Error != nil || timedOut {
+		if o.failedRoles == nil {
+			o.failedRoles = make(map[string]bool)
+		}
+		o.failedRoles[role] = true
+	}
 	o.mu.Unlock()
+	o.recomputePhase()
 
 	if result.Error != nil {
 		logging.Warn("Agent turn completed with error", "role", role, "error", result.Error)
@@ -700,7 +745,7 @@ func humanReadableAgentError(err error) string {
 	case strings.Contains(lower, "rate limit") || strings.Contains(lower, "429"):
 		return "provider rate-limited — try again shortly"
 	case strings.Contains(lower, "model not found") || strings.Contains(lower, "no such model") || strings.Contains(lower, "404"):
-		return "model not available (may have been deprecated — update ~/.act.json)"
+		return "model not available (may have been deprecated — run /model or update ~/.act.json)"
 	case strings.Contains(lower, "context length") || strings.Contains(lower, "token limit"):
 		return "context too long for this model — start a new session"
 	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
@@ -1126,6 +1171,145 @@ func (o *Orchestrator) SetOwner(messageID string, role string) {
 }
 
 // GetOwner returns the role that produced a given message, or "" if unknown.
+type Phase int
+
+const (
+	PhaseIdle Phase = iota
+	PhaseIntake
+	PhaseBrownfieldAnalysis
+	PhasePlanning
+	PhaseExecuting
+	PhaseValidating
+	PhaseAwaitingInput
+)
+
+type AgentState int
+
+const (
+	AgentStateIdle AgentState = iota
+	AgentStateWaiting
+	AgentStateActive
+	AgentStateFailed
+)
+
+// CurrentPhase returns the current Phase of the session.
+func (o *Orchestrator) CurrentPhase() Phase {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.currentPhase
+}
+
+// recomputePhase computes the current Phase based on the live Orchestrator and DB state.
+func (o *Orchestrator) recomputePhase() {
+	o.mu.Lock()
+	sid := o.sessionID
+	speaker := o.currentSpeaker
+	intake := o.intakeMode
+	brown := o.brownfield
+	o.mu.Unlock()
+
+	if sid == "" {
+		o.mu.Lock()
+		o.currentPhase = PhaseIdle
+		o.lastRecomputeTime = time.Now()
+		o.mu.Unlock()
+		return
+	}
+
+	msgs, err := o.app.Messages.List(context.Background(), sid)
+	if err != nil || len(msgs) == 0 {
+		o.mu.Lock()
+		o.currentPhase = PhaseIdle
+		o.lastRecomputeTime = time.Now()
+		o.mu.Unlock()
+		return
+	}
+
+	var newPhase Phase = PhaseIdle
+
+	// 1. If any agent is busy
+	if o.IsAnyBusy(sid) {
+		switch speaker {
+		case "planner":
+			if intake {
+				if brown {
+					newPhase = PhaseBrownfieldAnalysis
+				} else {
+					newPhase = PhaseIntake
+				}
+			} else {
+				newPhase = PhasePlanning
+			}
+		case "observer":
+			newPhase = PhaseExecuting
+		case "assurance":
+			newPhase = PhaseValidating
+		case "qa_synthesizer":
+			newPhase = PhaseExecuting
+		default:
+			if speaker != "" {
+				newPhase = PhaseExecuting
+			}
+		}
+	} else if o.runnerSpawner != nil && o.runnerSpawner.IsRunning() {
+		// 2. If runners are active, we are executing
+		newPhase = PhaseExecuting
+	} else if intake {
+		// 3. Awaiting confirmation/input
+		newPhase = PhaseAwaitingInput
+	} else {
+		// If the last message is from the assistant, and it is finished, we are awaiting input
+		lastMsg := msgs[len(msgs)-1]
+		if lastMsg.Role == message.Assistant {
+			hasFinish := false
+			for _, part := range lastMsg.Parts {
+				if _, ok := part.(message.Finish); ok {
+					hasFinish = true
+					break
+				}
+			}
+			if hasFinish {
+				newPhase = PhaseAwaitingInput
+			}
+		}
+	}
+
+	o.mu.Lock()
+	o.currentPhase = newPhase
+	o.lastRecomputeTime = time.Now()
+	o.mu.Unlock()
+}
+
+// IsRoleFailed returns true if the specified role failed during its last execution turn.
+func (o *Orchestrator) IsRoleFailed(role string) bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if o.failedRoles == nil {
+		return false
+	}
+	return o.failedRoles[role]
+}
+
+// AgentState returns the state of the given role in the current phase.
+func (o *Orchestrator) AgentState(role string, phase Phase) AgentState {
+	if o.IsRoleBusy(role) {
+		return AgentStateActive
+	}
+
+	if o.IsRoleFailed(role) {
+		return AgentStateFailed
+	}
+
+	// If the loop is actively running (Executing/Validating), other idle agents are waiting
+	if o.IsAnyBusy("") {
+		if phase == PhaseExecuting || phase == PhaseValidating {
+			return AgentStateWaiting
+		}
+	}
+
+	return AgentStateIdle
+}
+
 func (o *Orchestrator) GetOwner(messageID string) string {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
@@ -1206,6 +1390,7 @@ func (o *Orchestrator) messageOwnershipLoop(ctx context.Context) {
 				return
 			}
 			msg := event.Payload
+			o.recomputePhase()
 
 			// Tag every newly-created message with the active speaker
 			if event.Type == pubsub.CreatedEvent && msg.Role == message.Assistant {

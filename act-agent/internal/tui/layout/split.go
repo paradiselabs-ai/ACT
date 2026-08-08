@@ -1,11 +1,24 @@
 package layout
 
 import (
+	"fmt"
+	"strings"
+
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
+
+func hexToBgAnsi(hex string) string {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) == 6 {
+		var r, g, b uint8
+		fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
+		return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+	}
+	return "\x1b[48;2;33;33;33m"
+}
 
 type SplitPaneLayout interface {
 	tea.Model
@@ -93,6 +106,10 @@ func (s *splitPaneLayout) View() tea.View {
 	}
 
 	if len(panelViews) > 1 {
+		// NOTE: lipgloss.JoinHorizontal pads shorter panels with bare spaces.
+		// This is mitigated below (lines 133-161) where we apply line-by-line
+		// background styling via hexToBgAnsi. If that mitigation is removed,
+		// black strips will appear between panels. See STYLING_GUIDE.md.
 		topSection = lipgloss.JoinHorizontal(lipgloss.Top, panelViews...)
 	} else if len(panelViews) == 1 {
 		topSection = panelViews[0]
@@ -102,6 +119,14 @@ func (s *splitPaneLayout) View() tea.View {
 
 	if s.bottomPanel != nil && topSection != "" {
 		bottomView := s.bottomPanel.View().Content
+		topHeight := s.height - 1
+		if topHeight > 0 {
+			topLines := strings.Split(topSection, "\n")
+			if len(topLines) > topHeight {
+				topLines = topLines[:topHeight]
+				topSection = strings.Join(topLines, "\n")
+			}
+		}
 		finalView = lipgloss.JoinVertical(lipgloss.Left, topSection, bottomView)
 	} else if s.bottomPanel != nil {
 		finalView = s.bottomPanel.View().Content
@@ -111,11 +136,32 @@ func (s *splitPaneLayout) View() tea.View {
 
 	if finalView != "" {
 		t := theme.CurrentTheme()
-		style := lipgloss.NewStyle().
-			Width(s.width).
-			Height(s.height).
-			Background(t.Background())
-		return tea.NewView(style.Render(finalView))
+		bgColor := t.Background()
+		bgAnsi := hexToBgAnsi(fmt.Sprintf("%v", bgColor.Dark))
+
+		lines := strings.Split(finalView, "\n")
+		if s.height > 0 {
+			if len(lines) > s.height {
+				lines = lines[:s.height]
+			} else {
+				emptyLine := lipgloss.NewStyle().Width(s.width).Background(bgColor).Render("")
+				if bgAnsi != "" {
+					emptyLine = emptyLine + bgAnsi + "\x1b[0m"
+				}
+				for len(lines) < s.height {
+					lines = append(lines, emptyLine)
+				}
+			}
+		}
+		lineStyle := lipgloss.NewStyle().Width(s.width).Background(bgColor)
+		for i, line := range lines {
+			renderedLine := lineStyle.Render(line)
+			if bgAnsi != "" {
+				renderedLine = strings.ReplaceAll(renderedLine, "\x1b[0m", "\x1b[0m"+bgAnsi)
+			}
+			lines[i] = renderedLine + "\x1b[0m"
+		}
+		return tea.NewView(strings.Join(lines, "\n"))
 	}
 
 	return tea.NewView(finalView)
@@ -127,8 +173,15 @@ func (s *splitPaneLayout) SetSize(width, height int) tea.Cmd {
 
 	var topHeight, bottomHeight int
 	if s.bottomPanel != nil {
-		topHeight = int(float64(height) * s.verticalRatio)
-		bottomHeight = height - topHeight
+		bottomHeight = 1
+		if sizeable, ok := s.bottomPanel.(Sizeable); ok {
+			_, h := sizeable.GetSize()
+			if h > 0 {
+				bottomHeight = h
+			}
+		}
+		bottomHeight = min(4, max(1, bottomHeight))
+		topHeight = height - bottomHeight
 	} else {
 		topHeight = height
 		bottomHeight = 0

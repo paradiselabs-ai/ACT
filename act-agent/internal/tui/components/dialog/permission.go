@@ -177,6 +177,9 @@ func (p *permissionDialogCmp) renderButtons() string {
 	allowSessionButton := allowSessionStyle.Padding(0, 1).Render("Allow for session (s)")
 	denyButton := denyStyle.Padding(0, 1).Render("Deny (d)")
 
+	// WARNING: lipgloss.JoinHorizontal pads shorter elements with bare spaces.
+	// Safe here because all buttons are single-line. If any button wraps to
+	// multiple lines, this will produce black strips. See STYLING_GUIDE.md.
 	content := lipgloss.JoinHorizontal(
 		lipgloss.Left,
 		allowButton,

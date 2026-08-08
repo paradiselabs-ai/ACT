@@ -225,8 +225,9 @@ type LSPConfig struct {
 
 // TUIConfig defines the configuration for the Terminal User Interface.
 type TUIConfig struct {
-	Theme   string        `json:"theme,omitempty"`
-	AutoFit *AutoFitConfig `json:"autoFit,omitempty"`
+	Theme           string         `json:"theme,omitempty"`
+	AutoFit         *AutoFitConfig `json:"autoFit,omitempty"`
+	MaxMessageLines int            `json:"maxMessageLines,omitempty"` // max lines per assistant message before truncation; 0 = default (80)
 }
 
 // AutoFitConfig controls the startup terminal-window resize. On by default —
@@ -322,6 +323,8 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	if cfg != nil {
 		return cfg, nil
 	}
+
+	loadDotEnv(workingDir)
 
 	cfg = &Config{
 		WorkingDir: workingDir,
@@ -443,32 +446,34 @@ func setDefaults(debug bool) {
 // setProviderDefaults configures LLM provider defaults based on provider provided by
 // environment variables and configuration file.
 func setProviderDefaults() {
-	// Set all API keys we can find in the environment
-	// Note: Viper does not default if the json apiKey is ""
+	// Set all API keys we can find in the environment.
+	// We use viper.Set instead of SetDefault because if the JSON config contains
+	// a provider block with an empty apiKey (e.g. "openrouter": {}), the parsed
+	// empty string takes precedence over SetDefault.
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.anthropic.apiKey", apiKey)
+		viper.Set("providers.anthropic.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.openai.apiKey", apiKey)
+		viper.Set("providers.openai.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.gemini.apiKey", apiKey)
+		viper.Set("providers.gemini.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("GROQ_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.groq.apiKey", apiKey)
+		viper.Set("providers.groq.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("NVIDIA_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.nvidia.apiKey", apiKey)
+		viper.Set("providers.nvidia.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("OPENROUTER_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.openrouter.apiKey", apiKey)
+		viper.Set("providers.openrouter.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("XAI_API_KEY"); apiKey != "" {
-		viper.SetDefault("providers.xai.apiKey", apiKey)
+		viper.Set("providers.xai.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("AZURE_OPENAI_ENDPOINT"); apiKey != "" {
 		// api-key may be empty when using Entra ID credentials – that's okay
-		viper.SetDefault("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
+		viper.Set("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
 	}
 
 	// NesTTY uses its own four Tier 1 agents (planner/observer/assurance/
@@ -713,4 +718,71 @@ func UpdateTheme(themeName string) error {
 		config.TUI.Theme = themeName
 	})
 }
+
+// loadDotEnv attempts to find and parse a .env file from the working directory,
+// parent directories, or the configured actRoot, injecting keys into the environment.
+func loadDotEnv(workingDir string) {
+	candidates := []string{
+		filepath.Join(workingDir, ".env"),
+	}
+
+	// Walk up parent directories to find a .env file
+	curr := workingDir
+	for {
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		candidates = append(candidates, filepath.Join(parent, ".env"))
+		curr = parent
+	}
+
+	// Try actRoot from ~/.act/config.json
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		if data, err := os.ReadFile(filepath.Join(home, ".act", "config.json")); err == nil {
+			var actRootCfg struct {
+				ActRoot string `json:"actRoot"`
+			}
+			if err := json.Unmarshal(data, &actRootCfg); err == nil && actRootCfg.ActRoot != "" {
+				candidates = append(candidates, filepath.Join(actRootCfg.ActRoot, ".env"))
+			}
+		}
+	}
+
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				v := strings.TrimSpace(parts[1])
+				// Strip surrounding quotes
+				if (strings.HasPrefix(v, "\"") && strings.HasSuffix(v, "\"")) ||
+					(strings.HasPrefix(v, "'") && strings.HasSuffix(v, "'")) {
+					if len(v) >= 2 {
+						v = v[1 : len(v)-1]
+					}
+				}
+				if os.Getenv(k) == "" {
+					os.Setenv(k, v)
+				}
+			}
+		}
+		// Stop after loading the first found .env file
+		break
+	}
+}
+
 

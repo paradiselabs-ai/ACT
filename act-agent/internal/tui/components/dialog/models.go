@@ -18,6 +18,7 @@ import (
 
 // ModelSelectedMsg is sent when a model is updated for an agent.
 type ModelSelectedMsg struct {
+	Role  string
 	Model models.Model
 }
 
@@ -25,25 +26,41 @@ type ModelSelectedMsg struct {
 type CloseModelDialogMsg struct{}
 
 // ModelDialog is a two-step dialog that lets users edit the provider and
-// model string for the Planner role (the agent the human is talking to).
+// model string for a given role (defaults to Planner).
 // There is no model registry — the user types the upstream model string
 // verbatim, and the upstream API validates it on the next request.
 type ModelDialog interface {
 	tea.Model
 	layout.Bindings
+	SetRole(role string)
 }
 
 type modelDialogCmp struct {
 	form     *huh.Form
+	role     string
 	provider models.ModelProvider
 	modelID  string
 }
 
+func (m *modelDialogCmp) SetRole(role string) {
+	if role == "" {
+		role = string(config.RolePlanner)
+	}
+	m.role = role
+	m.form = nil
+	m.provider = ""
+	m.modelID = ""
+}
+
 func (m *modelDialogCmp) buildForm() tea.Cmd {
+	if m.role == "" {
+		m.role = string(config.RolePlanner)
+	}
 	cfg := config.Get()
 	current := config.Agent{}
 	if cfg != nil {
-		if a, ok := cfg.Agents[config.RolePlanner]; ok {
+		roleName := config.AgentConfigForRole(m.role)
+		if a, ok := cfg.Agents[roleName]; ok {
 			current = a
 		}
 	}
@@ -56,14 +73,16 @@ func (m *modelDialogCmp) buildForm() tea.Cmd {
 
 	providerOpts := buildProviderOptions(cfg)
 
+	title := fmt.Sprintf("Provider (%s)", m.role)
+
 	m.form = huh.NewForm(huh.NewGroup(
 		huh.NewSelect[models.ModelProvider]().
-			Title("Provider (Planner)").
+			Title(title).
 			Options(providerOpts...).
 			Value(&m.provider),
 		huh.NewInput().
 			Title("Model string (verbatim, as upstream API expects)").
-			Description("Examples: claude-sonnet-4-20250514 · z-ai/glm-4.5-air:free · qwen2.5-coder-14b-instruct").
+			Description("Examples: google/gemini-2.0-flash-001 · anthropic/claude-3.5-sonnet · meta-llama/llama-3.3-70b-instruct · deepseek/deepseek-chat").
 			Value(&m.modelID),
 	)).WithShowHelp(false).WithTheme(actHuhTheme())
 	return m.form.Init()
@@ -87,7 +106,7 @@ func (m *modelDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ID:       models.ModelID(m.modelID),
 			Provider: m.provider,
 		}
-		return m, util.CmdHandler(ModelSelectedMsg{Model: picked})
+		return m, util.CmdHandler(ModelSelectedMsg{Role: m.role, Model: picked})
 	case huh.StateAborted:
 		return m, util.CmdHandler(CloseModelDialogMsg{})
 	}
@@ -96,20 +115,26 @@ func (m *modelDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *modelDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	baseStyle := styles.BaseStyle().Background(t.Background())
+
 	if m.form == nil {
-		return tea.NewView(baseStyle.Padding(1, 2).
+		rendered := baseStyle.Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
 			BorderBackground(t.Background()).
 			BorderForeground(t.BorderFocused()).
 			Width(40).
-			Render("Loading…"))
+			Render("Loading…")
+		return tea.NewView(styles.ForceBackgroundOnAllLines(rendered, t.Background()))
 	}
-	return tea.NewView(baseStyle.Padding(1, 2).
+
+	boxStyle := baseStyle.
+		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderBackground(t.Background()).
-		BorderForeground(t.BorderFocused()).
-		Render(m.form.View()))
+		BorderForeground(t.BorderFocused())
+
+	rendered := boxStyle.Render(m.form.View())
+	return tea.NewView(styles.ForceBackgroundOnAllLines(rendered, t.Background()))
 }
 
 func (m *modelDialogCmp) BindingKeys() []key.Binding {
@@ -121,7 +146,7 @@ func (m *modelDialogCmp) BindingKeys() []key.Binding {
 
 // NewModelDialogCmp constructs a freshly-initialized model dialog.
 func NewModelDialogCmp() ModelDialog {
-	return &modelDialogCmp{}
+	return &modelDialogCmp{role: string(config.RolePlanner)}
 }
 
 // GetSelectedModel returns the configured Model for the Planner role.

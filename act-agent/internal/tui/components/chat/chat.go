@@ -2,6 +2,8 @@ package chat
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -107,7 +109,7 @@ func lspsConfigured(width int) string {
 		)
 }
 
-func logo(width int) string {
+func logo(_ int) string {
 	logo := fmt.Sprintf("%s %s", styles.ACTIcon, "ACT")
 	t := theme.CurrentTheme()
 	plain := styles.BaseStyle()
@@ -128,7 +130,19 @@ func logo(width int) string {
 		)
 }
 
-func repo(width int) string {
+func formatCwd(path string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		if path == home {
+			path = "~"
+		} else if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+			path = "~" + path[len(home):]
+		}
+	}
+	return filepath.ToSlash(path)
+}
+
+func repo(_ int) string {
 	repo := "ACT — Agent Coordination Toolkit"
 	t := theme.CurrentTheme()
 
@@ -137,8 +151,8 @@ func repo(width int) string {
 		Render(repo)
 }
 
-func cwd(width int) string {
-	cwd := fmt.Sprintf("cwd: %s", config.WorkingDirectory())
+func cwd(_ int) string {
+	cwd := fmt.Sprintf("cwd: %s", formatCwd(config.WorkingDirectory()))
 	t := theme.CurrentTheme()
 
 	return styles.BaseStyle().
@@ -163,7 +177,7 @@ func actBanner(width int, alpha float64) string {
 	}
 
 	cwdLine := plain.Foreground(fadeColor(t.TextMuted())).Render(
-		fmt.Sprintf("  cwd: %s", config.WorkingDirectory()),
+		fmt.Sprintf("  cwd: %s", formatCwd(config.WorkingDirectory())),
 	)
 
 	// Narrow terminal fallback — full art is exactly 94 cols wide.
@@ -188,15 +202,19 @@ func actBanner(width int, alpha float64) string {
 
 	var b strings.Builder
 	for _, l := range agentLines {
-		b.WriteString(row(primary.Render(l)) + "\n")
+		b.WriteString(row(primary.Render(l)))
+		b.WriteByte('\n')
 	}
 	for _, l := range coordinationLines {
-		b.WriteString(row(secondary.Render(l)) + "\n")
+		b.WriteString(row(secondary.Render(l)))
+		b.WriteByte('\n')
 	}
 	for _, l := range toolkitLines {
-		b.WriteString(row(accent.Render(l)) + "\n")
+		b.WriteString(row(accent.Render(l)))
+		b.WriteByte('\n')
 	}
-	b.WriteString(row("") + "\n")
+	b.WriteString(row(""))
+	b.WriteByte('\n')
 
 	tag1 := "nested TTY for multi-agent coordination"
 	tag2 := "Planner · Observer · Assurance · QA"
@@ -204,9 +222,12 @@ func actBanner(width int, alpha float64) string {
 		tag2 += "  ·  v" + version.Version
 	}
 
-	b.WriteString(row(muted.Render(strings.Repeat("─", bannerWidth))) + "\n")
-	b.WriteString(row(muted.Render(centerLine(tag1, bannerWidth))) + "\n")
-	b.WriteString(row(muted.Render(centerLine(tag2, bannerWidth))) + "\n")
+	b.WriteString(row(muted.Render(strings.Repeat("─", bannerWidth))))
+	b.WriteByte('\n')
+	b.WriteString(row(muted.Render(centerLine(tag1, bannerWidth))))
+	b.WriteByte('\n')
+	b.WriteString(row(muted.Render(centerLine(tag2, bannerWidth))))
+	b.WriteByte('\n')
 
 	return b.String() + row(cwdLine)
 }
@@ -305,6 +326,8 @@ func welcomeGuide(width int, alpha float64) string {
 		"",
 		sectionTitle("Commands  (ctrl+k)"),
 		command("init", "Create ACT.md project memory"),
+		command("/plan", "Plan a task with Tier 1 Planner"),
+		command("/run", "Execute a task directly"),
 		command("act-agent:status", "Server, agents, projects"),
 		command("act-agent:log", "Recent coordination log"),
 		command("act-agent:tasks", "Tasks awaiting validation"),

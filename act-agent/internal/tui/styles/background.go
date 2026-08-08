@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"regexp"
 	"strings"
+
+	"charm.land/lipgloss/v2"
 )
 
 var ansiEscape = regexp.MustCompile("\x1b\\[[0-9;]*m")
@@ -121,4 +123,30 @@ func ForceReplaceBackgroundWithLipgloss(input string, newBgColor color.Color) st
 
 		return "\x1b[" + sb.String() + "m"
 	})
+}
+
+// ForceBackgroundOnAllLines replaces ANSI background codes AND explicitly
+// styles all bare space sequences so that no unstyled space characters remain.
+func ForceBackgroundOnAllLines(input string, newBgColor color.Color) string {
+	r, g, b := getColorRGB(newBgColor)
+	bgSeq := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+
+	lines := strings.Split(input, "\n")
+	maxW := 0
+	for _, l := range lines {
+		if w := lipgloss.Width(l); w > maxW {
+			maxW = w
+		}
+	}
+
+	for i, l := range lines {
+		l = strings.ReplaceAll(l, "\x1b[0m", "\x1b[0m"+bgSeq)
+		w := lipgloss.Width(l)
+		if w < maxW {
+			l = l + bgSeq + strings.Repeat(" ", maxW-w)
+		}
+		lines[i] = bgSeq + l + "\x1b[0m"
+	}
+
+	return strings.Join(lines, "\n")
 }

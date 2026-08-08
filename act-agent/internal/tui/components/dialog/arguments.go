@@ -61,10 +61,10 @@ func (m MultiArgumentsDialogCmp) Init() tea.Cmd {
 
 // Update implements tea.Model.
 func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg.(type) {
+	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.(tea.WindowSizeMsg).Width
-		m.height = msg.(tea.WindowSizeMsg).Height
+		m.width = msg.Width
+		m.height = msg.Height
 	}
 	_, cmd := m.form.Update(msg)
 	switch m.form.State {

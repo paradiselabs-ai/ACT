@@ -35,6 +35,7 @@ func TestOnboardingNextStepReachesSave(t *testing.T) {
 func TestOnboardingWriteConfigNoNomik(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp)
 
 	role := func(key string) onboardingRole {
 		return onboardingRole{

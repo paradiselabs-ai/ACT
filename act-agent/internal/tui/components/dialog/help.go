@@ -1,3 +1,10 @@
+// Package dialog — overlay components rendered via PlaceOverlay.
+//
+// IMPORTANT: See STYLING_GUIDE.md for the full explanation of why
+// lipgloss.JoinHorizontal/JoinVertical cause black strips in overlays
+// and the correct manual-padding pattern to avoid them.
+//
+// help.go is the REFERENCE IMPLEMENTATION of the correct pattern.
 package dialog
 
 import (
@@ -55,200 +62,177 @@ func removeDuplicateBindings(bindings []key.Binding) []key.Binding {
 
 func (h *helpCmp) render() string {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	bg := t.Background()
 
 	helpKeyStyle := styles.Bold().
-		Background(t.Background()).
+		Background(bg).
 		Foreground(t.Text()).
 		Padding(0, 1, 0, 0)
 
 	helpDescStyle := styles.Regular().
-		Background(t.Background()).
+		Background(bg).
 		Foreground(t.TextMuted())
 
-	// Compile list of bindings to render
+	padStyle := lipgloss.NewStyle().Background(bg)
+
 	bindings := removeDuplicateBindings(h.keys)
 
-	// Enumerate through each group of bindings, populating a series of
-	// pairs of columns, one for keys, one for descriptions
-	var (
-		pairs []string
-		width int
-		rows  = 12 - 2
-	)
-
+	rows := 10
+	// Build columns: each column is a pair of (key, desc) arrays
+	type colPair struct {
+		keys  []string
+		descs []string
+		keyW  int
+		descW int
+	}
+	var cols []colPair
 	for i := 0; i < len(bindings); i += rows {
-		var (
-			keys  []string
-			descs []string
-		)
+		cp := colPair{}
 		for j := i; j < min(i+rows, len(bindings)); j++ {
-			keys = append(keys, helpKeyStyle.Render(bindings[j].Help().Key))
-			descs = append(descs, helpDescStyle.Render(bindings[j].Help().Desc))
-		}
-
-		// Render pair of columns; beyond the first pair, render a three space
-		// left margin, in order to visually separate the pairs.
-		var cols []string
-		if len(pairs) > 0 {
-			cols = []string{baseStyle.Render("   ")}
-		}
-
-		maxDescWidth := 0
-		for _, desc := range descs {
-			if maxDescWidth < lipgloss.Width(desc) {
-				maxDescWidth = lipgloss.Width(desc)
+			k := helpKeyStyle.Render(bindings[j].Help().Key)
+			d := helpDescStyle.Render(bindings[j].Help().Desc)
+			cp.keys = append(cp.keys, k)
+			cp.descs = append(cp.descs, d)
+			if kw := lipgloss.Width(k); kw > cp.keyW {
+				cp.keyW = kw
+			}
+			if dw := lipgloss.Width(d); dw > cp.descW {
+				cp.descW = dw
 			}
 		}
-		for i := range descs {
-			remainingWidth := maxDescWidth - lipgloss.Width(descs[i])
-			if remainingWidth > 0 {
-				descs[i] = descs[i] + baseStyle.Render(strings.Repeat(" ", remainingWidth))
-			}
-		}
-		maxKeyWidth := 0
-		for _, key := range keys {
-			if maxKeyWidth < lipgloss.Width(key) {
-				maxKeyWidth = lipgloss.Width(key)
-			}
-		}
-		for i := range keys {
-			remainingWidth := maxKeyWidth - lipgloss.Width(keys[i])
-			if remainingWidth > 0 {
-				keys[i] = keys[i] + baseStyle.Render(strings.Repeat(" ", remainingWidth))
-			}
-		}
-
-		cols = append(cols,
-			strings.Join(keys, "\n"),
-			strings.Join(descs, "\n"),
-		)
-
-		pair := baseStyle.Render(lipgloss.JoinHorizontal(lipgloss.Top, cols...))
-		// check whether it exceeds the maximum width avail (the width of the
-		// terminal, subtracting 2 for the borders).
-		width += lipgloss.Width(pair)
-		if width > h.width-2 {
-			break
-		}
-		pairs = append(pairs, pair)
+		cols = append(cols, cp)
 	}
 
-	// https://charm.land/lipgloss/v2/issues/209
-	if len(pairs) > 1 {
-		prefix := pairs[:len(pairs)-1]
-		lastPair := pairs[len(pairs)-1]
-		prefix = append(prefix, lipgloss.Place(
-			lipgloss.Width(lastPair),   // width
-			lipgloss.Height(prefix[0]), // height
-			lipgloss.Left,              // x
-			lipgloss.Top,               // y
-			lastPair,                   // content
-		))
-		content := baseStyle.Width(h.width).Render(
-			lipgloss.JoinHorizontal(
-				lipgloss.Top,
-				prefix...,
-			),
-		)
-		return content
+	// Build each row line-by-line with explicit padding
+	var lines []string
+	for row := 0; row < rows; row++ {
+		var line strings.Builder
+		for ci, cp := range cols {
+			if ci > 0 {
+				line.WriteString(padStyle.Render("   "))
+			}
+			if row < len(cp.keys) {
+				k := cp.keys[row]
+				kPad := cp.keyW - lipgloss.Width(k)
+				line.WriteString(k)
+				if kPad > 0 {
+					line.WriteString(padStyle.Render(strings.Repeat(" ", kPad)))
+				}
+				d := cp.descs[row]
+				dPad := cp.descW - lipgloss.Width(d)
+				line.WriteString(d)
+				if dPad > 0 {
+					line.WriteString(padStyle.Render(strings.Repeat(" ", dPad)))
+				}
+			} else {
+				// Empty row in this column — fill with background
+				line.WriteString(padStyle.Render(strings.Repeat(" ", cp.keyW+cp.descW)))
+			}
+		}
+		lines = append(lines, line.String())
 	}
 
-	// Join pairs of columns and enclose in a border
-	content := baseStyle.Width(h.width).Render(
-		lipgloss.JoinHorizontal(
-			lipgloss.Top,
-			pairs...,
-		),
-	)
-	return content
+	return strings.Join(lines, "\n")
+}
+
+// padLine pads a rendered line to exactly targetWidth using bg-styled spaces.
+func padLine(line string, targetWidth int, padStyle lipgloss.Style) string {
+	w := lipgloss.Width(line)
+	if w < targetWidth {
+		return line + padStyle.Render(strings.Repeat(" ", targetWidth-w))
+	}
+	return line
 }
 
 func (h *helpCmp) View() tea.View {
 	t := theme.CurrentTheme()
-	baseStyle := styles.BaseStyle()
+	bg := t.Background()
+	padStyle := lipgloss.NewStyle().Background(bg)
 
-	sectionTitleStyle := baseStyle.
+	titleStyle := styles.BaseStyle().
+		Background(bg).
 		Bold(true).
 		Foreground(t.Primary())
 
-	sectionBodyStyle := baseStyle.
+	mutedStyle := styles.BaseStyle().
+		Background(bg).
 		Foreground(t.TextMuted())
 
-	actModes := lipgloss.JoinVertical(lipgloss.Left,
-		sectionTitleStyle.Render("ACT Agent Modes"),
-		sectionBodyStyle.Render("  --agent <id>     Headless worker mode (used by the swarm runner)"),
-		sectionBodyStyle.Render("  --role <role>    Select role-specific model config"),
-		sectionBodyStyle.Render("  --project <name> Project name (defaults to cwd basename)"),
-		"",
-		sectionBodyStyle.Render("  Swarm roles: developer, frontend_dev, backend_dev,"),
-		sectionBodyStyle.Render("               qa_engineer, researcher"),
-	)
+	// Keyboard Shortcuts
+	shortcutsContent := h.render()
 
-	actCLI := lipgloss.JoinVertical(lipgloss.Left,
-		sectionTitleStyle.Render("ACT CLI Commands (run in your shell — outside this window)"),
-		sectionBodyStyle.Render("  act-agent register       Register with ACT server"),
-		sectionBodyStyle.Render("  act-agent context        Get brief + task + agents"),
-		sectionBodyStyle.Render("  act-agent task complete  Mark task done"),
-		sectionBodyStyle.Render("  act-agent task progress  Report progress %"),
-		sectionBodyStyle.Render("  act-agent status         System overview"),
-		sectionBodyStyle.Render("  act-agent message        Send/read messages"),
-		sectionBodyStyle.Render("  act-agent pvm search     Search coordination memory"),
-	)
+	// Palette Commands — build each line manually
+	palEntries := []struct{ left, right string }{
+		{"act-agent:status   System overview", "act-agent:validation  Pending queue"},
+		{"act-agent:log      Recent ChronLog", "act-agent:conflicts   File conflicts"},
+		{"act-agent:tasks    Unverified task graph", "act-agent:swarm       Swarm overview"},
+	}
 
-	palette := lipgloss.JoinVertical(lipgloss.Left,
-		sectionTitleStyle.Render("Palette Commands (type inside this window — `:` bypasses Planner)"),
-		sectionBodyStyle.Render("  act-agent:status       System overview without consulting Planner"),
-		sectionBodyStyle.Render("  act-agent:log          Recent ChronLog entries"),
-		sectionBodyStyle.Render("  act-agent:tasks        Unverified task graph"),
-		sectionBodyStyle.Render("  act-agent:validation   Pending validation queue"),
-		sectionBodyStyle.Render("  act-agent:conflicts    File-lock conflicts"),
-		sectionBodyStyle.Render("  act-agent:swarm        Swarm role + backend overview"),
-		"",
-		sectionBodyStyle.Render("  Without the colon, your text becomes a Planner prompt."),
-	)
+	var palLines []string
+	for _, e := range palEntries {
+		left := mutedStyle.Render("  " + e.left)
+		mid := padStyle.Render("    ")
+		right := mutedStyle.Render(e.right)
+		palLines = append(palLines, left+mid+right)
+	}
 
-	architecture := lipgloss.JoinVertical(lipgloss.Left,
-		sectionTitleStyle.Render("Architecture"),
-		sectionBodyStyle.Render("  Tier 1 (NesTTY)  Planner, Observer, Assurance, QA"),
-		sectionBodyStyle.Render("  Tier 2 (Swarm)   Headless agents with role specializations"),
-		sectionBodyStyle.Render("  ACT Server       Coordination state (port 8080)"),
-		sectionBodyStyle.Render("  Runner           Spawns swarm agents from task queue"),
-	)
+	// Assemble all body lines
+	var bodyLines []string
+	bodyLines = append(bodyLines, titleStyle.Render("Keyboard Shortcuts"))
+	bodyLines = append(bodyLines, "")
+	bodyLines = append(bodyLines, strings.Split(shortcutsContent, "\n")...)
+	bodyLines = append(bodyLines, "")
+	bodyLines = append(bodyLines, titleStyle.Render("Palette Commands (`:` in prompt)"))
+	bodyLines = append(bodyLines, "")
+	bodyLines = append(bodyLines, palLines...)
 
-	content := h.render()
-	header := baseStyle.
-		Bold(true).
-		Width(lipgloss.Width(content)).
-		Foreground(t.Primary()).
-		Render("Keyboard Shortcuts")
+	// Find max width of all lines
+	maxW := 0
+	for _, l := range bodyLines {
+		if w := lipgloss.Width(l); w > maxW {
+			maxW = w
+		}
+	}
 
-	sections := lipgloss.JoinVertical(
-		lipgloss.Left,
-		actModes,
-		"",
-		actCLI,
-		"",
-		palette,
-		"",
-		architecture,
-	)
+	// Pad every line to maxW with background-styled spaces
+	for i, l := range bodyLines {
+		bodyLines[i] = padLine(l, maxW, padStyle)
+	}
 
-	return tea.NewView(baseStyle.Padding(1).
+	body := strings.Join(bodyLines, "\n")
+
+	boxStyle := styles.BaseStyle().
+		Background(bg).
+		Padding(1, 2).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.BorderFocused()).
-		Width(h.width).
-		BorderBackground(t.Background()).
-		Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				sections,
-				"",
-				header,
-				baseStyle.Render(strings.Repeat(" ", lipgloss.Width(header))),
-				content,
-			),
-		))
+		BorderBackground(bg)
+
+	rendered := boxStyle.Render(body)
+
+	// Final pass: pad every rendered line (including border lines) to the
+	// full box width, ensuring no bare spaces leak through.
+	finalLines := strings.Split(rendered, "\n")
+	finalW := 0
+	for _, l := range finalLines {
+		if w := lipgloss.Width(l); w > finalW {
+			finalW = w
+		}
+	}
+	for i, l := range finalLines {
+		finalLines[i] = padLine(l, finalW, padStyle)
+	}
+	rendered = strings.Join(finalLines, "\n")
+
+	return tea.NewView(rendered)
 }
+
+type ToggleHelpMsg struct{}
+type ShowLogsMsg struct{}
+type ShowModelDialogMsg struct {
+	Role string
+}
+type StartCompactSessionMsg struct{}
 
 type HelpCmp interface {
 	tea.Model

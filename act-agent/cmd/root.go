@@ -76,6 +76,7 @@ The TUI is the harness; there is no separate orchestrator process.`,
 		outputFormat, _ := cmd.Flags().GetString("output-format")
 		quiet, _ := cmd.Flags().GetBool("quiet")
 		projectFlag, _ := cmd.Flags().GetString("project")
+		plainMode, _ := cmd.Flags().GetBool("plain")
 
 		// Validate format option
 		if !format.IsValid(outputFormat) {
@@ -168,6 +169,27 @@ The TUI is the harness; there is no separate orchestrator process.`,
 		if prompt != "" {
 			// Run non-interactive flow using the App method
 			return app.RunNonInteractive(ctx, prompt, outputFormat, quiet)
+		}
+
+		// Plain mode: read prompts from stdin line-by-line, no TUI.
+		// Safety net for narrow terminals, CI, or when TUI rendering breaks.
+		if plainMode {
+			scanner := bufio.NewScanner(os.Stdin)
+			fmt.Println("ACT plain mode — type a prompt and press Enter (ctrl+c to quit)")
+			for {
+				fmt.Print("> ")
+				if !scanner.Scan() {
+					break
+				}
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
+				}
+				if err := app.RunNonInteractive(ctx, line, outputFormat, quiet); err != nil {
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				}
+			}
+			return scanner.Err()
 		}
 
 		// Interactive mode — launch the ACT TUI.
@@ -730,6 +752,9 @@ func init() {
 	rootCmd.Flags().String("agent", "", "ACT agent ID — headless worker mode (used by the swarm runner)")
 	rootCmd.Flags().String("role", "", "ACT role — selects model config (developer|frontend_dev|backend_dev|qa_engineer|researcher)")
 	rootCmd.Flags().String("project", "", "Project name for the ACT session (defaults to the current directory's basename)")
+
+	// Plain mode: disable TUI, print agent output as plain streaming text
+	rootCmd.Flags().Bool("plain", false, "Disable TUI, print agent output as plain streaming text")
 
 	// Register custom validation for the format flag
 	rootCmd.RegisterFlagCompletionFunc("output-format", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
