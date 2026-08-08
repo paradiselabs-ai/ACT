@@ -71,14 +71,6 @@ const (
 )
 
 // Agent defines configuration for different LLM models and their token limits.
-//
-// Backend selects how Tier 2 swarm agents are executed. Valid values:
-//   - "act-agent" (default): the local Go binary, configured per the rest of this struct
-//   - "claude-code": the official Claude Code CLI (`claude --print`)
-//
-// Backend is ONLY meaningful for Tier 2 swarm roles (developer, frontend_dev,
-// backend_dev, qa_engineer, researcher). Tier 1 agents (planner, observer,
-// assurance, qa_synthesizer) run as in-process goroutines and ignore this field.
 type Agent struct {
 	Provider        models.ModelProvider `json:"provider"`                  // routes to providers.<name> in ~/.act.json
 	Model           models.ModelID       `json:"model"`                     // upstream model string, passed verbatim
@@ -89,7 +81,8 @@ type Agent struct {
 	// One symmetric vocabulary across Tier 1 and Tier 2:
 	//   "act-agent" (default) — in-process LLM, configured by Provider/Model above
 	//   "claude-code"         — Claude Code (Tier 1 via ACP; Tier 2 via direct subprocess)
-	//   future: "codex", "gemini", "opencode" — added incrementally
+	//   "gemini"              — Gemini CLI (Tier 1 via native ACP `gemini --acp`; Tier 2 via `gemini -p`)
+	//   future: "codex", "opencode" — added incrementally
 	// An unset Backend means the in-process LLM path, unchanged from pre-ACP behaviour.
 	//
 	// The wire-level mechanism (ACP for Tier 1, direct CLI for Tier 2) is an
@@ -515,7 +508,7 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 	// ACP-backed agents run an external CLI subprocess; model/provider are
 	// the external agent's concern, not ACT's in-process config.
 	switch agent.Backend {
-	case "claude-code", "antigravity", "agy":
+	case "claude-code", "gemini", "antigravity", "agy":
 		return nil
 	}
 	if agent.Provider == "" {

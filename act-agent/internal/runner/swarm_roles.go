@@ -37,12 +37,13 @@ func IsSwarmRole(role string) bool {
 const (
 	BackendActAgent    = "act-agent"
 	BackendClaudeCode  = "claude-code"
+	BackendGemini      = "gemini"
 	BackendAntigravity = "antigravity" // Tier 1 ACP only; Tier 2 runner support is separate
 )
 
 // IsValidBackend returns true if the given backend name is supported.
 func IsValidBackend(backend string) bool {
-	return backend == BackendActAgent || backend == BackendClaudeCode
+	return backend == BackendActAgent || backend == BackendClaudeCode || backend == BackendGemini
 }
 
 // SwarmRoleSpec is the per-Runner configuration consumed by the Spawner.
@@ -59,8 +60,8 @@ type SwarmRoleSpec struct {
 	// Name is a human-readable label shown in logs and the TUI swarm panel.
 	Name string
 
-	// Backend selects the agent execution path: "act-agent" (default) or
-	// "claude-code". The Runner script reads --backend to dispatch.
+	// Backend selects the agent execution path: "act-agent" (default),
+	// "claude-code", or "gemini". The Runner script reads --backend to dispatch.
 	Backend string
 
 	// Capabilities is the list of capability tags this Runner registers with.
