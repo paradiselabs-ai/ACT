@@ -56,8 +56,8 @@
       ],
       "refresh": "docs/constitution/UPDATE_LOOPS.md \u00a73 (grep-verify section claims; fix only confirmed-wrong lines)",
       "verified_against": "ed5805f",
-      "status": "fresh",
-      "staled_by": null
+      "status": "stale",
+      "staled_by": "17f2bb1"
     },
     "readme": {
       "paths": [
