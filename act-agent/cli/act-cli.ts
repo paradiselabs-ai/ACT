@@ -549,7 +549,10 @@ async function cmdStatus(client: ACTClient): Promise<void> {
 // ─── /swarm command surface (mirrors the TUI slash commands) ──────
 
 const SWARM_ROLES = ['developer', 'frontend_dev', 'backend_dev', 'qa_engineer', 'researcher'];
-const VALID_BACKENDS = ['act-agent', 'claude-code', 'antigravity'];
+// Must mirror runner/swarm_roles.go::IsValidBackend — the Go spawner is the
+// enforcement layer, so anything accepted here that it rejects is a config
+// the swarm silently drops. antigravity is Tier 1 ACP only, never Tier 2.
+const VALID_BACKENDS = ['act-agent', 'claude-code', 'gemini'];
 
 async function cmdSwarm(args: string[]): Promise<void> {
   // args[0] is the subcommand: list, status, set, restart

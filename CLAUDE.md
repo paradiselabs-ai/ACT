@@ -88,13 +88,16 @@ The swarm agents execute tasks headlessly with role specializations: `frontend_d
 
 **Parallel from startup.** When the orchestrator starts (first message in the TUI), it spawns ONE Runner subprocess per swarm role — five Node.js processes by default, each polling the ACT server for tasks matching its role/capabilities. Tasks dispatched by the Planner execute concurrently, not sequentially. This is the difference between "swarm" and "queue".
 
-**Per-role backend selection (Tier 2).** Each swarm role can use one of two backends:
+**Per-role backend selection (Tier 2).** Each swarm role can use one of three backends (`runner/swarm_roles.go::IsValidBackend` is the source of truth):
 - `act-agent` (default) — the local Go binary, configured via per-role model in `~/.act.json`
 - `claude-code` — the official Claude Code CLI (`claude --print --dangerously-skip-permissions`)
+- `gemini` — Gemini CLI (`gemini --skip-trust --yolo -p`; researcher gets `--approval-mode plan`, its native read-only mode)
+
+All three are stateless one-shots per task — the Runner rebuilds full context (identity line, project brief, inbox, validation gaps, parallel-agent awareness) into every task prompt; no conversational memory across tasks by design (the ACT server is the memory). `antigravity` is Tier 1 ACP only — **not** a valid swarm backend (`IsValidBackend` rejects it, and `act-cli.ts::VALID_BACKENDS` now mirrors that list).
 
 Users change backends with `/swarm <role> <backend>` (in the TUI) or `act-agent swarm set <role> <backend>` (CLI). The bulk form is `/swarm all claude-code` or `act-agent swarm set all claude-code`.
 
-**Tier 1 ALSO has backend selection — do NOT re-implement it.** Each Tier-1 role dispatches on `agents.<role>.backend` in `~/.act.json` via the backend switch in `internal/app/app.go`: external CLI hosts (e.g. `claude-code`; the live member set changes — **re-grep the switch, never trust a list here**) are driven over **ACP** (`internal/acp/`, constructor `acp.NewACPAgent`, per-role CLI allowlist enforced by `cmd/act-tier1-shim`); an empty/`act-agent` backend keeps the in-process goroutine path. The TUI command is `/backend <role|all> <backend>` (`slash.go`) — separate from Tier 2's `/swarm`. The `antigravity`/`agy` ACP backends have **landed** (commit `9b11107` + follow-ups): `antigravity` is offered by `/backend` (`slash.go`) and the `app.go` switch accepts `claude-code`, `antigravity`, `agy`, `codex`, `opencode` — **re-grep the switch, don't trust this list**. (Kanban: `document-antigravity-agy-backends-2026-06-11`.)
+**Tier 1 ALSO has backend selection — do NOT re-implement it.** Each Tier-1 role dispatches on `agents.<role>.backend` in `~/.act.json` via the backend switch in `internal/app/app.go`: external CLI hosts (e.g. `claude-code`; the live member set changes — **re-grep the switch, never trust a list here**) are driven over **ACP** (`internal/acp/`, constructor `acp.NewACPAgent`, per-role CLI allowlist enforced by `cmd/act-tier1-shim`); an empty/`act-agent` backend keeps the in-process goroutine path. The TUI command is `/backend <role|all> <backend>` (`slash.go`) — separate from Tier 2's `/swarm`. The `antigravity`/`agy` ACP backends have **landed** (commit `9b11107` + follow-ups): `antigravity` is offered by `/backend` (`slash.go`) and the `app.go` switch accepts `claude-code`, `gemini`, `antigravity`, `agy`, `codex`, `opencode` — **re-grep the switch, don't trust this list**. `gemini` speaks ACP natively (`gemini --acp --skip-trust`); consumer auth is API-key only since Google's 2026-06-18 CLI sunset. (Kanban: `document-antigravity-agy-backends-2026-06-11`.)
 
 **Other swarm details:**
 - Planner picks role mix per project → writes tasks to role IDs → Runner spawns swarm agents
@@ -243,7 +246,6 @@ ACT/
 - Spawns agent CLI subprocesses (configurable via `AGENT_CLI` env var)
 - AGENT.md brief injection from ACT server
 - liveProcesses Map — no-clone enforcement (singleton per agent-ID)
-- Complexity-triggered PVM context injection (heuristic score > 4)
 - Parallel agent awareness + proactive coordination messages
 - Session lifecycle logging on process exit
 - **`submit-for-validation` after every successful `task complete`** — this is what feeds Assurance + QA. Skipping it leaves the validation pipeline as dead code.
@@ -429,6 +431,18 @@ Full details live in the owner's personal vault (`docs/Vault/.../nestty/BUILD_OR
 | QA / Synthesizer | Producer |
 | Swarm / Swarm agent | Actor / Headless agent |
 | Tier 1 / Tier 2 (The Swarm) | Upper hierarchy / Execution layer |
+
+***
+
+## DISC spec gate (all non-trivial code changes)
+
+Before ANY non-trivial code change — by you or by any agent you delegate to — write a
+**DISC spec** in this order: **Describe → Success Criteria → Constraints → Invariants
+(code-level)**. Same section shape as the required kanban ticket body
+([TASK_TRACKING.md](docs/constitution/TASK_TRACKING.md) §2), so a spec pastes into a
+ticket unchanged. Full format + verification duties: the `/disc` skill
+(`.claude/skills/disc/SKILL.md`). Delegated prompts embed the full spec; the Invariants
+are the delegate's self-check before reporting done. Typo-class fixes exempt.
 
 ***
 
