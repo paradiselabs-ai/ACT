@@ -1,12 +1,12 @@
 ---
 id: "validation-seen-key-strands-resubmissions-2026-08-08"
-status: "review"
+status: "done"
 priority: "critical"
 assignee: null
 dueDate: null
 created: "2026-08-08T08:30:00.000Z"
 modified: "2026-08-08T08:30:00.000Z"
-completedAt: null
+completedAt: "2026-08-08T15:20:00.000Z"
 labels: ["orchestrator", "assurance", "bug", "critical"]
 order: "a0"
 ---
@@ -34,6 +34,12 @@ key unseen: the server routes the task back to `assigned` immediately (leaves th
 pending list), and on resubmission `incAttempt` still bounds total validation cycles
 at `maxValidationAttempts` before escalating to the Planner — no unbounded loop.
 False comment replaced with the true lifecycle.
+
+## Live e2e evidence (2026-08-08, link-dock run — criterion met)
+Task 4adea09d-8740-4506-a931-6c3f1e652bcd: `assurance_poll_start` fired TWICE
+(debug.log), verdicts `passed=false score=0` then, after rework+resubmit,
+`passed=true score=100`. Pre-fix this task would have stranded permanently
+after the first rejection.
 
 ## Success Criteria
 - A task rejected then resubmitted appears in a subsequent `assurance_poll_start` and
