@@ -235,3 +235,17 @@ func TestClient_PromptCancelEmitsNotification(t *testing.T) {
 		t.Fatalf("cancel must be a notification, got ID=%v", *sent[0].ID)
 	}
 }
+
+// A judge role must never reuse a cached ACP session: the external host keeps
+// its own conversation state, so reuse leaks verdict N into verdict N+1.
+// Non-judge roles must still reuse (one session/new per ACT session).
+func TestJudgeRoleNeedsFreshSession(t *testing.T) {
+	if !judgeRoleNeedsFreshSession("assurance") {
+		t.Fatal("assurance must get a fresh ACP session per turn")
+	}
+	for _, role := range []string{"planner", "observer", "qa_synthesizer", "developer"} {
+		if judgeRoleNeedsFreshSession(role) {
+			t.Fatalf("role %q must reuse its ACP session", role)
+		}
+	}
+}

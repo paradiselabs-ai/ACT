@@ -58,7 +58,7 @@ type ACPAgent struct {
 
 	// acpSessions maps an ACT (database) sessionID → the agent-allocated ACP
 	// session ID. We open one ACP session per ACT session and reuse it across
-	// turns.
+	// turns — EXCEPT for judge roles (see judgeRoleNeedsFreshSession).
 	mu          sync.Mutex
 	acpSessions map[string]string
 
@@ -341,9 +341,28 @@ func (a *ACPAgent) runTurn(ctx context.Context, sessionID, content string) agent
 
 // ensureACPSession opens an ACP session if we haven't already for this ACT
 // sessionID. cwd is the ACT project root (cmd.Dir if set, else process cwd).
+// judgeRoleNeedsFreshSession reports whether this role must get a brand-new ACP
+// session for every turn instead of reusing the cached one.
+//
+// The in-process agent path scopes Assurance to HistoryNone: it judges each task
+// with zero prior context, so verdict N cannot anchor verdict N+1. The ACP path
+// sends only the current prompt (no shared-transcript replay) — but the EXTERNAL
+// host keeps its own conversation state across session/prompt calls on the same
+// ACP session. So an ACP-backed Assurance silently accumulates every earlier
+// verdict it issued this run, and the same role isolates differently depending on
+// which backend the user configured. Judge isolation is a correctness property,
+// not an optimization: reopen per turn so both backends behave identically.
+//
+// ponytail: Assurance only. Observer/QA also run HistoryNone in-process, but
+// carried memory there is a token-cost and consistency question, not a
+// bias-in-the-verdict question. Widen this if that changes.
+func judgeRoleNeedsFreshSession(role string) bool {
+	return role == "assurance"
+}
+
 func (a *ACPAgent) ensureACPSession(ctx context.Context, sessionID string) (string, error) {
 	a.mu.Lock()
-	if id, ok := a.acpSessions[sessionID]; ok {
+	if id, ok := a.acpSessions[sessionID]; ok && !judgeRoleNeedsFreshSession(a.role) {
 		a.mu.Unlock()
 		return id, nil
 	}
