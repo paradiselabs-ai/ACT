@@ -43,7 +43,7 @@ ACT splits the work along the lines that actually matter:
 - **Execution** runs in parallel across the swarm — five workers, not one bottleneck.
 - **Verification** is independent. Assurance scores work it didn't write, against criteria it didn't invent after the fact.
 - **Assembly** only touches what passed. No thousand-line "hope it works" wall reaching you.
-- **Memory** is an append-only log of every coordination event, semantically indexed (PVM). Routing can cite evidence: which agent actually succeeded at this kind of task last time.
+- **Memory** is an append-only log of every coordination event, semantically indexed (PVM). Routing can cite evidence: which role actually succeeded at this kind of task last time (recall layer fixed + live-verified 2026-08-19 — history in [the memory audit](docs/audits/memory-system-audit-2026-08-13.md)).
 
 The separation is the product. *"Here's the validated deliverable, and here's the audit trail of how each piece got verified"* — instead of *"here's a diff, good luck."*
 

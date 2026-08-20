@@ -8,7 +8,7 @@
 
 import { parseArgs } from 'node:util';
 import { basename, join } from 'node:path';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { ACTClient } from './act-client.js';
 
@@ -592,7 +592,7 @@ const SWARM_ROLES = ['developer', 'frontend_dev', 'backend_dev', 'qa_engineer', 
 // Must mirror runner/swarm_roles.go::IsValidBackend — the Go spawner is the
 // enforcement layer, so anything accepted here that it rejects is a config
 // the swarm silently drops.
-const VALID_BACKENDS = ['act-agent', 'claude-code', 'gemini', 'antigravity'];
+const VALID_BACKENDS = ['act-agent', 'claude-code', 'gemini', 'antigravity', 'devin'];
 
 // Mirrors runner/swarm_roles.go::BackendAllowedForRole. The researcher is
 // read-only on every other backend; the agy CLI has no read-only/plan mode
@@ -602,6 +602,12 @@ function backendDisallowedReason(role: string, backend: string): string | null {
   if (role === 'researcher' && backend === 'antigravity') {
     return 'backend "antigravity" is not allowed for the researcher role: agy has no read-only/plan mode ' +
       '(--sandbox restricts the terminal only), so the researcher\'s read-only contract cannot be enforced. ' +
+      'Use act-agent, claude-code, or gemini for researcher.';
+  }
+  if (role === 'researcher' && backend === 'devin') {
+    return 'backend "devin" is not allowed for the researcher role: devin\'s one-shot mode has no ' +
+      'read-only/plan mode and no tool-restriction flag (--permission-mode auto still leaves write tools ' +
+      'available), so the researcher\'s read-only contract cannot be enforced. ' +
       'Use act-agent, claude-code, or gemini for researcher.';
   }
   return null;
@@ -690,14 +696,14 @@ async function cmdSwarm(args: string[]): Promise<void> {
 }
 
 function writeAgentBackend(role: string, backend: string): boolean {
-  const fs = require('fs');
-  const path = require('path');
+  // ESM module: `require` is not defined here, so these must be the top-level
+  // node: imports (every `swarm set` write threw "require is not defined").
   const home = process.env.HOME || '';
-  const cfgPath = path.join(home, '.act.json');
+  const cfgPath = join(home, '.act.json');
 
   let data: any = {};
   try {
-    const raw = fs.readFileSync(cfgPath, 'utf-8');
+    const raw = readFileSync(cfgPath, 'utf-8');
     data = JSON.parse(raw);
   } catch (err: any) {
     if (err.code !== 'ENOENT') {
@@ -712,8 +718,8 @@ function writeAgentBackend(role: string, backend: string): boolean {
 
   // Atomic write
   const tmp = cfgPath + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
-  fs.renameSync(tmp, cfgPath);
+  writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n');
+  renameSync(tmp, cfgPath);
   return true;
 }
 

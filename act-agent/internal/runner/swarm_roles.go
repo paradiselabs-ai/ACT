@@ -41,12 +41,14 @@ const (
 	BackendClaudeCode  = "claude-code"
 	BackendGemini      = "gemini"
 	BackendAntigravity = "antigravity" // Tier 1 via ACP; Tier 2 via a direct `agy --print` one-shot in the Runner
+	BackendDevin       = "devin"       // Tier 1 via native ACP (`devin acp`); Tier 2 via a `devin -p` one-shot in the Runner
 )
 
 // IsValidBackend returns true if the given backend name is supported.
 func IsValidBackend(backend string) bool {
 	return backend == BackendActAgent || backend == BackendClaudeCode ||
-		backend == BackendGemini || backend == BackendAntigravity
+		backend == BackendGemini || backend == BackendAntigravity ||
+		backend == BackendDevin
 }
 
 // BackendAllowedForRole reports whether a backend may host a given swarm role.
@@ -59,10 +61,25 @@ func IsValidBackend(backend string) bool {
 // --approval-mode plan on gemini). The agy CLI has no read-only or plan mode —
 // its only restriction flag is --sandbox, which limits terminal access, not file
 // writes — so an antigravity researcher would run with full write privilege.
+//
+// researcher + devin: same verdict, different reason. devin 3000.1.27 has no
+// tool-restriction flag on the one-shot path (`devin --help`: no
+// --allowed-tools/--disallowed-tools) and its --permission-mode values are
+// auto|accept-edits|smart|dangerous — "auto" only auto-approves read-only tools,
+// it does not disable the write ones. The only read-only agent devin ships
+// (--agent-type review) exists solely under `devin acp`, which Tier 2 does not
+// use. Declarative tool visibility exists via --agent-config <FILE>, but that is
+// a config file ACT does not author.
 func BackendAllowedForRole(role, backend string) error {
 	if role == RoleResearcher && backend == BackendAntigravity {
 		return fmt.Errorf("backend %q is not allowed for the %s role: agy has no read-only/plan mode "+
 			"(--sandbox restricts the terminal only), so the researcher's read-only contract cannot be enforced; "+
+			"use act-agent, claude-code, or gemini for researcher", backend, RoleResearcher)
+	}
+	if role == RoleResearcher && backend == BackendDevin {
+		return fmt.Errorf("backend %q is not allowed for the %s role: devin's one-shot mode has no "+
+			"read-only/plan mode and no tool-restriction flag (--permission-mode auto still leaves write "+
+			"tools available), so the researcher's read-only contract cannot be enforced; "+
 			"use act-agent, claude-code, or gemini for researcher", backend, RoleResearcher)
 	}
 	return nil
@@ -83,7 +100,7 @@ type SwarmRoleSpec struct {
 	Name string
 
 	// Backend selects the agent execution path: "act-agent" (default),
-	// "claude-code", "gemini", or "antigravity". The Runner script reads
+	// "claude-code", "gemini", "antigravity", or "devin". The Runner script reads
 	// --backend to dispatch.
 	Backend string
 

@@ -121,6 +121,11 @@ func (s *Spawner) startOneLocked(nodeBin, scriptPath string, spec SwarmRoleSpec)
 			return fmt.Errorf("antigravity backend requested but `agy` not in PATH: %w", err)
 		}
 	}
+	if backend == BackendDevin {
+		if _, err := exec.LookPath("devin"); err != nil {
+			return fmt.Errorf("devin backend requested but `devin` not in PATH: %w", err)
+		}
+	}
 
 	args := []string{
 		scriptPath,

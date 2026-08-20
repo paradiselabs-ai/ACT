@@ -36,6 +36,7 @@ const ACT_PROJECT    = process.env.ACT_PROJECT || '';
 const CLAUDE_PATH    = process.env.CLAUDE_PATH    || 'claude';
 const GEMINI_PATH    = process.env.GEMINI_PATH    || 'gemini';
 const AGY_PATH       = process.env.AGY_PATH       || 'agy';
+const DEVIN_PATH     = process.env.DEVIN_PATH     || 'devin';
 const AGENT_CLI      = process.env.ACTOR_CLI || process.env.AGENT_CLI || './act-agent';
 const POLL_INTERVAL  = parseInt(process.env.POLL_INTERVAL_MS || '5000',  10);
 const TASK_TIMEOUT   = parseInt(process.env.TASK_TIMEOUT_MS  || '120000', 10);
@@ -72,7 +73,7 @@ Required:
 
 Optional:
   --role <role>           Agent specialization (e.g. frontend-dev, backend-dev, developer)
-  --backend <name>         Agent execution backend: act-agent (default), claude-code, gemini, or antigravity
+  --backend <name>         Agent execution backend: act-agent (default), claude-code, gemini, antigravity, or devin
   --capabilities <list>    Comma-separated capabilities (e.g. typescript,react,testing)
   --max-iterations <n>     Max coordination loops before exit (default: 100, 0 = unlimited)
   --poll-interval <ms>     Milliseconds between polls (default: 5000)
@@ -85,6 +86,7 @@ Environment variables:
   CLAUDE_PATH              Path to claude binary (default: claude)
   GEMINI_PATH              Path to gemini binary (default: gemini)
   AGY_PATH                 Path to agy binary (default: agy)
+  DEVIN_PATH               Path to devin binary (default: devin)
   POLL_INTERVAL_MS         Polling interval in ms
   MAX_ITERATIONS           Max loops
   TASK_TIMEOUT_MS          Timeout for a single claude invocation (default: 120000)
@@ -110,6 +112,13 @@ if (!AGENT_ID) {
 // rejects this pair before spawn; this catches hand-rolled invocations too.
 if (AGENT_ROLE === 'researcher' && BACKEND === 'antigravity') {
   console.error('Error: backend "antigravity" is not allowed for the researcher role — agy has no read-only/plan mode.');
+  process.exit(1);
+}
+// Same gate for devin: its one-shot mode has no read-only/plan mode and no
+// tool-restriction flag (--permission-mode auto still leaves write tools
+// available), so a devin researcher would run with full write privilege.
+if (AGENT_ROLE === 'researcher' && BACKEND === 'devin') {
+  console.error('Error: backend "devin" is not allowed for the researcher role — devin has no read-only/plan mode.');
   process.exit(1);
 }
 
@@ -248,6 +257,9 @@ async function runAgent(prompt) {
   }
   if (BACKEND === 'antigravity') {
     return runAgentAntigravity(prompt);
+  }
+  if (BACKEND === 'devin') {
+    return runAgentDevin(prompt);
   }
   return runAgentActAgent(prompt);
 }
@@ -464,6 +476,60 @@ async function runAgentAntigravity(prompt, attempt = 1) {
   }
 }
 
+// `devin -p <prompt>` runs a single prompt non-interactively and exits; no
+// --continue/--resume, because the swarm is stateless per task (the Runner
+// rebuilds full context into every prompt and the ACT server is the memory).
+// Verified against devin 3000.1.27: --permission-mode values are
+// auto|accept-edits|smart|dangerous (the docs' "normal"/"autonomous" do not
+// exist), and --respect-workspace-trust already defaults to false in print
+// mode — passed explicitly so the behavior survives a default flip.
+// devin has no --setting-sources equivalent, so the spawned agent still loads
+// the operator's own rules/skills; nothing to clean-room with.
+// No least-privilege flag exists (no --allowed-tools/--disallowed-tools; the
+// read-only --agent-type review is `devin acp`-only) — so the researcher role
+// is rejected up front (see the startup gate).
+async function runAgentDevin(prompt, attempt = 1) {
+  log(`  [devin invoke] path=${DEVIN_PATH} attempt=${attempt} prompt_bytes=${prompt.length}`);
+  try {
+    // `input: ''` closes stdin with EOF immediately — same reason as claude:
+    // a piped-but-empty stdin makes print mode wait for input it never gets.
+    const { stdout, stderr } = await execFileAsync(
+      DEVIN_PATH,
+      // Flag order matters (agy precedent): value/boolean flags first, -p last
+      // so its optional inline value is the prompt and nothing else.
+      ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', '-p', prompt],
+      { timeout: TASK_TIMEOUT, maxBuffer: 10 * 1024 * 1024, input: '' }
+    );
+    if (stderr) log(`  [devin stderr] ${stderr.trim().split('\n')[0]}`);
+    log(`  [devin result] success=true code=0 out_bytes=${stdout.length}`);
+    return {
+      success: true,
+      output: stdout.trim(),
+      code: 0
+    };
+  } catch (err) {
+    const output = err.stdout?.trim() || '';
+    const errMsg = err.stderr?.trim() || err.message;
+    const code = Number.isInteger(err.code) ? err.code : 1;
+    const firstErrLine = (errMsg || '').split('\n')[0];
+    log(`  [devin result] success=false code=${code} stderr="${firstErrLine}" out_bytes=${output.length}`);
+
+    // Same one-shot retry contract as claude-code/gemini/agy: process died with
+    // no output → transient (API 5xx, dropped connection); retry once fresh.
+    if (attempt === 1 && !output) {
+      log(`  [devin retry] first attempt had no output; retrying once`);
+      return runAgentDevin(prompt, 2);
+    }
+
+    return {
+      success: false,
+      output,
+      error: errMsg,
+      code
+    };
+  }
+}
+
 // ─── Parallel awareness ───────────────────────────────────────────────────────
 
 /**
@@ -638,6 +704,105 @@ async function fetchAgentBrief(projectName) {
   }
 }
 
+// ─── Session brief (write path) ───────────────────────────────────────────────
+//
+// The server stores one plain-string brief per {projectName, agentId} and
+// replays `brief_stored` back into project.briefs on boot. Nothing ever wrote
+// one (0 brief_stored events in all history — ticket
+// agent-brief-session-save-never-fires-2026-08-13), so fetchAgentBrief above
+// always 404'd and swarm agents started every task with zero project memory.
+//
+// The Runner owns this write, not the agent: swarm agents are stateless
+// one-shots, the Runner is the process with the task lifecycle. The content is
+// deterministic (no LLM call) — the agent's last MAX_BRIEF_ENTRIES completed
+// task titles plus a one-line result each, newest first.
+
+const BRIEF_SECTION_HEADER = '## Recent Work (most recent first)';
+const MAX_BRIEF_ENTRIES = 5;
+const MAX_BRIEF_CHARS = 2000;
+
+function oneLine(text, max = 200) {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  return flat.slice(0, max - 1) + '…';
+}
+
+/**
+ * Read-modify-write of the Runner's own brief section.
+ *
+ * Anything before the section header is preserved verbatim (a Planner- or
+ * CLI-authored preamble stays put); the section itself is rebuilt from the
+ * parsed `- ` entry lines with the new entry prepended. Capped at
+ * MAX_BRIEF_ENTRIES entries and MAX_BRIEF_CHARS characters, trimming oldest
+ * entries first. Pure function — no I/O, no clock, no randomness.
+ */
+function buildRecentWorkBrief(existing, entry) {
+  const content = String(existing ?? '');
+  const idx = content.indexOf(BRIEF_SECTION_HEADER);
+  const prefix = (idx >= 0 ? content.slice(0, idx) : content).trimEnd();
+  const section = idx >= 0 ? content.slice(idx + BRIEF_SECTION_HEADER.length) : '';
+  const previous = section
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.startsWith('- '));
+
+  let entries = [entry, ...previous].slice(0, MAX_BRIEF_ENTRIES);
+
+  const render = (es) => {
+    const parts = [];
+    if (prefix) parts.push(prefix, '');
+    parts.push(BRIEF_SECTION_HEADER, '', ...es);
+    return parts.join('\n');
+  };
+
+  let out = render(entries);
+  while (out.length > MAX_BRIEF_CHARS && entries.length > 1) {
+    entries = entries.slice(0, -1); // drop oldest
+    out = render(entries);
+  }
+  return out.length > MAX_BRIEF_CHARS ? out.slice(0, MAX_BRIEF_CHARS) : out;
+}
+
+/**
+ * Store the agent's "recent work" brief on the ACT server after a successful
+ * completion. Fully wrapped: every failure mode (project 404, server 500,
+ * unreachable server) is swallowed and logged, so this can never affect the
+ * task-completion path that ran before it.
+ */
+async function saveAgentBrief(projectName, task, result, deps = {}) {
+  const getFn  = deps.get  || get;
+  const postFn = deps.post || post;
+  const logFn  = deps.log  || log;
+  const nowFn  = deps.now  || (() => new Date().toISOString());
+
+  if (!projectName) return false;
+
+  try {
+    let existing = '';
+    try {
+      const data = await getFn(`/api/projects/${encodeURIComponent(projectName)}/briefs/${encodeURIComponent(AGENT_ID)}`);
+      existing = data.brief?.content || data.content || '';
+    } catch {
+      existing = ''; // 404 on the first completion — expected
+    }
+
+    const title  = oneLine(task?.title || task?.description || task?.id || 'untitled task', 120);
+    const detail = oneLine(result) || '(no result recorded)';
+    const entry  = `- [${nowFn()}] ${title} — ${detail}`;
+    const content = buildRecentWorkBrief(existing, entry);
+
+    await postFn(`/api/projects/${encodeURIComponent(projectName)}/briefs`, {
+      agentId: AGENT_ID,
+      content,
+    });
+    logFn(`  [brief] Saved session brief for "${projectName}" (${content.length} chars)`);
+    return true;
+  } catch (err) {
+    logFn(`  [brief] Brief save failed (non-fatal): ${err.message}`);
+    return false;
+  }
+}
+
 async function executeTask(task) {
   log(`Task: ${task.id} — ${task.title || task.description}`);
 
@@ -679,6 +844,10 @@ async function executeTask(task) {
   if (success) {
     log(`  Task complete. Output length: ${output.length} chars`);
     await reportComplete(task.id, true, output.slice(0, 2000));
+    // Session save: persist this completion into the agent's server-side brief
+    // so the next task on this agent+project starts with recent-work memory.
+    // saveAgentBrief never throws — the task is already complete.
+    await saveAgentBrief(projectName, task, output.slice(0, 2000));
     // Broadcast what was built so parallel agents can wire against it
     await broadcastCompletion(task, output);
   } else {
@@ -935,4 +1104,4 @@ if (isDirectInvocation) {
   });
 }
 
-export { broadcastCompletion };
+export { broadcastCompletion, saveAgentBrief, buildRecentWorkBrief };

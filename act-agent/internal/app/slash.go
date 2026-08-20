@@ -66,17 +66,17 @@ func slashHelp() string {
 		"",
 		"  /swarm                                 List swarm roles, backends, models",
 		"  /swarm list                            (alias)",
-		"  /swarm <role> <act-agent|claude-code|gemini|antigravity>  Set backend for one swarm role (Tier 2 only)",
-		"  /swarm all <act-agent|claude-code|gemini|antigravity>     Set backend for ALL swarm roles",
-		"                                         (antigravity is rejected for researcher — agy has no read-only mode)",
+		"  /swarm <role> <act-agent|claude-code|gemini|antigravity|devin>  Set backend for one swarm role (Tier 2 only)",
+		"  /swarm all <act-agent|claude-code|gemini|antigravity|devin>     Set backend for ALL swarm roles",
+		"                                         (antigravity and devin are rejected for researcher — no read-only mode)",
 		"  /swarm restart <role>                  Restart one runner",
 		"  /swarm restart all                     Restart the whole swarm",
 		"  /swarm status                          Show live runner PIDs and state",
 		"",
 		"  /backend                               List Tier 1 role backends",
 		"  /backend list                          (alias)",
-		"  /backend <role> <act-agent|claude-code|gemini|antigravity>  Switch one Tier 1 role's backend",
-		"  /backend all <act-agent|claude-code|gemini|antigravity>     Switch all four Tier 1 roles",
+		"  /backend <role> <act-agent|claude-code|gemini|antigravity|devin>  Switch one Tier 1 role's backend",
+		"  /backend all <act-agent|claude-code|gemini|antigravity|devin>     Switch all four Tier 1 roles",
 		"",
 		"  /quit | /exit                          Hint: use ctrl+c to quit cleanly",
 	}, "\n")
@@ -194,8 +194,9 @@ func (a *App) swarmRestart(target string) string {
 
 func (a *App) swarmSetBackend(role, backend string) string {
 	if !runner.IsValidBackend(backend) {
-		return fmt.Sprintf("invalid backend %q (valid: %s, %s, %s, %s)", backend,
-			runner.BackendActAgent, runner.BackendClaudeCode, runner.BackendGemini, runner.BackendAntigravity)
+		return fmt.Sprintf("invalid backend %q (valid: %s, %s, %s, %s, %s)", backend,
+			runner.BackendActAgent, runner.BackendClaudeCode, runner.BackendGemini, runner.BackendAntigravity,
+			runner.BackendDevin)
 	}
 
 	// Bulk operation
@@ -281,13 +282,13 @@ func (a *App) slashBackend(args []string) string {
 		return a.backendList()
 	}
 	if len(args) < 2 {
-		return "usage: /backend <role|all> <act-agent|claude-code|gemini|antigravity>"
+		return "usage: /backend <role|all> <act-agent|claude-code|gemini|antigravity|devin>"
 	}
 	role := args[0]
 	backend := args[1]
 
 	if !isValidTier1Backend(backend) {
-		return fmt.Sprintf("invalid backend %q (valid: act-agent, claude-code, gemini, antigravity)", backend)
+		return fmt.Sprintf("invalid backend %q (valid: act-agent, claude-code, gemini, antigravity, devin)", backend)
 	}
 
 	if role == "all" {
@@ -346,7 +347,7 @@ func isTier1Role(s string) bool {
 // internal/acp/agent.go's buildCommand switch.
 func isValidTier1Backend(s string) bool {
 	switch s {
-	case "act-agent", "claude-code", "gemini", "antigravity", "agy":
+	case "act-agent", "claude-code", "gemini", "antigravity", "agy", "devin":
 		return true
 	}
 	return false

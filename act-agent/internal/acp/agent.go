@@ -572,13 +572,19 @@ func (a *ACPAgent) Summarize(_ context.Context, _ string) error {
 
 // Close kills the subprocess and releases the Client. Idempotent.
 func (a *ACPAgent) Close() error {
-	closeErr := a.client.Close()
+	// Kill BEFORE waiting on the client: hosts that ignore stdin EOF
+	// (devin acp) would otherwise block client.Close()'s wait on the reader
+	// loop until its timeout. SIGTERM makes the host close stdout, which is
+	// exactly what that wait needs.
 	if a.cmd != nil && a.cmd.Process != nil {
 		// Best-effort: SIGTERM the whole process group so npx/node descendants
 		// die with us. Setpgid was set at spawn time.
 		if err := killProcessGroup(a.cmd.Process.Pid); err != nil {
 			_ = a.cmd.Process.Kill()
 		}
+	}
+	closeErr := a.client.Close()
+	if a.cmd != nil && a.cmd.Process != nil {
 		_ = a.cmd.Wait()
 	}
 	return closeErr
@@ -616,6 +622,17 @@ func buildCommand(role, host string, cfg *config.ACPConfig) (*exec.Cmd, error) {
 			// untrusted dirs; the ACT permission broker (permission_policy.go)
 			// is the enforcement layer here, so the extra gate only deadlocks.
 			command, args = "gemini", []string{"--acp", "--skip-trust"}
+		case "devin":
+			// Devin CLI speaks ACP natively (`devin acp`, stdio ndjson JSON-RPC,
+			// Zed spec) — no bridge needed. Verified against devin 3000.1.27.
+			// Auth is the host CLI's problem, same as gemini: WINDSURF_API_KEY
+			// env or a prior `devin auth login`; an unauthenticated host fails
+			// loudly at session/new during startup.
+			// No clean-room flag exists (devin has no --setting-sources
+			// equivalent), so a spawned devin still loads the operator's own
+			// rules/skills; the shim PATH + permission broker remain the
+			// enforcement layer.
+			command, args = "devin", []string{"acp"}
 		case "antigravity", "agy":
 			var env map[string]string
 			if cfg != nil {

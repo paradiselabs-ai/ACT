@@ -278,3 +278,25 @@ func TestClient_RPCErrorSurfacedAsGoError(t *testing.T) {
 		t.Fatalf("wrong code: %d", rpcErr.Code)
 	}
 }
+
+// stubbornTransport fakes a host that never closes stdout after stdin EOF
+// (devin acp): Close succeeds but ReadFrame stays blocked forever.
+type stubbornTransport struct{ memTransport }
+
+func (s *stubbornTransport) Close() error { return nil } // stdin closed, stdout stays open
+
+func TestClient_CloseBoundedWhenHostNeverExits(t *testing.T) {
+	old := closeWait
+	closeWait = 100 * time.Millisecond
+	defer func() { closeWait = old }()
+
+	c := NewClient(&stubbornTransport{memTransport{incoming: make(chan *Frame, 1)}}, nil)
+
+	done := make(chan struct{})
+	go func() { _ = c.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close blocked on a host that never exits")
+	}
+}

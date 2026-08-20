@@ -102,7 +102,7 @@ func New(ctx context.Context, conn *sql.DB) (*App, error) {
 			toolsN   int
 		)
 		switch backendChoice {
-		case "claude-code", "gemini", "antigravity", "agy", "codex", "opencode":
+		case "claude-code", "gemini", "antigravity", "agy", "devin", "codex", "opencode":
 			// External CLI agent → drive over ACP. The acp package decides
 			// the spawn argv from the backend name; codex/opencode
 			// return explicit unimplemented errors for now.

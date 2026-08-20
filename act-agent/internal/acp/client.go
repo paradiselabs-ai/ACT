@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // NotificationHandler is invoked from the reader goroutine for every
@@ -149,14 +150,25 @@ func (c *Client) Notify(method string, params any) error {
 	})
 }
 
-// Close signals the agent to wind down (by closing stdin), waits for the
-// reader loop to exit, and rejects any further Call/Notify. Safe to call
-// multiple times.
+// closeWait bounds how long Close waits for the reader loop after closing
+// the transport. Some hosts (devin acp) never exit on stdin EOF, so an
+// unbounded wait on c.done would hang TUI shutdown / backend restart.
+var closeWait = 5 * time.Second // var so tests can shrink it
+
+// Close signals the agent to wind down (by closing stdin), waits up to
+// closeWait for the reader loop to exit, and rejects any further
+// Call/Notify. Safe to call multiple times.
 func (c *Client) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
 		err = c.transport.Close()
-		<-c.done
+		select {
+		case <-c.done:
+		case <-time.After(closeWait):
+			// Host kept stdout open past stdin EOF; the caller
+			// (ACPAgent.Close) kills the process group, which will EOF the
+			// reader eventually. Don't block shutdown on it.
+		}
 	})
 	return err
 }
