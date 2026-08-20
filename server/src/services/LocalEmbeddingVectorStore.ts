@@ -84,6 +84,7 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   private sidecarPath: string;
   private sidecar: Map<string, SidecarEntry> | null = null; // lazy-loaded on first store()
   private sidecarStats = { fromCache: 0, freshEmbeds: 0 };
+  private attributionStats: { validations: number; unattributed: number; computedAt: string } | null = null;
 
   constructor(config: Partial<VectorStoreConfig> & { sidecarPath?: string } = {}) {
     super();
@@ -382,48 +383,34 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
 
     const outcomes = this.lookupTaskOutcomes(agentId);
 
-    // Per-task-type capability metrics derived from real outcomes
-    const outcomesByType: Record<string, typeof outcomes> = {};
-    for (const o of outcomes) {
-      const key = o.type ?? 'unknown';
-      (outcomesByType[key] ||= []).push(o);
-    }
-
-    // Also include event-type counts so types without lifecycle data still show
-    const typeCount: Record<string, number> = {};
-    for (const point of agentMessages) {
-      typeCount[point.message.type] = (typeCount[point.message.type] || 0) + 1;
-    }
-
+    // Capability vocabulary comes from what the agent REGISTERED with, and from
+    // nothing else. Bucketing on the indexed event's `type` used to leak ChronLog
+    // event names into this map ("coordination: 0% success over 460 tasks"),
+    // which reads to a router as an agent that failed 460 tasks.
     const capabilities: Record<string, any> = {};
-    // Capability per task-type for which we have completed-task outcomes
-    for (const [type, taskOutcomes] of Object.entries(outcomesByType)) {
-      const validated = taskOutcomes.filter(o => o.validated);
+    for (const cap of this.registeredCapabilities(agentId)) {
+      const relevant = outcomes.filter(o => o.capabilities.some(c => c.toLowerCase() === cap));
+      // No outcomes touching this capability => no bucket. An empty bucket would
+      // be a synthetic "0% over 0 tasks", which is worse than saying nothing.
+      if (relevant.length === 0) continue;
+      const validated = relevant.filter(o => o.validated);
       const passed = validated.filter(o => o.passed);
-      const durations = taskOutcomes.map(o => o.durationMs).filter((d): d is number => d !== null);
-      capabilities[type] = {
+      const durations = relevant.map(o => o.durationMs).filter((d): d is number => d !== null);
+      capabilities[cap] = {
         successRate: validated.length > 0 ? passed.length / validated.length : 0,
-        taskCount: taskOutcomes.length,
-        avgCompletionTime: durations.length > 0
-          ? Math.round(durations.reduce((s, d) => s + d, 0) / durations.length / 1000)
-          : 0,
-        confidenceScore: Math.min(1.0, taskOutcomes.length / 10),
-        evidenceQuality: taskOutcomes.length >= 10 ? 'strong'
-                       : taskOutcomes.length >= 5  ? 'moderate'
+        taskCount: relevant.length,
+        // Seconds. Duration needs an assignment timestamp to subtract from; with
+        // none the field is omitted entirely — a 0 here would read as "instant"
+        // rather than "unknown". Sub-second averages keep two decimals for the
+        // same reason: a measured 0.04s must not print as a bare 0.
+        ...(durations.length > 0
+          ? { avgCompletionTime: Number((durations.reduce((s, d) => s + d, 0) / durations.length / 1000).toFixed(2)) }
+          : {}),
+        confidenceScore: Math.min(1.0, relevant.length / 10),
+        evidenceQuality: relevant.length >= 10 ? 'strong'
+                       : relevant.length >= 5  ? 'moderate'
                        : 'weak'
       };
-    }
-    // Event-type counts for types without lifecycle data
-    for (const [type, count] of Object.entries(typeCount)) {
-      if (!capabilities[type]) {
-        capabilities[type] = {
-          successRate: 0,
-          taskCount: count,
-          avgCompletionTime: 0,
-          confidenceScore: count >= 5 ? 0.5 : 0.2,
-          evidenceQuality: count >= 10 ? 'moderate' : 'weak'
-        };
-      }
     }
 
     // Overall performance from the same outcomes
@@ -450,6 +437,26 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       },
       lastUpdated: new Date().toISOString()
     };
+  }
+
+  /**
+   * The capability tags an agent registered with, lowercased and de-duplicated.
+   * This is the ONLY vocabulary allowed into an agent profile's capability map.
+   */
+  private registeredCapabilities(agentId: string): string[] {
+    const caps: string[] = [];
+    const seen = new Set<string>();
+    for (const p of this.points) {
+      const m = p.message as any;
+      if (m.type !== 'agent_registered') continue;
+      const data = m.data || {};
+      if ((data.agentId || data.name || m.agent) !== agentId) continue;
+      for (const c of (data.capabilities || [])) {
+        const key = String(c).toLowerCase();
+        if (key && !seen.has(key)) { seen.add(key); caps.push(key); }
+      }
+    }
+    return caps;
   }
 
   async getAgentSynergy(agent1: string, agent2: string): Promise<{
@@ -524,7 +531,10 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     const comparisons = [];
     for (const agentId of agentIds) {
       const profile = await this.getAgentProfile(agentId);
-      const cap = profile.capabilities[taskType] || { successRate: 0, taskCount: 0, confidenceScore: 0 };
+      // Capability buckets are keyed by lowercased registered capability tag.
+      const cap = profile.capabilities[taskType]
+        || profile.capabilities[taskType.toLowerCase()]
+        || { successRate: 0, taskCount: 0, confidenceScore: 0 };
       comparisons.push({
         agentId,
         matchScore: cap.confidenceScore,
@@ -596,6 +606,8 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     }
 
     const out = [];
+    let totalValidations = 0;
+    let totalUnattributed = 0;
     for (const [project, pts] of byProject.entries()) {
       const roleOfAgentId: Map<string, string> = new Map();
       const composition: Record<string, number> = {};
@@ -620,6 +632,11 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       }
 
       const assignedAgent: Map<string, string> = new Map();
+      // Who actually did the work. task_completed carries data.agentId on every
+      // event; task_assigned is frequently payload-less in real history (24
+      // validations vs 5 usable assignment records), so completion is the
+      // authoritative source and assignment is only a fallback.
+      const completedAgent: Map<string, string> = new Map();
       const validation: Map<string, boolean> = new Map();
       const gaps: string[] = [];
       for (const p of pts) {
@@ -627,7 +644,10 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
         const data = m.data || {};
         const taskId = data.taskId || data.task?.id || data.id;
         if (!taskId) continue;
-        if (m.type === 'task_assigned') {
+        if (m.type === 'task_completed' || m.type === 'task_failed') {
+          const worker = data.agentId || (m.agent !== 'system' ? m.agent : undefined);
+          if (worker && !completedAgent.has(taskId)) completedAgent.set(taskId, worker);
+        } else if (m.type === 'task_assigned') {
           assignedAgent.set(taskId, data.assignedAgent || data.agentId || m.agent);
         } else if (m.type === 'task_validated') {
           validation.set(taskId, true);
@@ -642,10 +662,12 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       for (const [taskId, didPass] of validation.entries()) {
         validatedCount++;
         if (didPass) passed++; else kickbacks++;
-        const aid = assignedAgent.get(taskId);
+        const aid = completedAgent.get(taskId) ?? assignedAgent.get(taskId);
         const role = aid ? (roleOfAgentId.get(aid) || this.roleOfAgent(aid)) : 'unknown';
         (perRole[role] ||= { tasks: 0, passed: 0 }).tasks++;
         if (didPass) perRole[role].passed++;
+        if (!aid) totalUnattributed++;
+        totalValidations++;
       }
 
       out.push({
@@ -660,7 +682,25 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
         topGaps: gaps.slice(0, 2),
       });
     }
+
+    // Unattributable validations are dropped from the brief text (the 'unknown'
+    // role is filtered there), so without this counter they vanish silently —
+    // exactly how the attribution bug stayed invisible. Surfaced via
+    // getAttributionStats() -> /api/pvm/status.
+    this.attributionStats = {
+      validations: totalValidations,
+      unattributed: totalUnattributed,
+      computedAt: new Date().toISOString(),
+    };
+    if (totalUnattributed > 0) {
+      logger.info(`[PVM] attribution: ${totalUnattributed}/${totalValidations} validated tasks have no resolvable worker (no task_completed and no task_assigned payload)`);
+    }
     return out;
+  }
+
+  /** Attribution health from the last getProjectOutcomes() pass (null before the first). */
+  public getAttributionStats(): { validations: number; unattributed: number; computedAt: string } | null {
+    return this.attributionStats;
   }
 
   /**
@@ -775,6 +815,7 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
   private lookupTaskOutcomes(agentId: string): {
     taskId: string;
     type: string | undefined;
+    capabilities: string[];
     completed: boolean;
     validated: boolean;
     passed: boolean;
@@ -788,6 +829,9 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
     // this join every outcome's type defaulted to 'unknown' and compareAgents
     // returned taskCount=0 for any taskType filter.
     const typeByTask: Map<string, string | undefined> = new Map();
+    // requiredCapabilities of the task, used to bucket outcomes under the
+    // agent's registered capability tags in getAgentProfile.
+    const capsByTask: Map<string, string[]> = new Map();
 
     for (const p of this.points) {
       const m = p.message as any;
@@ -806,6 +850,10 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
               || data.requiredCapabilities?.[0]
               || data.task?.requiredCapabilities?.[0];
         if (t && !typeByTask.has(taskId)) typeByTask.set(taskId, t);
+        const caps: any[] = data.requiredCapabilities || data.task?.requiredCapabilities || [];
+        if (caps.length > 0 && !capsByTask.has(taskId)) {
+          capsByTask.set(taskId, caps.map(c => String(c)));
+        }
       } else if (m.type === 'task_assigned' && (data.assignedAgent === agentId || data.agentId === agentId)) {
         assignedByTask.set(taskId, ms);
       } else if (m.type === 'task_completed' && (data.agentId === agentId || m.agent === agentId)) {
@@ -823,6 +871,7 @@ export class LocalEmbeddingVectorStore extends VectorMemoryStore {
       outcomes.push({
         taskId,
         type: typeByTask.get(taskId),
+        capabilities: capsByTask.get(taskId) ?? [],
         completed: true,
         validated,
         passed,

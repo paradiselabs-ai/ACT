@@ -170,3 +170,43 @@ describe('TaskCoordinator.abandonTask', () => {
     await expect(coordinator.abandonTask('nope-id', 'why')).rejects.toThrow(/not found/);
   });
 });
+
+// The project tag is what makes a task's outcome events reachable as PVM
+// routing evidence — an untagged task's outcomes land in the __global__ bucket
+// that getRoutingBrief excludes.
+describe('TaskCoordinator project tagging', () => {
+  let coordinator: TaskCoordinator;
+
+  beforeEach(() => {
+    coordinator = new TaskCoordinator(new AgentRegistry());
+  });
+
+  it('lifts a top-level projectName into metadata', async () => {
+    const task = await coordinator.createTask({
+      description: 'top-level project name',
+      projectName: 'authsvc-beta',
+    });
+    expect(task.metadata?.projectName).toBe('authsvc-beta');
+  });
+
+  it('keeps an existing metadata.projectName (Planner path wins)', async () => {
+    const task = await coordinator.createTask({
+      description: 'both forms present',
+      projectName: 'from-body',
+      metadata: { projectName: 'from-metadata', createdBy: 'planner' },
+    });
+    expect(task.metadata?.projectName).toBe('from-metadata');
+    expect(task.metadata?.createdBy).toBe('planner');
+  });
+
+  it('leaves metadata untagged when no project is supplied', async () => {
+    const task = await coordinator.createTask({ description: 'no project' });
+    expect(task.metadata?.projectName).toBeUndefined();
+  });
+
+  it('does not mutate the caller-supplied metadata object', async () => {
+    const metadata: Record<string, any> = { createdBy: 'planner' };
+    await coordinator.createTask({ description: 'copy check', projectName: 'p1', metadata });
+    expect(metadata.projectName).toBeUndefined();
+  });
+});

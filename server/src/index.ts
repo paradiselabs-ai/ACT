@@ -104,6 +104,18 @@ function queryProject(req: express.Request): string | undefined {
   return undefined;
 }
 
+// Project tag for task lifecycle/outcome events. PVM buckets every indexed
+// event by project name (PVMIndexer.extractProjectName); an outcome event with
+// no project lands in the __global__ catch-all, which getRoutingBrief excludes
+// from evidence — so an untagged task_validated can never become routing
+// evidence for anyone. The task record carries the project in
+// metadata.projectName (Planner sets it on CREATE_TASK; TaskCoordinator.createTask
+// also lifts a top-level body.projectName into metadata).
+function projectOfTask(task: { metadata?: Record<string, any> } | undefined | null): string | undefined {
+  const name = task?.metadata?.projectName;
+  return typeof name === 'string' && name.length > 0 ? name : undefined;
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -551,7 +563,7 @@ app.post('/api/tasks', async (req, res) => {
         agent: task.assignedAgent,
         message: `task assigned: ${task.id} -> ${task.assignedAgent}`,
         type: 'task_assigned',
-        data: { taskId: task.id, agentId: task.assignedAgent }
+        data: { taskId: task.id, agentId: task.assignedAgent, projectName: projectOfTask(task) }
       });
     } else {
       const assignment = await taskCoordinator.assignOptimalAgent(task.id);
@@ -562,7 +574,7 @@ app.post('/api/tasks', async (req, res) => {
           agent: assignment.agentId,
           message: `task assigned: ${task.id} -> ${assignment.agentId}`,
           type: 'task_assigned',
-          data: { taskId: task.id, agentId: assignment.agentId }
+          data: { taskId: task.id, agentId: assignment.agentId, projectName: projectOfTask(task) }
         });
       }
     }
@@ -717,6 +729,11 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
     const { taskId } = req.params;
     const { agentId, success: taskSuccess, result } = req.body;
 
+    // Read the task before the status update so the outcome events below can
+    // carry its project tag (see projectOfTask).
+    const completedTask = taskCoordinator.getTask(taskId);
+    const projectName = projectOfTask(completedTask);
+
     await taskCoordinator.updateTaskProgress(taskId, {
       status: taskSuccess ? 'completed' : 'failed',
       progress: taskSuccess ? 100 : undefined,
@@ -755,7 +772,7 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
         agent: agentId || 'system',
         message: `task completed: ${taskId}`,
         type: 'task_completed',
-        data: { taskId, agentId, success: true, result }
+        data: { taskId, agentId, success: true, result, projectName }
       });
     } else {
       const resultSnippet = typeof result === 'string' ? result.slice(0, 200) : '';
@@ -765,7 +782,7 @@ app.post('/api/tasks/:taskId/complete', async (req, res) => {
         agent: agentId || 'system',
         message: `task failed: ${taskId}${resultSnippet ? ' — ' + resultSnippet : ''}`,
         type: 'task_failed',
-        data: { taskId, agentId, success: false, result }
+        data: { taskId, agentId, success: false, result, projectName }
       });
     }
     res.json({ success: true });
@@ -883,7 +900,7 @@ app.post('/api/tasks/:taskId/submit-for-validation', async (req, res) => {
       agent: agentId || 'system',
       message: `task submitted for validation: ${taskId}`,
       type: 'task_submitted_for_validation',
-      data: { taskId, agentId }
+      data: { taskId, agentId, projectName: projectOfTask(task) }
     });
 
     res.json({ success: true, task });
@@ -925,7 +942,7 @@ app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
         agent: agentId || 'assurance',
         message: `task validated (score: ${score}/100): ${taskId}`,
         type: 'task_validated',
-        data: { taskId, agentId, score, passed: true }
+        data: { taskId, agentId, score, passed: true, projectName: projectOfTask(task) }
       });
 
       res.json({ success: true, task, action: 'validated' });
@@ -947,7 +964,7 @@ app.post('/api/tasks/:taskId/validation-verdict', async (req, res) => {
         agent: agentId || 'assurance',
         message: `task validation failed (score: ${score}/100): ${taskId} — returned to agent`,
         type: 'task_validation_failed',
-        data: { taskId, agentId, score, passed: false, gaps }
+        data: { taskId, agentId, score, passed: false, gaps, projectName: projectOfTask(task) }
       });
 
       res.json({ success: true, task, action: 'returned_to_agent' });
@@ -1200,6 +1217,17 @@ app.get('/api/improvement/status', (req, res) => {
 });
 
 // PVM endpoints
+// Default relevance floor for /api/pvm/search, in cosine similarity over
+// all-MiniLM-L6-v2 embeddings. MEASURED, not guessed (2026-08-19, 20 queries
+// against each of two corpora — a seeded 3-role/6-task project and a copy of
+// the real 1786-event coordination log):
+//   seeded store   — 10 on-topic 0.449–0.828 | 10 off-topic 0.025–0.164
+//   real history   — 10 on-topic 0.310–0.664 | 10 off-topic 0.109–0.228
+// The two populations separate in the band (0.228, 0.310); 0.28 sits inside it
+// with margin on the noise side. The audit's example ("build a kanban board UI"
+// -> unrelated README synthesis) measures 0.221 and is now filtered out.
+// Override per request with ?threshold=0.0–1.0 (0 disables the floor).
+const PVM_SEARCH_MIN_SIMILARITY = 0.28;
 // PVM search defaults to cross-project — the original "has anyone ever solved
 // X?" use case, useful for the researcher role and for Planner cross-domain
 // pattern lookup. Callers can opt into per-project scoping by passing
@@ -1208,14 +1236,22 @@ app.get('/api/improvement/status', (req, res) => {
 // for the tagging rule.
 app.get('/api/pvm/search', async (req, res) => {
   try {
-    const { query, limit, project } = req.query;
+    const { query, limit, project, threshold } = req.query;
     if (!query || typeof query !== 'string') {
       return res.status(400).json({ success: false, error: 'Query parameter is required' });
     }
     const limitNum = limit ? parseInt(limit as string) : 10;
     const projectName = typeof project === 'string' && project.length > 0 ? project : undefined;
-    const results = await pvmIndexer.search(query, limitNum, projectName);
-    res.json({ success: true, results, scope: projectName ?? 'cross-project' });
+    // Relevance floor. Without one the endpoint always returns `limit` rows,
+    // however low the cosine similarity, so a caller cannot tell "no relevant
+    // memory" from "here is the memory" — a 0.22 hit about an unrelated README
+    // was being handed to the Planner as evidence.
+    const parsed = typeof threshold === 'string' ? Number(threshold) : NaN;
+    const minSimilarity = Number.isFinite(parsed)
+      ? Math.min(1, Math.max(0, parsed))
+      : PVM_SEARCH_MIN_SIMILARITY;
+    const results = await pvmIndexer.search(query, limitNum, projectName, minSimilarity);
+    res.json({ success: true, results, scope: projectName ?? 'cross-project', threshold: minSimilarity });
   } catch (error: any) {
     logger.error(`PVM search failed: ${error.message}`);
     res.status(500).json({ success: false, error: error.message });

@@ -81,18 +81,109 @@ export function buildEmbeddingText(event: any): string {
   return joined.length > 0 ? joined : 'Unknown event';
 }
 
+/** Join key for task lifecycle events — same precedence the analytics joins use. */
+export function taskIdOfEvent(event: any): string | undefined {
+  const d = event?.data;
+  if (!d) return undefined;
+  const id = d.taskId || d.task?.id || d.id;
+  return typeof id === 'string' && id.length > 0 ? id : undefined;
+}
+
 export class PVMIndexer {
   private chronologicalLog: ChronologicalLog;
   private vectorStore: VectorMemoryStore;
   private lastIndexedTimestamp: string | null = null;
   private indexingInterval: NodeJS.Timeout | null = null;
   private isIndexing: boolean = false;
+  // taskId -> owning project, learned from whichever of a task's events carries
+  // the tag (task_created always does). Legacy outcome events written before the
+  // emit sites were tagged carry no project of their own; without this map they
+  // stay in __global__, which getRoutingBrief excludes from evidence.
+  private taskProjectMap: Map<string, string> = new Map();
 
   constructor(chronologicalLog: ChronologicalLog, vectorStore: VectorMemoryStore) {
     this.chronologicalLog = chronologicalLog;
     this.vectorStore = vectorStore;
   }
-  
+
+  /**
+   * Learn taskId -> project from every task event that already carries a tag.
+   * Restricted to `task_*` events so a non-task `data.id` (e.g. a project
+   * record) can never claim a task's slot.
+   */
+  private learnTaskProjects(events: any[]): void {
+    for (const event of events) {
+      if (typeof event?.type !== 'string' || !event.type.startsWith('task_')) continue;
+      const project = extractProjectName(event);
+      if (project === '__global__') continue;
+      const taskId = taskIdOfEvent(event);
+      if (taskId && !this.taskProjectMap.has(taskId)) this.taskProjectMap.set(taskId, project);
+    }
+  }
+
+  /**
+   * Project bucket for one event: its own tag when it has one, else the tag of
+   * the task it belongs to. `extractProjectName` stays a pure function of the
+   * event; the map lookup lives here.
+   */
+  private resolveProjectName(event: any): string {
+    const direct = extractProjectName(event);
+    if (direct !== '__global__') return direct;
+    const taskId = taskIdOfEvent(event);
+    return (taskId && this.taskProjectMap.get(taskId)) || '__global__';
+  }
+
+  /**
+   * Shared event -> CoordinationMessage mapping for both index paths.
+   * Drops coordination-type duplicates of typed lifecycle events in the same
+   * batch (their rich content is captured via buildEmbeddingText on the typed
+   * variant) and tags each message with its resolved project bucket.
+   */
+  private toCoordinationMessages(events: any[]): CoordinationMessage[] {
+    // Identify which taskIds have a typed lifecycle event in this batch, so we
+    // can skip the coordination-duplicates that mirror them.
+    const typedTaskIds = new Set<string>();
+    const TYPED_LIFECYCLE_TYPES = new Set([
+      'task_created', 'task_assigned', 'task_completed', 'task_failed',
+      'task_validated', 'task_validation_failed', 'task_submitted_for_validation',
+      'synthesis_complete'
+    ]);
+    for (const event of events) {
+      if (TYPED_LIFECYCLE_TYPES.has(event.type)) {
+        const taskId = taskIdOfEvent(event);
+        if (taskId) typedTaskIds.add(taskId);
+      }
+    }
+
+    this.learnTaskProjects(events);
+
+    return events
+      .filter(event => {
+        // Standalone coordination events (no taskId or no typed pair) are preserved.
+        if (event.type !== 'coordination') return true;
+        const taskId = event.data?.taskId || event.data?.task?.id;
+        if (!taskId) return true;
+        return !typedTaskIds.has(taskId);
+      })
+      .map(event => {
+        const text = buildEmbeddingText(event);
+        return {
+          timestamp: event.timestamp,
+          agent: event.agent || event.agentId || 'system',
+          message: text,
+          type: event.type || 'coordination',
+          // Preserve raw event.data so analytics readers (lookupTaskOutcomes,
+          // getAgentSynergy, SelfImprovementEngine) can JOIN on data.taskId
+          // across task_assigned / task_completed / task_validated events.
+          // Without this, the indexed point loses its lifecycle JOIN key and
+          // every agent reports completedTasks:0.
+          data: event.data,
+          scope: classifyScope(event.type, text),
+          projectName: this.resolveProjectName(event)
+        } as CoordinationMessage;
+      });
+  }
+
   /**
    * Start background indexing of coordination events
    * @param intervalMs - How often to check for new events (default: 10 seconds)
@@ -158,49 +249,7 @@ export class PVMIndexer {
 
       logger.info(`📥 PVMIndexer found ${events.length} new events to index`);
 
-      // Identify which taskIds have a typed lifecycle event in this batch, so we
-      // can skip the coordination-duplicates that mirror them (their rich content
-      // is now captured via buildEmbeddingText on the typed variant).
-      const typedTaskIds = new Set<string>();
-      const TYPED_LIFECYCLE_TYPES = new Set([
-        'task_created', 'task_assigned', 'task_completed', 'task_failed',
-        'task_validated', 'task_validation_failed', 'task_submitted_for_validation',
-        'synthesis_complete'
-      ]);
-      for (const event of events) {
-        if (TYPED_LIFECYCLE_TYPES.has(event.type)) {
-          const taskId = (event as any).data?.taskId || (event as any).data?.task?.id || (event as any).data?.id;
-          if (taskId) typedTaskIds.add(taskId);
-        }
-      }
-
-      const coordinationMessages: CoordinationMessage[] = events
-        .filter(event => {
-          // Drop coordination-type events when a paired typed lifecycle event for
-          // the same taskId exists in this batch. Standalone coordination events
-          // (no taskId or no typed pair) are preserved.
-          if (event.type !== 'coordination') return true;
-          const taskId = (event as any).data?.taskId || (event as any).data?.task?.id;
-          if (!taskId) return true;
-          return !typedTaskIds.has(taskId);
-        })
-        .map(event => {
-          const text = buildEmbeddingText(event);
-          return {
-            timestamp: event.timestamp,
-            agent: (event as any).agent || (event as any).agentId || 'system',
-            message: text,
-            type: event.type || 'coordination',
-            // Preserve raw event.data so analytics readers (lookupTaskOutcomes,
-            // getAgentSynergy, SelfImprovementEngine) can JOIN on data.taskId
-            // across task_assigned / task_completed / task_validated events.
-            // Without this, the indexed point loses its lifecycle JOIN key and
-            // every agent reports completedTasks:0.
-            data: (event as any).data,
-            scope: classifyScope(event.type, text),
-            projectName: extractProjectName(event)
-          };
-        });
+      const coordinationMessages = this.toCoordinationMessages(events);
 
       const globalCount = coordinationMessages.filter(m => m.projectName === '__global__').length;
       if (globalCount > 0) {
@@ -245,48 +294,12 @@ export class PVMIndexer {
       }
       
       logger.info(`📥 PVMIndexer found ${events.length} events to index`);
-      
-      // Identify which taskIds have a typed lifecycle event in this batch, so we
-      // can skip the coordination-duplicates that mirror them (their rich content
-      // is now captured via buildEmbeddingText on the typed variant).
-      const typedTaskIds = new Set<string>();
-      const TYPED_LIFECYCLE_TYPES = new Set([
-        'task_created', 'task_assigned', 'task_completed', 'task_failed',
-        'task_validated', 'task_validation_failed', 'task_submitted_for_validation',
-        'synthesis_complete'
-      ]);
-      for (const event of events) {
-        if (TYPED_LIFECYCLE_TYPES.has(event.type)) {
-          const taskId = (event as any).data?.taskId || (event as any).data?.task?.id || (event as any).data?.id;
-          if (taskId) typedTaskIds.add(taskId);
-        }
-      }
 
-      const coordinationMessages: CoordinationMessage[] = events
-        .filter(event => {
-          // Drop coordination-type events when a paired typed lifecycle event for
-          // the same taskId exists in this batch. Standalone coordination events
-          // (no taskId or no typed pair) are preserved.
-          if (event.type !== 'coordination') return true;
-          const taskId = (event as any).data?.taskId || (event as any).data?.task?.id;
-          if (!taskId) return true;
-          return !typedTaskIds.has(taskId);
-        })
-        .map(event => {
-          const text = buildEmbeddingText(event);
-          return {
-            timestamp: event.timestamp,
-            agent: (event as any).agent || (event as any).agentId || 'system',
-            message: text,
-            type: event.type || 'coordination',
-            // See indexNewEvents above — analytics readers JOIN on data.taskId
-            // across the task_assigned/completed/validated triad; dropping
-            // event.data here breaks getAgentProfile.completedTasks.
-            data: (event as any).data,
-            scope: classifyScope(event.type, text),
-            projectName: extractProjectName(event)
-          };
-        });
+      // Full re-index rebuilds the taskId -> project map from scratch, so a
+      // restart (or a manual /api/pvm/reindex) is deterministic — the same log
+      // always produces the same buckets.
+      this.taskProjectMap.clear();
+      const coordinationMessages = this.toCoordinationMessages(events);
 
       // Store in vector store
       await this.vectorStore.batchStore(coordinationMessages);
@@ -319,11 +332,15 @@ export class PVMIndexer {
    * Search for similar coordination patterns
    * @param query - Search query text
    * @param limit - Maximum number of results to return
+   * @param projectName - Optional project scope
+   * @param threshold - Optional minimum cosine similarity; callers own the
+   *   default (see PVM_SEARCH_MIN_SIMILARITY at the /api/pvm/search route).
    */
-  async search(query: string, limit: number = 10, projectName?: string): Promise<any[]> {
+  async search(query: string, limit: number = 10, projectName?: string, threshold?: number): Promise<any[]> {
     try {
       const searchQuery: any = { query, limit };
       if (projectName) searchQuery.projectName = projectName;
+      if (typeof threshold === 'number') searchQuery.threshold = threshold;
       const results = await this.vectorStore.search(searchQuery);
       logger.info(`🔍 PVMIndexer search returned ${results.length} results${projectName ? ` (scope: ${projectName})` : ' (cross-project)'}`);
       return results;
@@ -341,12 +358,20 @@ export class PVMIndexer {
     isIndexing: boolean;
     lastIndexedTimestamp: string | null;
     indexedEventCount: number;
+    taggedTaskCount: number;
+    attribution?: { validations: number; unattributed: number; computedAt: string };
   } {
+    // Attribution health: how many validated tasks could not be tied back to a
+    // worker on the last getProjectOutcomes() pass. Silent drops here are what
+    // made the routing brief lie; surfacing the count makes a regression visible.
+    const attribution = (this.vectorStore as any).getAttributionStats?.();
     return {
       isRunning: !!this.indexingInterval,
       isIndexing: this.isIndexing,
       lastIndexedTimestamp: this.lastIndexedTimestamp,
-      indexedEventCount: (this.vectorStore as any).points ? (this.vectorStore as any).points.length : -1
+      indexedEventCount: (this.vectorStore as any).points ? (this.vectorStore as any).points.length : -1,
+      taggedTaskCount: this.taskProjectMap.size,
+      ...(attribution ? { attribution } : {})
     };
   }
 }

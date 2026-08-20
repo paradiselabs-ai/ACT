@@ -78,7 +78,18 @@ export class TaskCoordinator extends EventEmitter {
     this.pvmIndexer = pvmIndexer;
   }
 
-  async createTask(taskData: Partial<Task>): Promise<Task> {
+  async createTask(taskData: Partial<Task> & { projectName?: string }): Promise<Task> {
+    // Callers may name the project at the top level of the request body
+    // (`projectName`) instead of inside `metadata`. Normalize it into
+    // metadata: the task record is the only place the emit sites in index.ts
+    // can read the owning project from, and an outcome event with no project
+    // tag lands in PVM's __global__ bucket — which getRoutingBrief excludes,
+    // making that task's outcome invisible to routing evidence forever.
+    const metadata: Record<string, any> = { ...(taskData.metadata || {}) };
+    if (!metadata.projectName && taskData.projectName) {
+      metadata.projectName = taskData.projectName;
+    }
+
     const task: Task = {
       id: uuidv4(),
       title: taskData.title,
@@ -90,7 +101,7 @@ export class TaskCoordinator extends EventEmitter {
       progress: 0,
       estimatedDuration: taskData.estimatedDuration,
       createdAt: new Date(),
-      metadata: taskData.metadata || {},
+      metadata,
       retryCount: 0
     };
 
