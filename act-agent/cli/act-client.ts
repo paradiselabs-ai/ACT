@@ -389,6 +389,28 @@ export class ACTClient {
     }
   }
 
+  /**
+   * Report a retryable task failure. Distinct from abandon (permanent,
+   * skips retry) — this feeds the server's retry ladder so a fresh agent
+   * can pick the task up. Reason is required for the audit trail.
+   */
+  async failTask(taskId: string, agentId: string, reason: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${this.serverUrl}/api/tasks/${taskId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, success: false, result: reason })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        return { success: false, error: data.error || `HTTP ${response.status}` };
+      }
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   /** Update task progress */
   async updateTaskProgress(taskId: string, agentId: string, progress: number, status?: string): Promise<{ success: boolean; error?: string }> {
     try {

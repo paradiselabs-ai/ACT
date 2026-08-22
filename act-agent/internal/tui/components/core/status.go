@@ -221,31 +221,10 @@ func (m statusCmp) View() tea.View {
 }
 
 func getBadge(modelStr string) string {
-	if modelStr == "" {
-		return "H3"
-	}
-	modelLower := strings.ToLower(modelStr)
-	switch {
-	case strings.Contains(modelLower, "hermes"):
-		return "H3"
-	case strings.Contains(modelLower, "sonnet"):
-		return "SN"
-	case strings.Contains(modelLower, "gpt-4") || strings.Contains(modelLower, "gpt4"):
-		return "G4"
-	case strings.Contains(modelLower, "claude-code") || strings.Contains(modelLower, "claude"):
-		return "CC"
-	case strings.Contains(modelLower, "haiku"):
-		return "HK"
-	case strings.Contains(modelLower, "opus"):
-		return "OP"
-	case strings.Contains(modelLower, "llama"):
-		return "L3"
-	default:
-		if len(modelStr) > 4 {
-			return modelStr[:4]
-		}
-		return modelStr
-	}
+	// Delegates to the shared styles.ModelBadge — the status strip's private
+	// copy and the navigator's diverged (audit H12). Empty model now yields
+	// "-" instead of the old misleading "H3" default.
+	return styles.ModelBadge(modelStr)
 }
 
 // tier1ModelsCompact renders the Tier 1 model strip in its tightest form

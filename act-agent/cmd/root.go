@@ -15,7 +15,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	zone "github.com/lrstanley/bubblezone/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
@@ -208,7 +207,10 @@ func runTUI(a *app.App, ctx context.Context) error {
 	logging.InfoPersist("startup:autoFitTerminal", "elapsed", time.Since(stepT))
 	stepT = time.Now()
 
-	zone.NewGlobal()
+	// NOTE: bubblezone's zone.NewGlobal() used to run here, but nothing in
+	// the tree ever calls zone.Mark/zone.Scan — the global was pure
+	// overhead (audit M8). Re-add it together with actual zone.Mark() usage
+	// if mouse hit-testing lands.
 	program := tea.NewProgram(
 		tui.New(a),
 		// Drop the ModeReportMsg for synchronized output (mode 2026).

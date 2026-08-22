@@ -865,6 +865,37 @@ async function cmdTaskRetry(client: ACTClient, args: Record<string, any>): Promi
   console.log(`Task ${taskId} reset for retry (attempt ${result.task?.retryCount ?? '?'}/3)`);
 }
 
+async function cmdTaskFail(client: ACTClient, args: Record<string, any>): Promise<void> {
+  const taskId = args['<task-id>'];
+  const agentId = getAgentId(args);
+  const reason = (args['--reason'] || '').trim();
+
+  if (!taskId) {
+    printError('Error: task-id is required');
+    printError('Usage: act-agent task fail <task-id> --agent-id <id> --reason "..."');
+    process.exit(1);
+  }
+  if (!agentId) {
+    printError('Error: agent-id is required (--agent-id flag or ACT_AGENT_ID env var)');
+    process.exit(1);
+  }
+  if (!reason) {
+    printError('Error: --reason is required (audit trail for why the attempt failed)');
+    printError('Usage: act-agent task fail <task-id> --agent-id <id> --reason "..."');
+    process.exit(1);
+  }
+
+  // Retryable failure — feeds the server's retry ladder. For a permanent
+  // failure use `task abandon` instead.
+  const result = await client.failTask(taskId, agentId, reason);
+  if (!result.success) {
+    printError(`Error: ${result.error || 'Failed to report task failure'}`);
+    process.exit(1);
+  }
+
+  console.log(`Task ${taskId} reported failed by ${agentId} (eligible for retry).`);
+}
+
 async function cmdTaskAbandon(client: ACTClient, args: Record<string, any>): Promise<void> {
   const taskId = args['<task-id>'];
   const reason = (args['--reason'] || '').trim();
@@ -1095,6 +1126,7 @@ async function main(): Promise<void> {
     'task progress': 'Update task progress percentage',
     'task retry': 'Retry a failed task (resets to pending)',
     'task abandon': 'Mark a task permanently failed (skips retry, takes --reason)',
+    'task fail': 'Report a retryable failure (feeds retry ladder, takes --reason)',
     'task submit-for-validation': 'Submit completed task for Assurance review',
     'brief update': 'Update agent brief for a project',
     'pvm search': 'Search coordination memory (PVM)',
@@ -1144,43 +1176,10 @@ async function main(): Promise<void> {
   const command = args[0];
   const subcommand = args[1];
 
-  // Parse remaining args
-  let parsed: { values: Record<string, any> };
-  try {
-    const remainingArgs = args.slice(2);
-    parsed = parseArgs({
-      options: {
-        'agent-id': { type: 'string' },
-        'project': { type: 'string' },
-        'session': { type: 'string' },
-        'task-id': { type: 'string' },
-        'result': { type: 'string' },
-        'percent': { type: 'string' },
-        'tail': { type: 'string' }
-      },
-      strict: false,
-      allowPositionals: true
-    });
-  } catch {
-    // Fall back to manual parsing
-    parsed = { values: {} };
-    const remainingArgs = args.slice(2);
-    for (let i = 0; i < remainingArgs.length; i++) {
-      const arg = remainingArgs[i];
-      if (arg.startsWith('--')) {
-        const key = arg.slice(2);
-        parsed.values[key] = remainingArgs[i + 1] || '';
-        i++;
-      } else if (!arg.startsWith('-')) {
-        const pos = parsed.values['<paths>'] || [];
-        if (Array.isArray(pos)) {
-          pos.push(arg);
-        } else {
-          parsed.values['<paths>'] = [arg];
-        }
-      }
-    }
-  }
+  // NOTE: a dead pre-parse block used to live here — it called parseArgs
+  // WITHOUT the `args:` option (so it read process.argv and its result was
+  // never read), plus an unreachable manual fallback. Every dispatch branch
+  // below re-parses with its own explicit options. Removed (audit M8).
 
   const client = new ACTClient(DEFAULT_SERVER_URL);
 
@@ -1264,6 +1263,21 @@ async function main(): Promise<void> {
       await cmdTaskAbandon(client, {
         '<task-id>': args[2] || '',
         '--reason': abandonArgs.values['reason'],
+      });
+    } else if (command === 'task' && subcommand === 'fail') {
+      // act task fail <task-id> --agent-id <id> --reason "..."
+      const failArgs = parseArgs({
+        options: {
+          'agent-id': { type: 'string' },
+          'reason': { type: 'string' }
+        },
+        strict: false,
+        allowPositionals: true
+      });
+      await cmdTaskFail(client, {
+        '<task-id>': args[2] || '',
+        '--reason': failArgs.values['reason'],
+        'agent-id': failArgs.values['agent-id'],
       });
     } else if (command === 'task' && subcommand === 'submit-for-validation') {
       const valArgs = parseArgs({

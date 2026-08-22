@@ -140,7 +140,7 @@ func (p *logsPage) View() tea.View {
 	rendered := strings.Join(allLines, "\n")
 	bgSeq := padStyle.Render("")
 	if bgSeq != "" {
-		rendered = strings.ReplaceAll(rendered, "\x1b[0m", "\x1b[0m"+bgSeq)
+		rendered = styles.RepaintBackground(rendered, bgSeq)
 	}
 
 	return tea.NewView(rendered)

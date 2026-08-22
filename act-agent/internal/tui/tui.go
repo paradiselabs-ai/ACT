@@ -22,6 +22,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/page"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
@@ -97,11 +98,6 @@ var keys = keyMap{
 var helpEsc = key.NewBinding(
 	key.WithKeys("?"),
 	key.WithHelp("?", "toggle help"),
-)
-
-var returnKey = key.NewBinding(
-	key.WithKeys("esc"),
-	key.WithHelp("esc", "close"),
 )
 
 var logsKeyReturnKey = key.NewBinding(
@@ -725,7 +721,11 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return a, nil
-		case key.Matches(msg, returnKey) || key.Matches(msg):
+		// Catchall for "any key not matched above". The old form was
+		// `key.Matches(msg, returnKey) || key.Matches(msg)` — the second
+		// operand has zero bindings so it always evaluated false, making it
+		// dead (audit M8). Plain `default:` semantics via a bare condition.
+		case len(msg.String()) > 0:
 			if msg.String() == quitKey || msg.String() == "esc" || msg.String() == "q" {
 				if a.currentPage == page.LogsPage {
 					return a, a.moveToPage(page.ChatPage)
@@ -1188,7 +1188,7 @@ func (a appModel) View() tea.View {
 		lineStyle := lipgloss.NewStyle().Width(a.width).Background(bgColor)
 		for i, line := range lines {
 			renderedLine := lineStyle.Render(line)
-			renderedLine = strings.ReplaceAll(renderedLine, "\x1b[0m", "\x1b[0m"+bgAnsi)
+			renderedLine = styles.RepaintBackground(renderedLine, bgAnsi)
 			lines[i] = renderedLine + "\x1b[0m"
 		}
 		appView = strings.Join(lines, "\n")

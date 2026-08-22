@@ -266,7 +266,7 @@ func (c *completionDialogCmp) View() tea.View {
 	content := c.listView.View().Content
 	bgSeq := lipgloss.NewStyle().Background(t.Background()).Render("")
 	if bgSeq != "" {
-		content = strings.ReplaceAll(content, "\x1b[0m", "\x1b[0m"+bgSeq)
+		content = styles.RepaintBackground(content, bgSeq)
 	}
 
 	return tea.NewView(baseStyle.Background(t.Background()).Padding(0, 0).

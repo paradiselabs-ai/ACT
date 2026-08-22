@@ -304,22 +304,22 @@ If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-ins
 				Content: response,
 			})
 		}
+
+		// Bare slash-command aliases for the palette's direct CLI commands.
+		// The completion menu (completions/slash.go) advertises /tasks
+		// /validation /conflicts; before this case they fell through to the
+		// Planner as literal chat text.
+		if argv, ok := directSlashArgv(firstWord); ok {
+			p.dispatchDirectCommand(firstWord, argv, &cmds)
+			return tea.Batch(cmds...)
+		}
 	}
 
 	// Palette-ID intercept — if the user typed a palette command literally
 	// (e.g. "act-agent:status"), dispatch the deterministic CLI handler instead of
 	// routing to the Planner. Keep this argv map in sync with tui.go.
 	if argv, ok := paletteCmdArgv(trimmed); ok {
-		if p.session.ID == "" {
-			sess, err := p.app.Sessions.Create(context.Background(), "New Session")
-			if err != nil {
-				return util.ReportError(err)
-			}
-			p.session = sess
-			cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(sess)))
-		}
-		sid := p.session.ID
-		go p.app.Orchestrator.RunDirectCommand(context.Background(), sid, trimmed, argv)
+		p.dispatchDirectCommand(trimmed, argv, &cmds)
 		return tea.Batch(cmds...)
 	}
 
@@ -377,6 +377,38 @@ func paletteCmdArgv(s string) ([]string, bool) {
 		return []string{"swarm"}, true
 	}
 	return nil, false
+}
+
+// directSlashArgv maps the bare slash aliases advertised by the completion
+// menu (completions/slash.go DefaultSlashCommands) onto the same direct-CLI
+// argv as their palette equivalents. Keep in sync with paletteCmdArgv.
+func directSlashArgv(cmd string) ([]string, bool) {
+	switch cmd {
+	case "/tasks":
+		return []string{"graph", "unverified"}, true
+	case "/validation":
+		return []string{"validation", "queue"}, true
+	case "/conflicts":
+		return []string{"graph", "conflicts"}, true
+	}
+	return nil, false
+}
+
+// dispatchDirectCommand ensures a session exists, then shells the argv out to
+// the act CLI via the orchestrator on a background goroutine. Shared by the
+// palette-ID intercept and the bare slash-command aliases.
+func (p *chatPage) dispatchDirectCommand(label string, argv []string, cmds *[]tea.Cmd) {
+	if p.session.ID == "" {
+		sess, err := p.app.Sessions.Create(context.Background(), "New Session")
+		if err != nil {
+			*cmds = append(*cmds, util.ReportError(err))
+			return
+		}
+		p.session = sess
+		*cmds = append(*cmds, util.CmdHandler(chat.SessionSelectedMsg(sess)))
+	}
+	sid := p.session.ID
+	go p.app.Orchestrator.RunDirectCommand(context.Background(), sid, label, argv)
 }
 
 func (p *chatPage) SetSize(width, height int) tea.Cmd {

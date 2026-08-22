@@ -50,9 +50,13 @@ var editorMaps = EditorKeyMaps{
 		key.WithKeys("enter", "ctrl+s"),
 		key.WithHelp("enter", "send message"),
 	),
+	// alt+e, NOT ctrl+e: ctrl+e is bound at the appModel layer (tui.go) to
+	// "rename session" and its switch runs first — binding the editor there
+	// made $EDITOR unreachable from the TUI. Keep this in sync with the
+	// duplicate-binding check when adding more.
 	OpenEditor: key.NewBinding(
-		key.WithKeys("ctrl+e"),
-		key.WithHelp("ctrl+e", "open editor"),
+		key.WithKeys("alt+e"),
+		key.WithHelp("alt+e", "open editor"),
 	),
 }
 
@@ -240,7 +244,7 @@ func (m *editorCmp) View() tea.View {
 
 	rendered := baseStyle.Render(content)
 	if bgSeq != "" {
-		rendered = strings.ReplaceAll(rendered, "\x1b[0m", "\x1b[0m"+bgSeq)
+		rendered = styles.RepaintBackground(rendered, bgSeq)
 	}
 
 	return tea.NewView(rendered)

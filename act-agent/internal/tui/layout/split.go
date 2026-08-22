@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
 
@@ -157,7 +158,7 @@ func (s *splitPaneLayout) View() tea.View {
 		for i, line := range lines {
 			renderedLine := lineStyle.Render(line)
 			if bgAnsi != "" {
-				renderedLine = strings.ReplaceAll(renderedLine, "\x1b[0m", "\x1b[0m"+bgAnsi)
+				renderedLine = styles.RepaintBackground(renderedLine, bgAnsi)
 			}
 			lines[i] = renderedLine + "\x1b[0m"
 		}
