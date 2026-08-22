@@ -269,7 +269,3 @@ func NewOneDarkTheme() *OneDarkTheme {
 	return theme
 }
 
-func init() {
-	// Register the One Dark theme with the theme manager
-	RegisterTheme("onedark", NewOneDarkTheme())
-}

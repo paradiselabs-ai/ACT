@@ -243,7 +243,3 @@ func NewCatppuccinTheme() *CatppuccinTheme {
 	return theme
 }
 
-func init() {
-	// Register the Catppuccin theme with the theme manager
-	RegisterTheme("catppuccin", NewCatppuccinTheme())
-}

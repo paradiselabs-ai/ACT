@@ -271,7 +271,3 @@ func NewTronTheme() *TronTheme {
 	return theme
 }
 
-func init() {
-	// Register the Tron theme with the theme manager
-	RegisterTheme("tron", NewTronTheme())
-}

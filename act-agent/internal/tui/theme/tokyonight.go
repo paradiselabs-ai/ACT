@@ -269,7 +269,3 @@ func NewTokyoNightTheme() *TokyoNightTheme {
 	return theme
 }
 
-func init() {
-	// Register the Tokyo Night theme with the theme manager
-	RegisterTheme("tokyonight", NewTokyoNightTheme())
-}

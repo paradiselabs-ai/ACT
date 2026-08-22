@@ -268,7 +268,3 @@ func NewMonokaiProTheme() *MonokaiProTheme {
 	return theme
 }
 
-func init() {
-	// Register the Monokai Pro theme with the theme manager
-	RegisterTheme("monokai", NewMonokaiProTheme())
-}

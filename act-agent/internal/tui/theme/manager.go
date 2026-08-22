@@ -25,6 +25,33 @@ var globalManager = &Manager{
 	currentName: "",
 }
 
+// registerOnce guards ensureRegistered. Theme registration used to happen
+// in nine package init() functions; any Go binary that merely linked this
+// package (including every test binary in packages that transitively import
+// it) executed them before main/testing.Main — and on some Windows hosts
+// that init path blocked indefinitely, hanging the entire test suite at
+// startup (audit P4-hang). Registration is now lazy: the first public API
+// call triggers it once.
+var registerOnce sync.Once
+
+// RegisterBuiltins registers all built-in themes exactly once. Safe to call
+// directly (app.New does, to keep startup deterministic); every public
+// accessor also calls it via registerOnce.
+func RegisterBuiltins() {
+	registerOnce.Do(func() {
+		RegisterTheme("act", NewACTTheme())
+		RegisterTheme("opencode", NewACTTheme()) // backward-compat alias
+		RegisterTheme("catppuccin", NewCatppuccinTheme())
+		RegisterTheme("dracula", NewDraculaTheme())
+		RegisterTheme("flexoki", NewFlexokiTheme())
+		RegisterTheme("gruvbox", NewGruvboxTheme())
+		RegisterTheme("monokai", NewMonokaiProTheme())
+		RegisterTheme("onedark", NewOneDarkTheme())
+		RegisterTheme("tokyonight", NewTokyoNightTheme())
+		RegisterTheme("tron", NewTronTheme())
+	})
+}
+
 // RegisterTheme adds a new theme to the registry.
 // If this is the first theme registered, it becomes the default.
 func RegisterTheme(name string, theme Theme) {
@@ -42,6 +69,7 @@ func RegisterTheme(name string, theme Theme) {
 // SetTheme changes the active theme to the one with the specified name.
 // Returns an error if the theme doesn't exist.
 func SetTheme(name string) error {
+	RegisterBuiltins()
 	globalManager.mu.Lock()
 	defer globalManager.mu.Unlock()
 
@@ -64,6 +92,7 @@ func SetTheme(name string) error {
 // CurrentTheme returns the currently active theme.
 // If no theme is set, it returns nil.
 func CurrentTheme() Theme {
+	RegisterBuiltins()
 	globalManager.mu.RLock()
 	defer globalManager.mu.RUnlock()
 
@@ -76,6 +105,7 @@ func CurrentTheme() Theme {
 
 // CurrentThemeName returns the name of the currently active theme.
 func CurrentThemeName() string {
+	RegisterBuiltins()
 	globalManager.mu.RLock()
 	defer globalManager.mu.RUnlock()
 
@@ -84,6 +114,7 @@ func CurrentThemeName() string {
 
 // AvailableThemes returns a list of all registered theme names.
 func AvailableThemes() []string {
+	RegisterBuiltins()
 	globalManager.mu.RLock()
 	defer globalManager.mu.RUnlock()
 
@@ -105,6 +136,7 @@ func AvailableThemes() []string {
 // GetTheme returns a specific theme by name.
 // Returns nil if the theme doesn't exist.
 func GetTheme(name string) Theme {
+	RegisterBuiltins()
 	globalManager.mu.RLock()
 	defer globalManager.mu.RUnlock()
 
