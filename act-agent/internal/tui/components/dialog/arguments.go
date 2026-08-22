@@ -55,18 +55,28 @@ func NewMultiArgumentsDialogCmp(commandID, content string, argNames []string) Mu
 }
 
 // Init implements tea.Model.
-func (m MultiArgumentsDialogCmp) Init() tea.Cmd {
+func (m *MultiArgumentsDialogCmp) Init() tea.Cmd {
 	return m.form.Init()
 }
 
 // Update implements tea.Model.
-func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+//
+// Pointer receivers + capture of the form Update returns — the same pattern
+// every sibling dialog uses (commands.go, session.go, theme.go,
+// rename.go). The previous value-receiver build discarded the model huh
+// hands back and re-read m.form.State on the stale copy.
+func (m *MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 	}
-	_, cmd := m.form.Update(msg)
+	if m.form != nil {
+		updated, _ := m.form.Update(msg)
+		if f, ok := updated.(*huh.Form); ok {
+			m.form = f
+		}
+	}
 	switch m.form.State {
 	case huh.StateCompleted:
 		args := make(map[string]string, len(m.argNames))
@@ -87,11 +97,11 @@ func (m MultiArgumentsDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Args:      nil,
 		})
 	}
-	return m, cmd
+	return m, nil
 }
 
 // View implements tea.Model.
-func (m MultiArgumentsDialogCmp) View() tea.View {
+func (m *MultiArgumentsDialogCmp) View() tea.View {
 	t := theme.CurrentTheme()
 	baseStyle := styles.BaseStyle()
 	return tea.NewView(baseStyle.Padding(1, 2).

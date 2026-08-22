@@ -47,7 +47,11 @@ type (
 		Msg  string
 		TTL  time.Duration
 	}
-	ClearStatusMsg struct{}
+	// ClearStatusMsg retires the current status banner. Gen carries the
+	// generation of the InfoMsg whose timer scheduled it; receivers ignore
+	// a stale tick (Gen older than the current banner's generation) so an
+	// earlier TTL can't cut a newer message short.
+	ClearStatusMsg struct{ Gen uint64 }
 )
 
 func Clamp(v, low, high int) int {

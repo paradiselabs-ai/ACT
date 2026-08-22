@@ -25,14 +25,20 @@ type sidebarCmp struct {
 		additions int
 		removals  int
 	}
+
+	// filesCh is subscribed ONCE for the component's lifetime. The previous
+	// implementation re-subscribed on every incoming file event, and each
+	// subscription's cancel context was context.Background() — never
+	// cancelled — so every event permanently leaked a channel + goroutine
+	// into the history Broker. The Cmd below re-reads from this same
+	// channel instead.
+	filesCh   <-chan pubsub.Event[history.File]
+	subCancel context.CancelFunc
 }
 
 func (m *sidebarCmp) Init() tea.Cmd {
 	if m.history != nil {
 		ctx := context.Background()
-		// Subscribe to file events
-		filesCh := m.history.Subscribe(ctx)
-
 		// Initialize the modified files map
 		m.modFiles = make(map[string]struct {
 			additions int
@@ -42,12 +48,30 @@ func (m *sidebarCmp) Init() tea.Cmd {
 		// Load initial files and calculate diffs
 		m.loadModifiedFiles(ctx)
 
-		// Return a command that will send file events to the Update method
-		return func() tea.Msg {
-			return <-filesCh
-		}
+		// One subscription, owned by a cancellable context stored on the
+		// component so it can be torn down exactly once.
+		subCtx, cancel := context.WithCancel(context.Background())
+		m.subCancel = cancel
+		m.filesCh = m.history.Subscribe(subCtx)
+
+		// Return a command that will send the next file event to Update;
+		// Update re-arms by returning the same read from m.filesCh.
+		return m.waitForFileEvent()
 	}
 	return nil
+}
+
+// waitForFileEvent returns a Cmd that resolves with the next file-history
+// event from the component's single subscription.
+func (m *sidebarCmp) waitForFileEvent() tea.Cmd {
+	ch := m.filesCh
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
 }
 
 func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -70,13 +94,11 @@ func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ctx := context.Background()
 			m.processFileChanges(ctx, msg.Payload)
 
-			// Return a command to continue receiving events
-			return m, func() tea.Msg {
-				ctx := context.Background()
-				filesCh := m.history.Subscribe(ctx)
-				return <-filesCh
-			}
+			// Keep listening on the SAME subscription — no re-subscribe.
+			return m, m.waitForFileEvent()
 		}
+		// Event for another session: still re-arm so the stream doesn't stall.
+		return m, m.waitForFileEvent()
 	}
 	return m, nil
 }

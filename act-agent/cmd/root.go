@@ -434,6 +434,14 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 	wg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(parentCtx) // Inherit from parent context
 
+	// Surface slow-consumer drops: the pubsub Broker discards events when a
+	// subscriber buffer is full; without this they vanish silently. The
+	// logging broker is the highest-volume one, so hook there — every other
+	// broker drop still increments its own Dropped() counter.
+	logging.SubscribeBroker().OnDrop(func(_ pubsub.EventType) {
+		logging.Warn("event dropped: subscriber buffer full", "broker", "logging")
+	})
+
 	setupSubscriber(ctx, &wg, "logging", logging.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "sessions", app.Sessions.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "messages", app.Messages.Subscribe, ch)

@@ -93,7 +93,12 @@ func (m *modelDialogCmp) Init() tea.Cmd {
 }
 
 func (m *modelDialogCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.form.State != huh.StateNormal {
+	// Rebuild ONLY when the form doesn't exist yet. The old unconditional
+	// rebuild fired on every message while State != Normal — including
+	// arbitrary pubsub traffic between completion and dialog close — and
+	// would nil-deref if a non-WindowSizeMsg arrived before any
+	// SetRole/Init had run.
+	if m.form == nil {
 		return m, m.buildForm()
 	}
 	updated, cmd := m.form.Update(msg)

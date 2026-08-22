@@ -32,12 +32,19 @@ type statusCmp struct {
 	messageTTL time.Duration
 	lspClients map[string]*lsp.Client
 	session    session.Session
+
+	// infoGen increments on every InfoMsg. Each clear timer is bound to the
+	// generation it was scheduled for; a stale tick (older gen) is ignored.
+	// Without this, two messages 5s apart meant the FIRST message's 10s tick
+	// cleared the SECOND message halfway through its lifetime.
+	infoGen uint64
 }
 
-// clearMessageCmd is a command that clears status messages after a timeout
-func (m statusCmp) clearMessageCmd(ttl time.Duration) tea.Cmd {
+// clearMessageCmd is a command that clears status messages after a timeout,
+// scoped to the generation that scheduled it
+func (m statusCmp) clearMessageCmd(ttl time.Duration, gen uint64) tea.Cmd {
 	return tea.Tick(ttl, func(time.Time) tea.Msg {
-		return util.ClearStatusMsg{}
+		return util.ClearStatusMsg{Gen: gen}
 	})
 }
 
@@ -62,13 +69,18 @@ func (m statusCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case util.InfoMsg:
 		m.info = msg
+		m.infoGen++
 		ttl := msg.TTL
 		if ttl == 0 {
 			ttl = m.messageTTL
 		}
-		return m, m.clearMessageCmd(ttl)
+		return m, m.clearMessageCmd(ttl, m.infoGen)
 	case util.ClearStatusMsg:
-		m.info = util.InfoMsg{}
+		// Ignore ticks scheduled for an older message — only the newest
+		// generation may clear the banner.
+		if msg.Gen == m.infoGen {
+			m.info = util.InfoMsg{}
+		}
 	}
 	return m, nil
 }

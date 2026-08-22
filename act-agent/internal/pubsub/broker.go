@@ -3,6 +3,7 @@ package pubsub
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 )
 
 const bufferSize = 64
@@ -13,6 +14,13 @@ type Broker[T any] struct {
 	done      chan struct{}
 	subCount  int
 	maxEvents int
+
+	// dropped counts events discarded because a subscriber's buffer was
+	// full at Publish time. Read via Dropped() for health/telemetry; a
+	// host can install OnDrop to surface slow-consumer conditions (the
+	// TUI wires this to a warn log) without every Publish paying for it.
+	dropped atomic.Int64
+	onDrop  func(eventType EventType)
 }
 
 func NewBroker[T any]() *Broker[T] {
@@ -28,6 +36,15 @@ func NewBrokerWithOptions[T any](channelBufferSize, maxEvents int) *Broker[T] {
 	}
 	return b
 }
+
+// Dropped reports how many events have been silently discarded due to
+// full subscriber buffers across the broker's lifetime.
+func (b *Broker[T]) Dropped() int64 { return b.dropped.Load() }
+
+// OnDrop installs a hook invoked (from the publishing goroutine) whenever
+// an event is discarded. Keep the handler cheap and lock-free — it runs on
+// every drop. Passing nil disables the hook.
+func (b *Broker[T]) OnDrop(fn func(EventType)) { b.onDrop = fn }
 
 func (b *Broker[T]) Shutdown() {
 	select {
@@ -111,6 +128,14 @@ func (b *Broker[T]) Publish(t EventType, payload T) {
 		select {
 		case sub <- event:
 		default:
+			// Subscriber buffer full. Never block the publisher, but the
+			// loss must not be silent — coordination events ARE the
+			// product here. Counted for Dropped(); OnDrop (if installed)
+			// surfaces it to logging.
+			b.dropped.Add(1)
+			if b.onDrop != nil {
+				b.onDrop(t)
+			}
 		}
 	}
 }

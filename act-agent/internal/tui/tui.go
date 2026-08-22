@@ -156,7 +156,7 @@ type appModel struct {
 	renameDialog     dialog.RenameDialog
 
 	showMultiArgumentsDialog bool
-	multiArgumentsDialog     dialog.MultiArgumentsDialogCmp
+	multiArgumentsDialog     *dialog.MultiArgumentsDialogCmp
 
 	showInfoDialog bool
 	infoDialog     dialog.InfoDialog
@@ -256,8 +256,8 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.showMultiArgumentsDialog {
 			a.multiArgumentsDialog.SetSize(windowWidth, pageHeight)
 			args, argsCmd := a.multiArgumentsDialog.Update(pageMsg)
-			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
-			cmds = append(cmds, argsCmd, a.multiArgumentsDialog.Init())
+			a.multiArgumentsDialog = args.(*dialog.MultiArgumentsDialogCmp)
+			cmds = append(cmds, argsCmd)
 		}
 
 		onboard, onboardCmd := a.onboardingDialog.Update(pageMsg)
@@ -541,7 +541,8 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialog.ShowMultiArgumentsDialogMsg:
 		// Show multi-arguments dialog
-		a.multiArgumentsDialog = dialog.NewMultiArgumentsDialogCmp(msg.CommandID, msg.Content, msg.ArgNames)
+		m := dialog.NewMultiArgumentsDialogCmp(msg.CommandID, msg.Content, msg.ArgNames)
+		a.multiArgumentsDialog = &m
 		a.showMultiArgumentsDialog = true
 		return a, a.multiArgumentsDialog.Init()
 
@@ -569,20 +570,36 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if msg.String() == "esc" {
-			if a.showModelDialog {
-				a.showModelDialog = false
+			// Unwind in strict reverse z-order. View() overlays in this
+			// order: permissions → onboarding → filepicker → help → quit →
+			// info → session → model → command → theme → rename →
+			// multiArgs (later = visually on top). Esc must close the TOP
+			// layer first; the previous fixed order diverged from draw
+			// order and could dismiss a background dialog while a
+			// foreground one stayed up. Permissions intentionally absent:
+			// it must be answered (allow/deny), not dismissed.
+			if a.showMultiArgumentsDialog {
+				a.showMultiArgumentsDialog = false
 				return a, nil
 			}
-			if a.showSessionDialog {
-				a.showSessionDialog = false
+			if a.showRenameDialog {
+				a.showRenameDialog = false
 				return a, nil
 			}
 			if a.showThemeDialog {
 				a.showThemeDialog = false
 				return a, nil
 			}
-			if a.showRenameDialog {
-				a.showRenameDialog = false
+			if a.showCommandDialog {
+				a.showCommandDialog = false
+				return a, nil
+			}
+			if a.showModelDialog {
+				a.showModelDialog = false
+				return a, nil
+			}
+			if a.showSessionDialog {
+				a.showSessionDialog = false
 				return a, nil
 			}
 			if a.showInfoDialog {
@@ -593,21 +610,13 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.showQuit = false
 				return a, nil
 			}
-			if a.showFilepicker {
-				a.showFilepicker = false
-				a.filepicker.ToggleFilepicker(a.showFilepicker)
-				return a, nil
-			}
 			if a.showHelp {
 				a.showHelp = false
 				return a, nil
 			}
-			if a.showCommandDialog {
-				a.showCommandDialog = false
-				return a, nil
-			}
-			if a.showMultiArgumentsDialog {
-				a.showMultiArgumentsDialog = false
+			if a.showFilepicker {
+				a.showFilepicker = false
+				a.filepicker.ToggleFilepicker(a.showFilepicker)
 				return a, nil
 			}
 			if a.currentPage == page.LogsPage {
@@ -617,9 +626,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// If multi-arguments dialog is open, let it handle the key press first
 		if a.showMultiArgumentsDialog {
-			args, cmd := a.multiArgumentsDialog.Update(msg)
-			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
-			return a, cmd
+			args, argsCmd := a.multiArgumentsDialog.Update(msg)
+			a.multiArgumentsDialog = args.(*dialog.MultiArgumentsDialogCmp)
+			return a, argsCmd
 		}
 
 		switch {
@@ -627,6 +636,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Quit):
 			if a.currentPage == page.LogsPage {
 				return a, a.moveToPage(page.ChatPage)
+			}
+			// A pending permission prompt must never be buried by the quit
+			// cascade: an agent is blocked on it, and dismissing every other
+			// dialog around it leaves the user staring at a prompt whose
+			// context (chat, palette) just vanished. Quit is refused while
+			// one is up — answer or deny it first. Esc intentionally cannot
+			// dismiss it either (see esc cascade).
+			if a.showPermissions {
+				return a, util.ReportWarn("Answer the permission prompt first (a/s/d)")
 			}
 			a.showQuit = !a.showQuit
 			if a.showHelp {

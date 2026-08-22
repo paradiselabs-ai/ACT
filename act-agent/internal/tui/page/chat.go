@@ -34,11 +34,12 @@ import (
 // settles, no continuous tick exists. Without one, mid-stream frames buffer
 // indefinitely on slow LLM streams.
 //
-// Safety cap: flushTickCap (240 = 60s @ 250ms) prevents an infinite loop if
-// IsAnyBusy ever fails to transition to false.
+// Safety cap removed: the loop's stop condition is IsAnyBusy transitioning
+// to false, which is authoritative. The old flushTickCap (240 ticks = 60s)
+// permanently ended nudging after one minute since the last send — any
+// Tier-1 run longer than that reinstated the exact freeze this loop exists
+// to fix (frames buffered until a keypress).
 type flushTickMsg struct{}
-
-const flushTickCap = 240 // 60 seconds @ 250ms intervals
 
 var ChatPage PageID = "chat"
 
@@ -109,11 +110,8 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flushTickMsg:
 		// While any Tier 1 role is busy, keep nudging the event loop so the
 		// synchronized-output buffer flushes mid-stream. Stops when all roles
-		// idle or after flushTickCap iterations (safety).
-		if p.flushTickCount >= flushTickCap {
-			p.flushTickCount = 0
-			return p, nil
-		}
+		// idle. (No wall-clock cap — see the flushTickMsg doc comment: a cap
+		// reinstates the freeze on runs longer than the cap.)
 		if p.app.Orchestrator != nil && !p.app.Orchestrator.IsAnyBusy(p.session.ID) {
 			p.flushTickCount = 0
 			return p, nil
