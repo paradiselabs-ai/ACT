@@ -277,7 +277,3 @@ func NewFlexokiTheme() *FlexokiTheme {
 	return theme
 }
 
-func init() {
-	// Register the Flexoki theme with the theme manager
-	RegisterTheme("flexoki", NewFlexokiTheme())
-}

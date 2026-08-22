@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/logging"
 	utilComponents "github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/util"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
@@ -244,16 +245,19 @@ func (c *completionDialogCmp) View() tea.View {
 
 	completions := c.listView.GetItems()
 
+	// Width math uses display width (runewidth.StringWidth), NOT len():
+	// len() counts bytes, so CJK/emoji titles under-measure and the menu
+	// clips them (audit M16).
 	for _, cmd := range completions {
 		if ci, ok := cmd.(*CompletionItem); ok && ci.Description != "" {
-			w := len(ci.Title) + len(ci.Description) + 6
+			w := runewidth.StringWidth(ci.Title) + runewidth.StringWidth(ci.Description) + 6
 			if w > maxWidth {
 				maxWidth = w
 			}
 		} else {
 			title := cmd.DisplayValue()
-			if len(title) > maxWidth-4 {
-				maxWidth = len(title) + 4
+			if runewidth.StringWidth(title) > maxWidth-4 {
+				maxWidth = runewidth.StringWidth(title) + 4
 			}
 		}
 	}
@@ -266,7 +270,7 @@ func (c *completionDialogCmp) View() tea.View {
 	content := c.listView.View().Content
 	bgSeq := lipgloss.NewStyle().Background(t.Background()).Render("")
 	if bgSeq != "" {
-		content = strings.ReplaceAll(content, "\x1b[0m", "\x1b[0m"+bgSeq)
+		content = styles.RepaintBackground(content, bgSeq)
 	}
 
 	return tea.NewView(baseStyle.Background(t.Background()).Padding(0, 0).

@@ -22,6 +22,7 @@ import (
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/components/dialog"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/layout"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/page"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/util"
 )
@@ -99,11 +100,6 @@ var helpEsc = key.NewBinding(
 	key.WithHelp("?", "toggle help"),
 )
 
-var returnKey = key.NewBinding(
-	key.WithKeys("esc"),
-	key.WithHelp("esc", "close"),
-)
-
 var logsKeyReturnKey = key.NewBinding(
 	key.WithKeys("esc", "backspace", quitKey),
 	key.WithHelp("esc/q", "go back"),
@@ -119,50 +115,126 @@ type appModel struct {
 	app             *app.App
 	selectedSession session.Session
 
-	showPermissions bool
-	permissions     dialog.PermissionDialogCmp
+	// modalStack is the single source of truth for which overlay is open
+	// and in what z-order (index 0 = bottom). The 13 discrete show* booleans
+	// this replaces allowed contradictory states (two dialogs "open" with
+	// esc unwinding in an order that didn't match draw order — audit H2).
+	// Key routing goes to stack top; esc pops the top. Permissions is
+	// push-only from the UI's perspective: it closes only via an explicit
+	// PermissionResponseMsg, never via the esc cascade.
+	modalStack []ModalID
 
-	showHelp bool
-	help     dialog.HelpCmp
-
-	showQuit bool
-	quit     dialog.QuitDialog
-
-	showSessionDialog bool
-	sessionDialog     dialog.SessionDialog
-
-	showCommandDialog bool
-	commandDialog     dialog.CommandDialog
-	commands          []dialog.Command
+	permissions   dialog.PermissionDialogCmp
+	help          dialog.HelpCmp
+	quit          dialog.QuitDialog
+	sessionDialog dialog.SessionDialog
+	commandDialog dialog.CommandDialog
+	commands      []dialog.Command
 	// slide-in spring for the command palette (positive offset = shifted right, off-screen)
 	cmdSlideOffset float64
 	cmdSlideVel    float64
 	cmdSlideSpring harmonica.Spring
 	cmdSliding     bool
 
-	showModelDialog bool
-	modelDialog     dialog.ModelDialog
-
-	showOnboardingDialog bool
+	modelDialog          dialog.ModelDialog
 	onboardingDialog     dialog.OnboardingCmp
-
-	showFilepicker bool
-	filepicker     dialog.FilepickerCmp
-
-	showThemeDialog bool
-	themeDialog     dialog.ThemeDialog
-
-	showRenameDialog bool
-	renameDialog     dialog.RenameDialog
-
-	showMultiArgumentsDialog bool
-	multiArgumentsDialog     dialog.MultiArgumentsDialogCmp
-
-	showInfoDialog bool
-	infoDialog     dialog.InfoDialog
+	filepicker           dialog.FilepickerCmp
+	themeDialog          dialog.ThemeDialog
+	renameDialog         dialog.RenameDialog
+	multiArgumentsDialog *dialog.MultiArgumentsDialogCmp
+	infoDialog           dialog.InfoDialog
 
 	isCompacting      bool
 	compactingMessage string
+}
+
+// ModalID identifies one overlay dialog.
+type ModalID uint8
+
+const (
+	ModalPermissions ModalID = iota
+	ModalHelp
+	ModalQuit
+	ModalSession
+	ModalCommand
+	ModalModel
+	ModalOnboarding
+	ModalFilepicker
+	ModalTheme
+	ModalRename
+	ModalMultiArguments
+	ModalInfo
+)
+
+// pushModal marks the dialog open, top of the z-order.
+func (a *appModel) pushModal(id ModalID) {
+	// Idempotent: re-pushing an active modal is a no-op (a second pubsub
+	// PermissionRequest while the prompt is already up must not double-stack).
+	for _, active := range a.modalStack {
+		if active == id {
+			return
+		}
+	}
+	a.modalStack = append(a.modalStack, id)
+}
+
+// popModal removes and returns the top modal. ok=false when the stack is
+// empty. Callers that need side effects (filepicker toggle-off, palette
+// spring reset) handle them at their Close*Msg sites; popModal itself only
+// mutates the stack.
+func (a *appModel) popModal() (ModalID, bool) {
+	n := len(a.modalStack)
+	if n == 0 {
+		return 0, false
+	}
+	id := a.modalStack[n-1]
+	a.modalStack = a.modalStack[:n-1]
+	return id, true
+}
+
+// isModalActive reports whether the given dialog is currently open.
+func (a *appModel) isModalActive(id ModalID) bool {
+	for _, m := range a.modalStack {
+		if m == id {
+			return true
+		}
+	}
+	return false
+}
+
+// topModal returns the topmost modal, ok=false when none.
+func (a *appModel) topModal() (ModalID, bool) {
+	n := len(a.modalStack)
+	if n == 0 {
+		return 0, false
+	}
+	return a.modalStack[n-1], true
+}
+
+// removeModal closes a specific modal wherever it sits in the stack (used
+// by explicit Close*Msg handlers so a dialog's own close message can't
+// strand it in the stack if something above it was popped first). Returns
+// true when the modal was found and removed.
+func (a *appModel) removeModal(id ModalID) bool {
+	for i, m := range a.modalStack {
+		if m == id {
+			a.modalStack = append(a.modalStack[:i], a.modalStack[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// modalActiveBelow reports whether any modal OTHER than the given one is
+// active. Used by close handlers that must not fully tear down state while
+// another overlay is still up.
+func (a *appModel) modalActiveBelow(id ModalID) bool {
+	for _, m := range a.modalStack {
+		if m != id {
+			return true
+		}
+	}
+	return false
 }
 
 func (a appModel) Init() tea.Cmd {
@@ -253,11 +325,11 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.filepicker = filepicker.(dialog.FilepickerCmp)
 		cmds = append(cmds, filepickerCmd)
 
-		if a.showMultiArgumentsDialog {
+		if a.isModalActive(ModalMultiArguments) && a.multiArgumentsDialog != nil {
 			a.multiArgumentsDialog.SetSize(windowWidth, pageHeight)
 			args, argsCmd := a.multiArgumentsDialog.Update(pageMsg)
-			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
-			cmds = append(cmds, argsCmd, a.multiArgumentsDialog.Init())
+			a.multiArgumentsDialog = args.(*dialog.MultiArgumentsDialogCmp)
+			cmds = append(cmds, argsCmd)
 		}
 
 		onboard, onboardCmd := a.onboardingDialog.Update(pageMsg)
@@ -314,9 +386,9 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s, _ := a.status.Update(msg)
 		a.status = s.(core.StatusCmp)
 
-	// Permission
+		// Permission
 	case pubsub.Event[permission.PermissionRequest]:
-		a.showPermissions = true
+		a.pushModal(ModalPermissions)
 		return a, a.permissions.SetPermissions(msg.Payload)
 	case dialog.PermissionResponseMsg:
 		var cmd tea.Cmd
@@ -328,26 +400,26 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case dialog.PermissionDeny:
 			a.app.Permissions.Deny(msg.Permission)
 		}
-		a.showPermissions = false
+		a.removeModal(ModalPermissions)
 		return a, cmd
 
 	case page.PageChangeMsg:
 		return a, a.moveToPage(msg.ID)
 
 	case dialog.CloseQuitMsg:
-		a.showQuit = false
+		a.removeModal(ModalQuit)
 		return a, nil
 
 	case dialog.CloseSessionDialogMsg:
-		a.showSessionDialog = false
+		a.removeModal(ModalSession)
 		return a, nil
 
 	case dialog.CloseRenameDialogMsg:
-		a.showRenameDialog = false
+		a.removeModal(ModalRename)
 		return a, nil
 
 	case dialog.RenameCompletedMsg:
-		a.showRenameDialog = false
+		a.removeModal(ModalRename)
 		newTitle := strings.TrimSpace(msg.NewTitle)
 		if newTitle != "" && a.selectedSession.ID != "" {
 			a.selectedSession.Title = newTitle
@@ -365,7 +437,7 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case dialog.CloseCommandDialogMsg:
-		a.showCommandDialog = false
+		a.removeModal(ModalCommand)
 		a.cmdSlideOffset = 0
 		a.cmdSliding = false
 		return a, nil
@@ -423,20 +495,20 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case dialog.CloseThemeDialogMsg:
-		a.showThemeDialog = false
+		a.removeModal(ModalTheme)
 		return a, nil
 
 	case dialog.ThemeChangedMsg:
 		a.pages[a.currentPage], cmd = a.pages[a.currentPage].Update(msg)
-		a.showThemeDialog = false
+		a.removeModal(ModalTheme)
 		return a, tea.Batch(cmd, util.ReportInfo("Theme changed to: "+msg.ThemeName))
 
 	case dialog.CloseModelDialogMsg:
-		a.showModelDialog = false
+		a.removeModal(ModalModel)
 		return a, nil
 
 	case dialog.ModelSelectedMsg:
-		a.showModelDialog = false
+		a.removeModal(ModalModel)
 
 		targetRole := msg.Role
 		if targetRole == "" {
@@ -454,11 +526,15 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, util.ReportInfo(fmt.Sprintf("%s model changed to %s (%s)", targetRole, msg.Model.ID, msg.Model.Provider))
 
 	case dialog.ShowOnboardingDialogMsg:
-		a.showOnboardingDialog = msg.Show
+		if msg.Show {
+			a.pushModal(ModalOnboarding)
+		} else {
+			a.removeModal(ModalOnboarding)
+		}
 		return a, nil
 
 	case dialog.CloseOnboardingMsg:
-		a.showOnboardingDialog = false
+		a.removeModal(ModalOnboarding)
 		// Onboarding finished (confirmed or cancelled). Mark the project as
 		// initialized either way — the wizard wrote the config it needed.
 		if err := config.MarkProjectInitialized(); err != nil {
@@ -488,14 +564,14 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.selectedSession = msg.Payload
 		}
 	case dialog.SessionSelectedMsg:
-		a.showSessionDialog = false
+		a.removeModal(ModalSession)
 		if a.currentPage == page.ChatPage {
 			return a, util.CmdHandler(chat.SessionSelectedMsg(msg.Session))
 		}
 		return a, nil
 
 	case dialog.CreateNewSessionMsg:
-		a.showSessionDialog = false
+		a.removeModal(ModalSession)
 		newSess, err := a.app.Sessions.Create(context.Background(), "New Session")
 		if err != nil {
 			return a, util.ReportError(err)
@@ -512,27 +588,33 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialog.ShowInfoDialogMsg:
 		a.infoDialog.SetContent(msg.Title, msg.Content)
-		a.showInfoDialog = true
+		a.pushModal(ModalInfo)
 		return a, nil
 
 	case dialog.CloseInfoDialogMsg:
-		a.showInfoDialog = false
+		a.removeModal(ModalInfo)
 		return a, nil
 
 	case dialog.ToggleHelpMsg:
-		a.showHelp = !a.showHelp
+		if a.isModalActive(ModalHelp) {
+			a.removeModal(ModalHelp)
+		} else {
+			a.pushModal(ModalHelp)
+		}
 		return a, nil
 
 	case dialog.ShowLogsMsg:
 		return a, a.moveToPage(page.LogsPage)
 
 	case dialog.ShowModelDialogMsg:
-		a.showModelDialog = true
+		a.pushModal(ModalModel)
 		a.modelDialog.SetRole(msg.Role)
 		return a, a.modelDialog.Init()
 
 	case dialog.CommandSelectedMsg:
-		a.showCommandDialog = false
+		a.removeModal(ModalCommand)
+		a.cmdSlideOffset = 0
+		a.cmdSliding = false
 		// Execute the command handler if available
 		if msg.Command.Handler != nil {
 			return a, msg.Command.Handler(msg.Command)
@@ -541,13 +623,14 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dialog.ShowMultiArgumentsDialogMsg:
 		// Show multi-arguments dialog
-		a.multiArgumentsDialog = dialog.NewMultiArgumentsDialogCmp(msg.CommandID, msg.Content, msg.ArgNames)
-		a.showMultiArgumentsDialog = true
+		m := dialog.NewMultiArgumentsDialogCmp(msg.CommandID, msg.Content, msg.ArgNames)
+		a.multiArgumentsDialog = &m
+		a.pushModal(ModalMultiArguments)
 		return a, a.multiArgumentsDialog.Init()
 
 	case dialog.CloseMultiArgumentsDialogMsg:
 		// Close multi-arguments dialog
-		a.showMultiArgumentsDialog = false
+		a.removeModal(ModalMultiArguments)
 
 		// If submitted, replace all named arguments and run the command
 		if msg.Submit {
@@ -569,45 +652,20 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if msg.String() == "esc" {
-			if a.showModelDialog {
-				a.showModelDialog = false
-				return a, nil
-			}
-			if a.showSessionDialog {
-				a.showSessionDialog = false
-				return a, nil
-			}
-			if a.showThemeDialog {
-				a.showThemeDialog = false
-				return a, nil
-			}
-			if a.showRenameDialog {
-				a.showRenameDialog = false
-				return a, nil
-			}
-			if a.showInfoDialog {
-				a.showInfoDialog = false
-				return a, nil
-			}
-			if a.showQuit {
-				a.showQuit = false
-				return a, nil
-			}
-			if a.showFilepicker {
-				a.showFilepicker = false
-				a.filepicker.ToggleFilepicker(a.showFilepicker)
-				return a, nil
-			}
-			if a.showHelp {
-				a.showHelp = false
-				return a, nil
-			}
-			if a.showCommandDialog {
-				a.showCommandDialog = false
-				return a, nil
-			}
-			if a.showMultiArgumentsDialog {
-				a.showMultiArgumentsDialog = false
+			// Single pop point: esc closes the TOP modal only. The stack IS
+			// the z-order, so unwind order can never diverge from draw order
+			// (audit H2). Permissions is intentionally not escapable — it is
+			// answered via PermissionResponseMsg, not dismissed.
+			top, ok := a.topModal()
+			if ok && top != ModalPermissions {
+				a.popModal()
+				switch top {
+				case ModalFilepicker:
+					a.filepicker.ToggleFilepicker(false)
+				case ModalCommand:
+					a.cmdSlideOffset = 0
+					a.cmdSliding = false
+				}
 				return a, nil
 			}
 			if a.currentPage == page.LogsPage {
@@ -616,10 +674,10 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// If multi-arguments dialog is open, let it handle the key press first
-		if a.showMultiArgumentsDialog {
-			args, cmd := a.multiArgumentsDialog.Update(msg)
-			a.multiArgumentsDialog = args.(dialog.MultiArgumentsDialogCmp)
-			return a, cmd
+		if a.isModalActive(ModalMultiArguments) && a.multiArgumentsDialog != nil {
+			args, argsCmd := a.multiArgumentsDialog.Update(msg)
+			a.multiArgumentsDialog = args.(*dialog.MultiArgumentsDialogCmp)
+			return a, argsCmd
 		}
 
 		switch {
@@ -628,29 +686,37 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.currentPage == page.LogsPage {
 				return a, a.moveToPage(page.ChatPage)
 			}
-			a.showQuit = !a.showQuit
-			if a.showHelp {
-				a.showHelp = false
+			// A pending permission prompt must never be buried by the quit
+			// cascade: an agent is blocked on it, and dismissing every other
+			// dialog around it leaves the user staring at a prompt whose
+			// context (chat, palette) just vanished. Quit is refused while
+			// one is up — answer or deny it first. Esc intentionally cannot
+			// dismiss it either (see esc cascade).
+			if a.isModalActive(ModalPermissions) {
+				return a, util.ReportWarn("Answer the permission prompt first (a/s/d)")
 			}
-			if a.showSessionDialog {
-				a.showSessionDialog = false
+			if a.isModalActive(ModalQuit) {
+				a.removeModal(ModalQuit)
+			} else {
+				a.pushModal(ModalQuit)
 			}
-			if a.showCommandDialog {
-				a.showCommandDialog = false
+			// ctrl+c clears every other overlay except permissions — the
+			// user is expressing intent to exit, so stale dialogs shouldn't
+			// survive into the quit confirmation.
+			a.removeModal(ModalHelp)
+			a.removeModal(ModalSession)
+			if a.removeModal(ModalCommand) {
+				a.cmdSlideOffset = 0
+				a.cmdSliding = false
 			}
-			if a.showFilepicker {
-				a.showFilepicker = false
-				a.filepicker.ToggleFilepicker(a.showFilepicker)
+			if a.removeModal(ModalFilepicker) {
+				a.filepicker.ToggleFilepicker(false)
 			}
-			if a.showModelDialog {
-				a.showModelDialog = false
-			}
-			if a.showMultiArgumentsDialog {
-				a.showMultiArgumentsDialog = false
-			}
+			a.removeModal(ModalModel)
+			a.removeModal(ModalMultiArguments)
 			return a, nil
 		case key.Matches(msg, keys.SwitchSession):
-			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showCommandDialog {
+			if a.currentPage == page.ChatPage && !a.isModalActive(ModalQuit) && !a.isModalActive(ModalPermissions) && !a.isModalActive(ModalCommand) {
 				// Load sessions and show the dialog
 				sessions, err := a.app.Sessions.List(context.Background())
 				if err != nil {
@@ -660,18 +726,18 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return a, util.ReportWarn("No sessions available")
 				}
 				a.sessionDialog.SetSessions(sessions)
-				a.showSessionDialog = true
+				a.pushModal(ModalSession)
 				return a, nil
 			}
 			return a, nil
 		case key.Matches(msg, keys.Commands):
-			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showThemeDialog && !a.showFilepicker {
+			if a.currentPage == page.ChatPage && !a.isModalActive(ModalQuit) && !a.isModalActive(ModalPermissions) && !a.isModalActive(ModalSession) && !a.isModalActive(ModalTheme) && !a.isModalActive(ModalFilepicker) {
 				// Show commands dialog
 				if len(a.commands) == 0 {
 					return a, util.ReportWarn("No commands available")
 				}
 				animCmd := a.commandDialog.SetCommands(a.commands)
-				a.showCommandDialog = true
+				a.pushModal(ModalCommand)
 				// Start slide-in from +40 cols to the right (stiffness=14, damping=0.6)
 				a.cmdSlideSpring = anim.NewSpring(14, 0.6)
 				a.cmdSlideOffset = 40
@@ -681,61 +747,70 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(msg, keys.Models):
-			if a.showModelDialog {
-				a.showModelDialog = false
+			if a.isModalActive(ModalModel) {
+				a.removeModal(ModalModel)
 				return a, nil
 			}
-			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog {
-				a.showModelDialog = true
+			if a.currentPage == page.ChatPage && !a.isModalActive(ModalQuit) && !a.isModalActive(ModalPermissions) && !a.isModalActive(ModalSession) && !a.isModalActive(ModalCommand) {
+				a.pushModal(ModalModel)
 				return a, nil
 			}
 			return a, nil
 		case key.Matches(msg, keys.SwitchTheme):
-			if !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog {
+			if !a.isModalActive(ModalQuit) && !a.isModalActive(ModalPermissions) && !a.isModalActive(ModalSession) && !a.isModalActive(ModalCommand) {
 				// Show theme switcher dialog
-				a.showThemeDialog = true
+				a.pushModal(ModalTheme)
 				// Theme list is dynamically loaded by the dialog component
 				return a, a.themeDialog.Init()
 			}
 			return a, nil
 		case key.Matches(msg, keys.RenameSession):
-			if a.currentPage == page.ChatPage && !a.showQuit && !a.showPermissions && !a.showSessionDialog && !a.showCommandDialog && !a.showThemeDialog && !a.showFilepicker {
+			if a.currentPage == page.ChatPage && !a.isModalActive(ModalQuit) && !a.isModalActive(ModalPermissions) && !a.isModalActive(ModalSession) && !a.isModalActive(ModalCommand) && !a.isModalActive(ModalTheme) && !a.isModalActive(ModalFilepicker) {
 				if a.selectedSession.ID != "" {
 					a.renameDialog.SetTitle(a.selectedSession.Title)
-					a.showRenameDialog = true
+					a.pushModal(ModalRename)
 					return a, nil
 				}
 			}
 			return a, nil
-		case key.Matches(msg, returnKey) || key.Matches(msg):
+		// Catchall for "any key not matched above". The old form was
+		// `key.Matches(msg, returnKey) || key.Matches(msg)` — the second
+		// operand has zero bindings so it always evaluated false, making it
+		// dead (audit M8). Plain `default:` semantics via a bare condition.
+		case len(msg.String()) > 0:
 			if msg.String() == quitKey || msg.String() == "esc" || msg.String() == "q" {
 				if a.currentPage == page.LogsPage {
 					return a, a.moveToPage(page.ChatPage)
 				}
 			} else if !a.filepicker.IsCWDFocused() {
-				if a.showQuit {
-					a.showQuit = !a.showQuit
-					return a, nil
-				}
-				if a.showHelp {
-					a.showHelp = !a.showHelp
-					return a, nil
-				}
-				if a.showOnboardingDialog {
-					a.showOnboardingDialog = false
-					if err := config.MarkProjectInitialized(); err != nil {
-						return a, util.ReportError(err)
+				// Dismiss the TOP modal only — same single-pop semantics as
+				// the esc handler above.
+				if top, ok := a.topModal(); ok {
+					switch top {
+					case ModalQuit:
+						a.removeModal(ModalQuit)
+						return a, nil
+					case ModalHelp:
+						a.removeModal(ModalHelp)
+						return a, nil
+					case ModalOnboarding:
+						a.removeModal(ModalOnboarding)
+						// Onboarding dismissed without completing — mark the
+						// project initialized; the wizard wrote what it needed.
+						if err := config.MarkProjectInitialized(); err != nil {
+							return a, util.ReportError(err)
+						}
+						return a, nil
+					case ModalFilepicker:
+						a.removeModal(ModalFilepicker)
+						a.filepicker.ToggleFilepicker(false)
+						return a, nil
+					case ModalRename:
+						a.removeModal(ModalRename)
+						return a, nil
+					case ModalPermissions:
+						return a, nil // answered via PermissionResponseMsg only
 					}
-					return a, nil
-				}
-				if a.showFilepicker {
-					a.showFilepicker = false
-					a.filepicker.ToggleFilepicker(a.showFilepicker)
-					return a, nil
-				}
-				if a.showRenameDialog {
-					a.showRenameDialog = false
-					return a, nil
 				}
 				if a.currentPage == page.LogsPage {
 					return a, a.moveToPage(page.ChatPage)
@@ -744,22 +819,35 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Logs):
 			return a, a.moveToPage(page.LogsPage)
 		case key.Matches(msg, keys.Help):
-			if a.showQuit {
+			if a.isModalActive(ModalQuit) {
 				return a, nil
 			}
-			a.showHelp = !a.showHelp
+			if a.isModalActive(ModalHelp) {
+				a.removeModal(ModalHelp)
+			} else {
+				a.pushModal(ModalHelp)
+			}
 			return a, nil
 		case key.Matches(msg, helpEsc):
 			if a.app.Orchestrator.IsAnyBusy("") {
-				if a.showQuit {
+				if a.isModalActive(ModalQuit) {
 					return a, nil
 				}
-				a.showHelp = !a.showHelp
+				if a.isModalActive(ModalHelp) {
+					a.removeModal(ModalHelp)
+				} else {
+					a.pushModal(ModalHelp)
+				}
 				return a, nil
 			}
 		case key.Matches(msg, keys.Filepicker):
-			a.showFilepicker = !a.showFilepicker
-			a.filepicker.ToggleFilepicker(a.showFilepicker)
+			if a.isModalActive(ModalFilepicker) {
+				a.removeModal(ModalFilepicker)
+				a.filepicker.ToggleFilepicker(false)
+			} else {
+				a.pushModal(ModalFilepicker)
+				a.filepicker.ToggleFilepicker(true)
+			}
 			return a, nil
 		}
 	case anim.FrameMsg:
@@ -788,99 +876,88 @@ func (a appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	}
 
-	if a.showFilepicker {
-		f, filepickerCmd := a.filepicker.Update(msg)
-		a.filepicker = f.(dialog.FilepickerCmp)
-		cmds = append(cmds, filepickerCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
+	// Modal key routing — stack-driven. Only the TOP modal receives key
+	// messages; non-key messages flow to every open modal (so pubsub events
+	// still reach e.g. the filepicker while a help overlay is up). This
+	// replaces eight sequential `if a.showX` blocks whose routing order was
+	// maintained by hand and could diverge from draw order (audit H2).
+	if _, isKey := msg.(tea.KeyPressMsg); isKey {
+		if top, ok := a.topModal(); ok {
+			var modalCmd tea.Cmd
+			switch top {
+			case ModalFilepicker:
+				f, cmd := a.filepicker.Update(msg)
+				a.filepicker = f.(dialog.FilepickerCmp)
+				modalCmd = cmd
+			case ModalQuit:
+				q, cmd := a.quit.Update(msg)
+				a.quit = q.(dialog.QuitDialog)
+				modalCmd = cmd
+			case ModalPermissions:
+				d, cmd := a.permissions.Update(msg)
+				a.permissions = d.(dialog.PermissionDialogCmp)
+				modalCmd = cmd
+			case ModalInfo:
+				d, cmd := a.infoDialog.Update(msg)
+				a.infoDialog = d.(dialog.InfoDialog)
+				modalCmd = cmd
+			case ModalSession:
+				d, cmd := a.sessionDialog.Update(msg)
+				a.sessionDialog = d.(dialog.SessionDialog)
+				modalCmd = cmd
+			case ModalCommand:
+				d, cmd := a.commandDialog.Update(msg)
+				a.commandDialog = d.(dialog.CommandDialog)
+				modalCmd = cmd
+			case ModalModel:
+				d, cmd := a.modelDialog.Update(msg)
+				a.modelDialog = d.(dialog.ModelDialog)
+				modalCmd = cmd
+			case ModalOnboarding:
+				d, cmd := a.onboardingDialog.Update(msg)
+				a.onboardingDialog = d.(dialog.OnboardingCmp)
+				modalCmd = cmd
+			case ModalTheme:
+				d, cmd := a.themeDialog.Update(msg)
+				a.themeDialog = d.(dialog.ThemeDialog)
+				modalCmd = cmd
+			case ModalRename:
+				d, cmd := a.renameDialog.Update(msg)
+				a.renameDialog = d.(dialog.RenameDialog)
+				modalCmd = cmd
+			case ModalMultiArguments:
+				if a.multiArgumentsDialog != nil {
+					args, cmd := a.multiArgumentsDialog.Update(msg)
+					a.multiArgumentsDialog = args.(*dialog.MultiArgumentsDialogCmp)
+					modalCmd = cmd
+				}
+			case ModalHelp:
+				// HelpCmp has no key handling of its own (esc/? handled above).
+				return a, nil
+			}
+			return a, modalCmd
 		}
-	}
-
-	if a.showQuit {
-		q, quitCmd := a.quit.Update(msg)
-		a.quit = q.(dialog.QuitDialog)
-		cmds = append(cmds, quitCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-	if a.showPermissions {
-		d, permissionsCmd := a.permissions.Update(msg)
-		a.permissions = d.(dialog.PermissionDialogCmp)
-		cmds = append(cmds, permissionsCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showInfoDialog {
-		d, infoCmd := a.infoDialog.Update(msg)
-		a.infoDialog = d.(dialog.InfoDialog)
-		cmds = append(cmds, infoCmd)
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showSessionDialog {
-		d, sessionCmd := a.sessionDialog.Update(msg)
-		a.sessionDialog = d.(dialog.SessionDialog)
-		cmds = append(cmds, sessionCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showCommandDialog {
-		d, commandCmd := a.commandDialog.Update(msg)
-		a.commandDialog = d.(dialog.CommandDialog)
-		cmds = append(cmds, commandCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showModelDialog {
-		d, modelCmd := a.modelDialog.Update(msg)
-		a.modelDialog = d.(dialog.ModelDialog)
-		cmds = append(cmds, modelCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showOnboardingDialog {
-		d, onboardCmd := a.onboardingDialog.Update(msg)
-		a.onboardingDialog = d.(dialog.OnboardingCmp)
-		cmds = append(cmds, onboardCmd)
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showThemeDialog {
-		d, themeCmd := a.themeDialog.Update(msg)
-		a.themeDialog = d.(dialog.ThemeDialog)
-		cmds = append(cmds, themeCmd)
-		// Only block key messages send all other messages down
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
-		}
-	}
-
-	if a.showRenameDialog {
-		d, renameCmd := a.renameDialog.Update(msg)
-		a.renameDialog = d.(dialog.RenameDialog)
-		cmds = append(cmds, renameCmd)
-		if _, ok := msg.(tea.KeyPressMsg); ok {
-			return a, tea.Batch(cmds...)
+	} else {
+		// Non-key messages: broadcast to all open modals in stack order.
+		for _, id := range a.modalStack {
+			switch id {
+			case ModalFilepicker:
+				f, filepickerCmd := a.filepicker.Update(msg)
+				a.filepicker = f.(dialog.FilepickerCmp)
+				cmds = append(cmds, filepickerCmd)
+			case ModalPermissions:
+				d, permissionsCmd := a.permissions.Update(msg)
+				a.permissions = d.(dialog.PermissionDialogCmp)
+				cmds = append(cmds, permissionsCmd)
+			case ModalSession:
+				d, sessionCmd := a.sessionDialog.Update(msg)
+				a.sessionDialog = d.(dialog.SessionDialog)
+				cmds = append(cmds, sessionCmd)
+			case ModalOnboarding:
+				d, onboardCmd := a.onboardingDialog.Update(msg)
+				a.onboardingDialog = d.(dialog.OnboardingCmp)
+				cmds = append(cmds, onboardCmd)
+			}
 		}
 	}
 
@@ -897,9 +974,15 @@ func (a *appModel) RegisterCommand(cmd dialog.Command) {
 }
 
 func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
-	if a.app.Orchestrator.IsAnyBusy("") {
-		// For now we don't move to any page if the agent is busy
-		return util.ReportWarn("Agent is busy, please wait...")
+	// Read-only pages stay reachable while agents are running — the logs
+	// pane is exactly where a user wants to look during a long Tier-1 run
+	// (audit M9: the blanket busy-lock blocked ALL navigation). Only
+	// blocking the move out of the chat page would strand the conversation,
+	// and ChatPage is where ctrl+l's counterpart (esc from Logs) returns to;
+	// chat remains implicitly available since moveToPage is only called for
+	// non-chat targets today.
+	if pageID != page.LogsPage && a.app.Orchestrator.IsAnyBusy("") {
+		return util.ReportWarn("Agent is busy — only the logs view is available during a run")
 	}
 
 	var cmds []tea.Cmd
@@ -930,49 +1013,82 @@ func (a appModel) View() tea.View {
 
 	appView := lipgloss.JoinVertical(lipgloss.Top, components...)
 
-	if a.showPermissions {
-		overlay := a.permissions.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
+	// placeOverlayCentered is the single centered-overlay primitive. Every
+	// modal draws through the stack loop below via this one helper, so z-order
+	// is exactly stack order — later stack entries land visually on top
+	// (audit H2: draw order and unwind order can no longer diverge).
+	placeOverlayCentered := func(content string) {
+		row := lipgloss.Height(appView)/2 - lipgloss.Height(content)/2
+		col := lipgloss.Width(appView)/2 - lipgloss.Width(content)/2
+		if row < 0 {
+			row = 0
+		}
+		if col < 0 {
+			col = 0
+		}
+		appView = layout.PlaceOverlay(col, row, content, appView, true)
 	}
 
-	if a.showOnboardingDialog {
-		overlay := a.onboardingDialog.View()
-		appView = layout.PlaceOverlay(
-			a.width/2-lipgloss.Width(overlay.Content)/2,
-			a.height/2-lipgloss.Height(overlay.Content)/2,
-			overlay.Content,
-			appView,
-			true,
-		)
+	// Draw every open modal in stack order (bottom → top).
+	for _, id := range a.modalStack {
+		switch id {
+		case ModalPermissions:
+			placeOverlayCentered(a.permissions.View().Content)
+		case ModalOnboarding:
+			placeOverlayCentered(a.onboardingDialog.View().Content)
+		case ModalFilepicker:
+			placeOverlayCentered(a.filepicker.View().Content)
+		case ModalHelp:
+			bindings := layout.KeyMapToSlice(keys)
+			if p, ok := a.pages[a.currentPage].(layout.Bindings); ok {
+				bindings = append(bindings, p.BindingKeys()...)
+			}
+			for _, m := range a.modalStack {
+				if m == ModalPermissions {
+					bindings = append(bindings, a.permissions.BindingKeys()...)
+					break
+				}
+			}
+			if a.currentPage == page.LogsPage {
+				bindings = append(bindings, logsKeyReturnKey)
+			}
+			if !a.app.Orchestrator.IsAnyBusy("") {
+				bindings = append(bindings, helpEsc)
+			}
+			a.help.SetBindings(bindings)
+			placeOverlayCentered(a.help.View().Content)
+		case ModalQuit:
+			placeOverlayCentered(a.quit.View().Content)
+		case ModalInfo:
+			placeOverlayCentered(a.infoDialog.View().Content)
+		case ModalSession:
+			placeOverlayCentered(a.sessionDialog.View().Content)
+		case ModalModel:
+			placeOverlayCentered(a.modelDialog.View().Content)
+		case ModalCommand:
+			content := a.commandDialog.View().Content
+			row := lipgloss.Height(appView)/2 - lipgloss.Height(content)/2
+			col := lipgloss.Width(appView)/2 - lipgloss.Width(content)/2 + int(a.cmdSlideOffset)
+			if row < 0 {
+				row = 0
+			}
+			if col < 0 {
+				col = 0
+			}
+			appView = layout.PlaceOverlay(col, row, content, appView, true)
+		case ModalTheme:
+			placeOverlayCentered(a.themeDialog.View().Content)
+		case ModalRename:
+			placeOverlayCentered(a.renameDialog.View().Content)
+		case ModalMultiArguments:
+			if a.multiArgumentsDialog != nil {
+				placeOverlayCentered(a.multiArgumentsDialog.View().Content)
+			}
+		}
 	}
 
-	if a.showFilepicker {
-		overlay := a.filepicker.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-
-	}
-
-	// Show compacting status overlay
+	// Compacting indicator draws on top of everything (it is not part of
+	// the dismissible modal stack — it reflects background work).
 	if a.isCompacting {
 		t := theme.CurrentTheme()
 		style := lipgloss.NewStyle().
@@ -997,162 +1113,6 @@ func (a appModel) View() tea.View {
 		)
 	}
 
-	if a.showHelp {
-		bindings := layout.KeyMapToSlice(keys)
-		if p, ok := a.pages[a.currentPage].(layout.Bindings); ok {
-			bindings = append(bindings, p.BindingKeys()...)
-		}
-		if a.showPermissions {
-			bindings = append(bindings, a.permissions.BindingKeys()...)
-		}
-		if a.currentPage == page.LogsPage {
-			bindings = append(bindings, logsKeyReturnKey)
-		}
-		if !a.app.Orchestrator.IsAnyBusy("") {
-			bindings = append(bindings, helpEsc)
-		}
-		a.help.SetBindings(bindings)
-
-		overlay := a.help.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showQuit {
-		overlay := a.quit.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showInfoDialog {
-		overlay := a.infoDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		if row < 0 {
-			row = 0
-		}
-		if col < 0 {
-			col = 0
-		}
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showSessionDialog {
-		overlay := a.sessionDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showModelDialog {
-		overlay := a.modelDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showCommandDialog {
-		overlay := a.commandDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView)/2 - lipgloss.Width(overlay.Content)/2
-		col += int(a.cmdSlideOffset)
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showThemeDialog {
-		overlay := a.themeDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showRenameDialog {
-		overlay := a.renameDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
-	if a.showMultiArgumentsDialog {
-		overlay := a.multiArgumentsDialog.View()
-		row := lipgloss.Height(appView) / 2
-		row -= lipgloss.Height(overlay.Content) / 2
-		col := lipgloss.Width(appView) / 2
-		col -= lipgloss.Width(overlay.Content) / 2
-		appView = layout.PlaceOverlay(
-			col,
-			row,
-			overlay.Content,
-			appView,
-			true,
-		)
-	}
-
 	t := theme.CurrentTheme()
 	bgColor := t.Background()
 	bgCol := bgColor.Dark
@@ -1170,7 +1130,7 @@ func (a appModel) View() tea.View {
 		lineStyle := lipgloss.NewStyle().Width(a.width).Background(bgColor)
 		for i, line := range lines {
 			renderedLine := lineStyle.Render(line)
-			renderedLine = strings.ReplaceAll(renderedLine, "\x1b[0m", "\x1b[0m"+bgAnsi)
+			renderedLine = styles.RepaintBackground(renderedLine, bgAnsi)
 			lines[i] = renderedLine + "\x1b[0m"
 		}
 		appView = strings.Join(lines, "\n")

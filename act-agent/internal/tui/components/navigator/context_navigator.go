@@ -3,7 +3,6 @@ package navigator
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -66,43 +65,10 @@ func phaseString(p app.Phase) string {
 }
 
 func getBadge(modelStr string) string {
-	if modelStr == "" {
-		return "H3"
-	}
-	lower := strings.ToLower(modelStr)
-	switch {
-	case strings.Contains(lower, "hermes"):
-		return "H3"
-	case strings.Contains(lower, "claude-3-7-sonnet"):
-		return "S7"
-	case strings.Contains(lower, "sonnet"):
-		return "SN"
-	case strings.Contains(lower, "gpt-4") || strings.Contains(lower, "gpt4"):
-		return "G4"
-	case strings.Contains(lower, "claude-code") || strings.Contains(lower, "claude"):
-		return "CC"
-	case strings.Contains(lower, "gemini-2.0-flash"):
-		return "G2"
-	case strings.Contains(lower, "gemini-1.5-pro"):
-		return "G1P"
-	case strings.Contains(lower, "deepseek-reasoner"), strings.Contains(lower, "deepseek-r1"):
-		return "R1"
-	case strings.Contains(lower, "deepseek-chat"), strings.Contains(lower, "deepseek-v3"):
-		return "V3"
-	case strings.Contains(lower, "llama-3.3-70b"):
-		return "L70"
-	case strings.Contains(lower, "qwen2.5-coder"):
-		return "QW"
-	default:
-		parts := strings.Split(modelStr, "-")
-		if len(parts) >= 2 && len(parts[0]) > 0 && len(parts[1]) > 0 {
-			return strings.ToUpper(parts[0][:1] + parts[1][:1])
-		}
-		if len(modelStr) >= 2 {
-			return strings.ToUpper(modelStr[:2])
-		}
-		return "M1"
-	}
+	// Delegates to the shared styles.ModelBadge — the navigator's private
+	// copy diverged from core/status.go's (different tables, different
+	// badges for the same model; audit H12).
+	return styles.ModelBadge(modelStr)
 }
 
 func (n *ContextNavigator) agentStatusLine(role string, phase app.Phase) (string, string, string) {
@@ -145,7 +111,11 @@ func (n *ContextNavigator) agentStatusLine(role string, phase app.Phase) (string
 		nameStr = bgStyle.Foreground(t.Error()).Bold(true).Render(role)
 	}
 
-	modelStr := "hermes-3-llama-3.1-8b"
+	// Model badge source. No fabricated default: an unconfigured role shows
+	// "-" (audit H10 — the old code invented "hermes-3-llama-3.1-8b" and the
+	// legend then presented it as fact). claude-code backend shows its
+	// backend name since there is no in-process model string.
+	modelStr := ""
 	cfg := config.Get()
 	if cfg != nil {
 		roleConfigName := config.AgentConfigForRole(actualRole)
@@ -198,9 +168,13 @@ func (n *ContextNavigator) View() tea.View {
 	lines = append(lines, mutedStyle.Render("Phase"))
 	lines = append(lines, textStyle.Render(phaseStr), "")
 
-	// Unified Last run: [time] role · event
-	nowStr := time.Now().Format("15:04")
-	lastRunStr := fmt.Sprintf("%s · idle", nowStr)
+	// Last run — real orchestrator telemetry. The previous version stamped
+	// the CURRENT wall clock into this line every minute while idle, which
+	// fabricated activity that never happened (audit H10). Now: shows the
+	// current speaker's actual turn-start time, or "no runs yet" when idle
+	// and no turns have happened this session.
+	lines = append(lines, mutedStyle.Render("Last run"))
+	lastRunStr := "no runs yet"
 	if n.app != nil && n.app.Orchestrator != nil {
 		speaker := n.app.Orchestrator.CurrentSpeaker()
 		if speaker != "" {
@@ -208,10 +182,13 @@ func (n *ContextNavigator) View() tea.View {
 			if speaker == "qa_synthesizer" {
 				label = "qa"
 			}
-			lastRunStr = fmt.Sprintf("%s · %s %s", nowStr, label, strings.ToLower(phaseStr))
+			if started, ok := n.app.Orchestrator.LastTurnAt(speaker); ok {
+				lastRunStr = fmt.Sprintf("%s · %s %s", started.Format("15:04"), label, strings.ToLower(phaseStr))
+			} else {
+				lastRunStr = fmt.Sprintf("· %s %s", label, strings.ToLower(phaseStr))
+			}
 		}
 	}
-	lines = append(lines, mutedStyle.Render("Last run"))
 	lines = append(lines, textStyle.Render(lastRunStr), "")
 
 	// Registered agents & collecting badge legend map
@@ -257,7 +234,7 @@ func (n *ContextNavigator) View() tea.View {
 	}
 	bgSeq := lipgloss.NewStyle().Background(t.Background()).Render("")
 	if bgSeq != "" {
-		rendered = strings.ReplaceAll(rendered, "\x1b[0m", "\x1b[0m"+bgSeq)
+		rendered = styles.RepaintBackground(rendered, bgSeq)
 	}
 	return tea.NewView(rendered)
 }

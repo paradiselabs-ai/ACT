@@ -271,10 +271,3 @@ func NewACTTheme() *ACTTheme {
 	return theme
 }
 
-func init() {
-	// Register the ACT theme with the theme manager
-	RegisterTheme("act", NewACTTheme())
-	// Backward compatibility alias
-	RegisterTheme("opencode", NewACTTheme())
-}
-

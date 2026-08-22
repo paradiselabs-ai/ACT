@@ -48,33 +48,36 @@ func NewNewlineTransport(r io.Reader, w io.Writer, closer io.Closer) *NewlineTra
 // reader. Returns io.EOF when the reader closes; the Client treats that as
 // the agent having exited.
 func (t *NewlineTransport) ReadFrame() (*Frame, error) {
-	// ReadBytes returns the delimiter as part of the slice — fine for the JSON
-	// parser, which tolerates trailing whitespace. We use ReadBytes (not Scanner)
-	// to avoid Scanner's default 64KB token limit; ACP responses with large tool
-	// results can exceed that, and growing Scanner's buffer is more awkward than
-	// just sizing the bufio.Reader appropriately.
-	line, err := t.r.ReadBytes('\n')
-	if err != nil {
-		// Surface a partial line if the agent died mid-write. bufio.Reader
-		// returns the unterminated bytes alongside io.EOF.
-		if len(line) > 0 && errors.Is(err, io.EOF) {
-			return nil, fmt.Errorf("acp transport: unexpected EOF mid-frame (%d bytes): %w", len(line), err)
+	for {
+		// ReadBytes returns the delimiter as part of the slice — fine for the JSON
+		// parser, which tolerates trailing whitespace. We use ReadBytes (not Scanner)
+		// to avoid Scanner's default 64KB token limit; ACP responses with large tool
+		// results can exceed that, and growing Scanner's buffer is more awkward than
+		// just sizing the bufio.Reader appropriately.
+		line, err := t.r.ReadBytes('\n')
+		if err != nil {
+			// Surface a partial line if the agent died mid-write. bufio.Reader
+			// returns the unterminated bytes alongside io.EOF.
+			if len(line) > 0 && errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("acp transport: unexpected EOF mid-frame (%d bytes): %w", len(line), err)
+			}
+			return nil, err
 		}
-		return nil, err
+		if len(line) == 1 {
+			// Stray blank line — tolerate by looping (NOT recursing: a buggy
+			// host emitting a long run of blank lines would otherwise blow the
+			// goroutine stack and take the whole TUI down).
+			continue
+		}
+		var f Frame
+		if err := json.Unmarshal(line, &f); err != nil {
+			return nil, fmt.Errorf("acp transport: malformed frame: %w (bytes=%d)", err, len(line))
+		}
+		if f.JSONRPC != "2.0" {
+			return nil, fmt.Errorf("acp transport: unexpected jsonrpc version %q", f.JSONRPC)
+		}
+		return &f, nil
 	}
-	if len(line) == 1 {
-		// Stray blank line — tolerate by reading again. The spec doesn't allow
-		// these but a robust client shouldn't die on whitespace.
-		return t.ReadFrame()
-	}
-	var f Frame
-	if err := json.Unmarshal(line, &f); err != nil {
-		return nil, fmt.Errorf("acp transport: malformed frame: %w (bytes=%d)", err, len(line))
-	}
-	if f.JSONRPC != "2.0" {
-		return nil, fmt.Errorf("acp transport: unexpected jsonrpc version %q", f.JSONRPC)
-	}
-	return &f, nil
 }
 
 // WriteFrame serialises v (typically a Request) as a JSON document and emits

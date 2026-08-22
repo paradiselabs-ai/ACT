@@ -140,7 +140,7 @@ func ForceBackgroundOnAllLines(input string, newBgColor color.Color) string {
 	}
 
 	for i, l := range lines {
-		l = strings.ReplaceAll(l, "\x1b[0m", "\x1b[0m"+bgSeq)
+		l = RepaintBackground(l, bgSeq)
 		w := lipgloss.Width(l)
 		if w < maxW {
 			l = l + bgSeq + strings.Repeat(" ", maxW-w)
@@ -149,4 +149,18 @@ func ForceBackgroundOnAllLines(input string, newBgColor color.Color) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// RepaintBackground re-establishes the given background SGR sequence after
+// every reset ("\x1b[0m") in the line, so bare text between styled spans
+// inherits the app background instead of the terminal default (the "black
+// strip" artifact — STYLING_GUIDE.md). Single-pass strings.Replacer; this
+// runs per line per frame in the layout hot path, and five separate copies
+// of the old ReplaceAll loop used to re-scan each line once per call site
+// (audit: Polish item).
+func RepaintBackground(line, bgSeq string) string {
+	if bgSeq == "" {
+		return line
+	}
+	return strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+bgSeq)
 }

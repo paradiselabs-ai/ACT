@@ -512,6 +512,11 @@ func applyDefaultValues() {
 func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 	// ACP-backed agents run an external CLI subprocess; model/provider are
 	// the external agent's concern, not ACT's in-process config.
+	// NOTE: "agy" accepted here as a READ alias for legacy hand-edited
+	// configs (it maps to antigravity in acp.buildCommand), but the WRITE
+	// boundaries (/backend via isValidTier1Backend, /swarm via
+	// runner.IsValidBackend) only accept canonical names — new configs must
+	// use "antigravity" so every validator agrees (audit H5).
 	switch agent.Backend {
 	case "claude-code", "gemini", "antigravity", "agy":
 		return nil

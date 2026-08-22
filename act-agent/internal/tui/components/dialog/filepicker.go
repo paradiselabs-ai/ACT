@@ -112,6 +112,17 @@ type AttachmentAddedMsg struct {
 	Attachment message.Attachment
 }
 
+// PreviewReadyMsg carries an asynchronously generated image preview back to
+// Update. The goroutine that produces it must never touch viewport state
+// directly — Bubbletea models are single-threaded, and off-loop SetContent
+// calls raced View/Update (and stale previews raced each other into
+// last-writer-wins garbage). path identifies the request so a slow preview
+// for an earlier cursor position can't overwrite a newer selection.
+type PreviewReadyMsg struct {
+	path    string
+	content string
+}
+
 func (f *filepickerCmp) Init() tea.Cmd {
 	return nil
 }
@@ -119,13 +130,22 @@ func (f *filepickerCmp) Init() tea.Cmd {
 func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case PreviewReadyMsg:
+		// Stale-result guard: only install the preview if the cursor still
+		// sits on the file it was generated for.
+		if f.cursor < len(f.dirs) {
+			fullPath := filepath.Join(f.cwdDetails.directory, f.dirs[f.cursor].Name())
+			if fullPath == msg.path {
+				f.viewport.SetContent(msg.content)
+			}
+		}
 	case tea.WindowSizeMsg:
 		f.width = 60
 		f.height = 20
 		f.viewport.SetWidth(80)
 		f.viewport.SetHeight(22)
 		f.cursor = 0
-		f.getCurrentFileBelowCursor()
+		return f, f.getCurrentFileBelowCursor()
 	case tea.KeyPressMsg:
 		if f.cwd.Focused() {
 			f.cwd, cmd = f.cwd.Update(msg)
@@ -135,21 +155,28 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			f.cwd.Focus()
 			return f, cmd
 		case key.Matches(msg, filePickerKeyMap.Esc):
+			// Single esc case. The original code had TWO esc cases in this
+			// switch — Go takes the first match, so this second one (cursor
+			// reset when not focused) was unreachable dead code (audit M11).
+			// Its reset behavior is preserved here.
 			if f.cwd.Focused() {
 				f.cwd.Blur()
+			} else {
+				f.cursorChain = make(stack, 0)
+				f.cursor = 0
 			}
 		case key.Matches(msg, filePickerKeyMap.Down):
 			if !f.cwd.Focused() || msg.String() == downArrow {
 				if f.cursor < len(f.dirs)-1 {
 					f.cursor++
-					f.getCurrentFileBelowCursor()
+					return f, f.getCurrentFileBelowCursor()
 				}
 			}
 		case key.Matches(msg, filePickerKeyMap.Up):
 			if !f.cwd.Focused() || msg.String() == upArrow {
 				if f.cursor > 0 {
 					f.cursor--
-					f.getCurrentFileBelowCursor()
+					return f, f.getCurrentFileBelowCursor()
 				}
 			}
 		case key.Matches(msg, filePickerKeyMap.Enter):
@@ -175,17 +202,10 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				f.dirs = readDir(f.cwdDetails.directory, false)
 				f.cursor = 0
 				f.cwd.SetValue(f.cwdDetails.directory)
-				f.getCurrentFileBelowCursor()
+				return f, f.getCurrentFileBelowCursor()
 			} else {
 				f.selectedFile = path
 				return f.addAttachmentToMessage()
-			}
-		case key.Matches(msg, filePickerKeyMap.Esc):
-			if !f.cwd.Focused() {
-				f.cursorChain = make(stack, 0)
-				f.cursor = 0
-			} else {
-				f.cwd.Blur()
 			}
 		case key.Matches(msg, filePickerKeyMap.Forward):
 			if !f.cwd.Focused() {
@@ -198,7 +218,7 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					f.dirs = readDir(f.cwdDetails.directory, false)
 					f.cursor = 0
 					f.cwd.SetValue(f.cwdDetails.directory)
-					f.getCurrentFileBelowCursor()
+					return f, f.getCurrentFileBelowCursor()
 				}
 			}
 		case key.Matches(msg, filePickerKeyMap.Backward):
@@ -209,13 +229,13 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					f.cwdDetails.child = nil
 					f.dirs = readDir(f.cwdDetails.directory, false)
 					f.cwd.SetValue(f.cwdDetails.directory)
-					f.getCurrentFileBelowCursor()
+					return f, f.getCurrentFileBelowCursor()
 				}
 			}
 		case key.Matches(msg, filePickerKeyMap.OpenFilePicker):
 			f.dirs = readDir(f.cwdDetails.directory, false)
 			f.cursor = 0
-			f.getCurrentFileBelowCursor()
+			return f, f.getCurrentFileBelowCursor()
 		}
 	}
 	return f, cmd
@@ -371,8 +391,15 @@ func (f *filepickerCmp) IsCWDFocused() bool {
 func NewFilepickerCmp(app *app.App) FilepickerCmp {
 	homepath, err := os.UserHomeDir()
 	if err != nil {
-		logging.Error("error loading user files")
-		return nil
+		// Never return a nil interface — appModel dereferences the filepicker
+		// unconditionally (Init/Update/View), and a nil FilepickerCmp would
+		// panic the whole TUI on the first keypress (audit M11). Fall back to
+		// the process working directory; navigation still works from there.
+		logging.Error("error loading user files — filepicker falling back to cwd")
+		homepath, err = os.Getwd()
+		if err != nil {
+			homepath = "."
+		}
 	}
 	baseDir := DirNode{parent: nil, directory: homepath}
 	dirs := readDir(homepath, false)
@@ -384,31 +411,32 @@ func NewFilepickerCmp(app *app.App) FilepickerCmp {
 	return &filepickerCmp{cwdDetails: &baseDir, dirs: dirs, cursorChain: make(stack, 0), viewport: viewport, cwd: currentDirectory, app: app}
 }
 
-func (f *filepickerCmp) getCurrentFileBelowCursor() {
+func (f *filepickerCmp) getCurrentFileBelowCursor() tea.Cmd {
 	if len(f.dirs) == 0 || f.cursor < 0 || f.cursor >= len(f.dirs) {
 		logging.Error(fmt.Sprintf("Invalid cursor position. Dirs length: %d, Cursor: %d", len(f.dirs), f.cursor))
 		f.viewport.SetContent("Preview unavailable")
-		return
+		return nil
 	}
 
 	dir := f.dirs[f.cursor]
 	filename := dir.Name()
 	if !dir.IsDir() && isExtSupported(filename) {
-		fullPath := f.cwdDetails.directory + "/" + dir.Name()
+		fullPath := filepath.Join(f.cwdDetails.directory, dir.Name())
 
-		go func() {
+		// Generate the preview off-loop and deliver it as a msg so SetContent
+		// happens on the Bubbletea Update loop. The goroutine closes over only
+		// immutable locals (path), never component state.
+		return func() tea.Msg {
 			imageString, err := image.ImagePreview(f.viewport.Width()-4, fullPath)
 			if err != nil {
 				logging.Error(err.Error())
-				f.viewport.SetContent("Preview unavailable")
-				return
+				return PreviewReadyMsg{path: fullPath, content: "Preview unavailable"}
 			}
-
-			f.viewport.SetContent(imageString)
-		}()
-	} else {
-		f.viewport.SetContent("Preview unavailable")
+			return PreviewReadyMsg{path: fullPath, content: imageString}
+		}
 	}
+	f.viewport.SetContent("Preview unavailable")
+	return nil
 }
 
 func readDir(path string, showHidden bool) []os.DirEntry {

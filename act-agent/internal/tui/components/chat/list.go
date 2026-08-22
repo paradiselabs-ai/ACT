@@ -136,6 +136,8 @@ func (m *messagesCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case sessionLoadedMsg:
+		return m, m.applyLoadedSession(msg)
 	case SessionClearedMsg:
 		m.session = session.Session{}
 		m.messages = make([]message.Message, 0)
@@ -610,16 +612,42 @@ func (m *messagesCmp) GetSize() (int, int) {
 	return m.width, m.height
 }
 
+// sessionLoadedMsg carries the result of an asynchronous Messages.List for
+// a session switch (audit H11: the DB query used to run synchronously
+// inside Update, freezing the UI on large sessions). sessionID guards the
+// stale case — the user switched again before the load finished.
+type sessionLoadedMsg struct {
+	sessionID string
+	messages  []message.Message
+	err       error
+}
+
 func (m *messagesCmp) SetSession(session session.Session) tea.Cmd {
 	if m.session.ID == session.ID {
 		return nil
 	}
+	// Optimistic switch: adopt the session header immediately so the UI is
+	// responsive, then load the transcript off the Update loop. While the
+	// load is in flight the pane shows an empty body; sessionLoadedMsg
+	// fills it. A stale result (user kept switching) is dropped by ID.
 	m.session = session
-	messages, err := m.app.Messages.List(context.Background(), session.ID)
-	if err != nil {
-		return util.ReportError(err)
+	sid := session.ID
+	return func() tea.Msg {
+		messages, err := m.app.Messages.List(context.Background(), sid)
+		return sessionLoadedMsg{sessionID: sid, messages: messages, err: err}
 	}
-	m.messages = messages
+}
+
+// applyLoadedSession installs a completed async load. Returns a Cmd for the
+// queued Glamour renders, or nil.
+func (m *messagesCmp) applyLoadedSession(msg sessionLoadedMsg) tea.Cmd {
+	if msg.err != nil {
+		return util.ReportError(msg.err)
+	}
+	if msg.sessionID != m.session.ID {
+		return nil // stale — user switched away mid-load
+	}
+	m.messages = msg.messages
 	if len(m.messages) > 0 {
 		m.currentMsgID = m.messages[len(m.messages)-1].ID
 	}

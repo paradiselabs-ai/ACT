@@ -95,7 +95,7 @@ func (p *logsPage) View() tea.View {
 	baseStyle := styles.BaseStyle().Background(t.Background())
 	padStyle := baseStyle.Background(t.Background())
 
-	totalLogs := len(logging.List())
+	totalLogs := logging.Count()
 
 	leftTitle := baseStyle.Bold(true).Foreground(t.Primary()).Render(" SYSTEM LOGS ")
 	countStr := baseStyle.Foreground(t.TextMuted()).Render(fmt.Sprintf("(%d entries) ", totalLogs))
@@ -140,7 +140,7 @@ func (p *logsPage) View() tea.View {
 	rendered := strings.Join(allLines, "\n")
 	bgSeq := padStyle.Render("")
 	if bgSeq != "" {
-		rendered = strings.ReplaceAll(rendered, "\x1b[0m", "\x1b[0m"+bgSeq)
+		rendered = styles.RepaintBackground(rendered, bgSeq)
 	}
 
 	return tea.NewView(rendered)

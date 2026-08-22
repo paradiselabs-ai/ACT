@@ -32,12 +32,19 @@ type statusCmp struct {
 	messageTTL time.Duration
 	lspClients map[string]*lsp.Client
 	session    session.Session
+
+	// infoGen increments on every InfoMsg. Each clear timer is bound to the
+	// generation it was scheduled for; a stale tick (older gen) is ignored.
+	// Without this, two messages 5s apart meant the FIRST message's 10s tick
+	// cleared the SECOND message halfway through its lifetime.
+	infoGen uint64
 }
 
-// clearMessageCmd is a command that clears status messages after a timeout
-func (m statusCmp) clearMessageCmd(ttl time.Duration) tea.Cmd {
+// clearMessageCmd is a command that clears status messages after a timeout,
+// scoped to the generation that scheduled it
+func (m statusCmp) clearMessageCmd(ttl time.Duration, gen uint64) tea.Cmd {
 	return tea.Tick(ttl, func(time.Time) tea.Msg {
-		return util.ClearStatusMsg{}
+		return util.ClearStatusMsg{Gen: gen}
 	})
 }
 
@@ -62,13 +69,18 @@ func (m statusCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case util.InfoMsg:
 		m.info = msg
+		m.infoGen++
 		ttl := msg.TTL
 		if ttl == 0 {
 			ttl = m.messageTTL
 		}
-		return m, m.clearMessageCmd(ttl)
+		return m, m.clearMessageCmd(ttl, m.infoGen)
 	case util.ClearStatusMsg:
-		m.info = util.InfoMsg{}
+		// Ignore ticks scheduled for an older message — only the newest
+		// generation may clear the banner.
+		if msg.Gen == m.infoGen {
+			m.info = util.InfoMsg{}
+		}
 	}
 	return m, nil
 }
@@ -209,31 +221,10 @@ func (m statusCmp) View() tea.View {
 }
 
 func getBadge(modelStr string) string {
-	if modelStr == "" {
-		return "H3"
-	}
-	modelLower := strings.ToLower(modelStr)
-	switch {
-	case strings.Contains(modelLower, "hermes"):
-		return "H3"
-	case strings.Contains(modelLower, "sonnet"):
-		return "SN"
-	case strings.Contains(modelLower, "gpt-4") || strings.Contains(modelLower, "gpt4"):
-		return "G4"
-	case strings.Contains(modelLower, "claude-code") || strings.Contains(modelLower, "claude"):
-		return "CC"
-	case strings.Contains(modelLower, "haiku"):
-		return "HK"
-	case strings.Contains(modelLower, "opus"):
-		return "OP"
-	case strings.Contains(modelLower, "llama"):
-		return "L3"
-	default:
-		if len(modelStr) > 4 {
-			return modelStr[:4]
-		}
-		return modelStr
-	}
+	// Delegates to the shared styles.ModelBadge — the status strip's private
+	// copy and the navigator's diverged (audit H12). Empty model now yields
+	// "-" instead of the old misleading "H3" default.
+	return styles.ModelBadge(modelStr)
 }
 
 // tier1ModelsCompact renders the Tier 1 model strip in its tightest form

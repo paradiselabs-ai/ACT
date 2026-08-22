@@ -68,9 +68,9 @@ func TestAppModel_RenamePrecedence(t *testing.T) {
 		t.Fatalf("expected *appModel, got %T", model)
 	}
 
-	// 1. Initially, showRenameDialog is false
-	if am.showRenameDialog {
-		t.Fatal("expected showRenameDialog to be false initially")
+	// 1. Initially, the rename modal is not on the stack
+	if am.isModalActive(ModalRename) {
+		t.Fatal("expected ModalRename to be inactive initially")
 	}
 
 	// 2. Select a session so renaming is allowed
@@ -84,8 +84,11 @@ func TestAppModel_RenamePrecedence(t *testing.T) {
 		t.Fatalf("expected appModel, got %T", updatedModel)
 	}
 
-	// Verification
-	if !updatedAm.showRenameDialog {
-		t.Error("expected showRenameDialog to be true after ctrl+e keypress")
+	// Verification — the rename modal must now be the TOP of the stack
+	if !updatedAm.isModalActive(ModalRename) {
+		t.Error("expected ModalRename active after ctrl+e keypress")
+	}
+	if top, ok := updatedAm.topModal(); !ok || top != ModalRename {
+		t.Errorf("expected ModalRename as stack top, got %v (ok=%v)", top, ok)
 	}
 }

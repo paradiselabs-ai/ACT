@@ -1323,6 +1323,17 @@ func (o *Orchestrator) CurrentSpeaker() string {
 	return o.currentSpeaker
 }
 
+// LastTurnAt returns the start time of the most recent turn for the given
+// Tier 1 role. ok is false when that role has never run this session —
+// callers must render "never" rather than substituting wall-clock time
+// (audit H10: the navigator used to fake it with time.Now()).
+func (o *Orchestrator) LastTurnAt(role string) (time.Time, bool) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	t, ok := o.lastTurnAt[role]
+	return t, ok
+}
+
 // IsAnyBusy returns true if any agent is busy.
 // If sessionID is non-empty, checks that specific session; otherwise checks globally.
 func (o *Orchestrator) IsAnyBusy(sessionID string) bool {

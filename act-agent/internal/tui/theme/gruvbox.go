@@ -297,7 +297,3 @@ func NewGruvboxTheme() *GruvboxTheme {
 	return theme
 }
 
-func init() {
-	// Register the Gruvbox theme with the theme manager
-	RegisterTheme("gruvbox", NewGruvboxTheme())
-}

@@ -25,29 +25,125 @@ type sidebarCmp struct {
 		additions int
 		removals  int
 	}
+
+	// filesCh is subscribed ONCE for the component's lifetime. The previous
+	// implementation re-subscribed on every incoming file event, and each
+	// subscription's cancel context was context.Background() — never
+	// cancelled — so every event permanently leaked a channel + goroutine
+	// into the history Broker. The Cmd below re-reads from this same
+	// channel instead.
+	filesCh   <-chan pubsub.Event[history.File]
+	subCancel context.CancelFunc
+}
+
+// filesLoadedMsg carries the recomputed modified-files map after an
+// asynchronous reload (audit H11: loadModifiedFiles ran two full-session
+// DB queries synchronously inside Update on every session switch).
+// sessionID guards stale results.
+type filesLoadedMsg struct {
+	sessionID string
+	files     map[string]struct {
+		additions int
+		removals  int
+	}
+}
+
+// fileDiffComputedMsg carries the diff stats for one file after an async
+// initial-version lookup + diff computation on the event path.
+type fileDiffComputedMsg struct {
+	sessionID string
+	path      string // display path (post workingDir-trim)
+	present   bool   // false → remove from map
+	additions int
+	removals  int
 }
 
 func (m *sidebarCmp) Init() tea.Cmd {
 	if m.history != nil {
-		ctx := context.Background()
-		// Subscribe to file events
-		filesCh := m.history.Subscribe(ctx)
-
 		// Initialize the modified files map
 		m.modFiles = make(map[string]struct {
 			additions int
 			removals  int
 		})
 
-		// Load initial files and calculate diffs
-		m.loadModifiedFiles(ctx)
+		// One subscription, owned by a cancellable context stored on the
+		// component so it can be torn down exactly once.
+		subCtx, cancel := context.WithCancel(context.Background())
+		m.subCancel = cancel
+		m.filesCh = m.history.Subscribe(subCtx)
 
-		// Return a command that will send file events to the Update method
-		return func() tea.Msg {
-			return <-filesCh
-		}
+		// Kick the initial load off-loop (audit H11) and start listening.
+		return tea.Batch(m.waitForFileEvent(), m.loadModifiedFilesAsync())
 	}
 	return nil
+}
+
+// loadModifiedFilesAsync recomputes the whole modified-files map off the
+// Update loop and posts filesLoadedMsg. Snapshot of sessionID is taken at
+// construction; the Update handler drops stale results.
+func (m *sidebarCmp) loadModifiedFilesAsync() tea.Cmd {
+	if m.history == nil || m.session.ID == "" {
+		return nil
+	}
+	sid := m.session.ID
+	historySvc := m.history
+	workingDir := config.WorkingDirectory()
+	return func() tea.Msg {
+		files := map[string]struct {
+			additions int
+			removals  int
+		}{}
+		ctx := context.Background()
+
+		latestFiles, err := historySvc.ListLatestSessionFiles(ctx, sid)
+		if err != nil {
+			return filesLoadedMsg{sessionID: sid, files: files}
+		}
+		allFiles, err := historySvc.ListBySession(ctx, sid)
+		if err != nil {
+			return filesLoadedMsg{sessionID: sid, files: files}
+		}
+
+		initialByPath := make(map[string]history.File)
+		for _, v := range allFiles {
+			if v.Version == history.InitialVersion {
+				initialByPath[v.Path] = v
+			}
+		}
+
+		for _, file := range latestFiles {
+			if file.Version == history.InitialVersion {
+				continue
+			}
+			initialVersion, ok := initialByPath[file.Path]
+			if !ok || initialVersion.Content == file.Content {
+				continue
+			}
+			_, additions, removals := diff.GenerateDiff(initialVersion.Content, file.Content, file.Path)
+			if additions == 0 && removals == 0 {
+				continue
+			}
+			displayPath := strings.TrimPrefix(strings.TrimPrefix(file.Path, workingDir), "/")
+			files[displayPath] = struct {
+				additions int
+				removals  int
+			}{additions: additions, removals: removals}
+		}
+		return filesLoadedMsg{sessionID: sid, files: files}
+	}
+}
+
+// waitForFileEvent returns a Cmd that resolves with the next file-history
+// event from the component's single subscription.
+func (m *sidebarCmp) waitForFileEvent() tea.Cmd {
+	ch := m.filesCh
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
 }
 
 func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -55,9 +151,28 @@ func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SessionSelectedMsg:
 		if msg.ID != m.session.ID {
 			m.session = msg
-			ctx := context.Background()
-			m.loadModifiedFiles(ctx)
+			// Async reload — the two full-session DB queries must not run on
+			// the Update loop (audit H11).
+			return m, m.loadModifiedFilesAsync()
 		}
+	case filesLoadedMsg:
+		// Stale guard: user switched sessions while this load was in flight.
+		if msg.sessionID == m.session.ID {
+			m.modFiles = msg.files
+		}
+	case fileDiffComputedMsg:
+		if msg.sessionID != m.session.ID {
+			break
+		}
+		displayPath := getDisplayPath(msg.path)
+		if !msg.present || (msg.additions == 0 && msg.removals == 0) {
+			delete(m.modFiles, displayPath)
+			break
+		}
+		m.modFiles[displayPath] = struct {
+			additions int
+			removals  int
+		}{additions: msg.additions, removals: msg.removals}
 	case pubsub.Event[session.Session]:
 		if msg.Type == pubsub.UpdatedEvent {
 			if m.session.ID == msg.Payload.ID {
@@ -66,17 +181,14 @@ func (m *sidebarCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case pubsub.Event[history.File]:
 		if msg.Payload.SessionID == m.session.ID {
-			// Process the individual file change instead of reloading all files
-			ctx := context.Background()
-			m.processFileChanges(ctx, msg.Payload)
-
-			// Return a command to continue receiving events
-			return m, func() tea.Msg {
-				ctx := context.Background()
-				filesCh := m.history.Subscribe(ctx)
-				return <-filesCh
-			}
+			// Diff computation (initial-version lookup + GenerateDiff) is DB
+			// + CPU work — off-loop via Cmd, result lands as fileDiffComputedMsg.
+			cmd := m.processFileChangesAsync(msg.Payload)
+			// Keep listening on the SAME subscription — no re-subscribe.
+			return m, tea.Batch(cmd, m.waitForFileEvent())
 		}
+		// Event for another session: still re-arm so the stream doesn't stall.
+		return m, m.waitForFileEvent()
 	}
 	return m, nil
 }
@@ -242,132 +354,53 @@ func NewSidebarCmp(session session.Session, history history.Service) tea.Model {
 	}
 }
 
-func (m *sidebarCmp) loadModifiedFiles(ctx context.Context) {
-	if m.history == nil || m.session.ID == "" {
-		return
+// processFileChangesAsync computes one file's diff stats off the Update
+// loop (initial-version DB lookup + GenerateDiff) and posts
+// fileDiffComputedMsg. Replaces the synchronous processFileChanges/
+// findInitialVersion pair (audit H11).
+func (m *sidebarCmp) processFileChangesAsync(file history.File) tea.Cmd {
+	if m.history == nil {
+		return nil
 	}
-
-	// Get all latest files for this session
-	latestFiles, err := m.history.ListLatestSessionFiles(ctx, m.session.ID)
-	if err != nil {
-		return
-	}
-
-	// Get all files for this session (to find initial versions)
-	allFiles, err := m.history.ListBySession(ctx, m.session.ID)
-	if err != nil {
-		return
-	}
-
-	// Clear the existing map to rebuild it
-	m.modFiles = make(map[string]struct {
-		additions int
-		removals  int
-	})
-
-	// Process each latest file
-	for _, file := range latestFiles {
-		// Skip if this is the initial version (no changes to show)
-		if file.Version == history.InitialVersion {
-			continue
-		}
-
-		// Find the initial version for this specific file
-		var initialVersion history.File
-		for _, v := range allFiles {
-			if v.Path == file.Path && v.Version == history.InitialVersion {
-				initialVersion = v
-				break
-			}
-		}
-
-		// Skip if we can't find the initial version
-		if initialVersion.ID == "" {
-			continue
-		}
-		if initialVersion.Content == file.Content {
-			continue
-		}
-
-		// Calculate diff between initial and latest version
-		_, additions, removals := diff.GenerateDiff(initialVersion.Content, file.Content, file.Path)
-
-		// Only add to modified files if there are changes
-		if additions > 0 || removals > 0 {
-			// Remove working directory prefix from file path
-			displayPath := file.Path
-			workingDir := config.WorkingDirectory()
-			displayPath = strings.TrimPrefix(displayPath, workingDir)
-			displayPath = strings.TrimPrefix(displayPath, "/")
-
-			m.modFiles[displayPath] = struct {
-				additions int
-				removals  int
-			}{
-				additions: additions,
-				removals:  removals,
-			}
-		}
-	}
-}
-
-func (m *sidebarCmp) processFileChanges(ctx context.Context, file history.File) {
 	// Skip if this is the initial version (no changes to show)
 	if file.Version == history.InitialVersion {
-		return
+		return nil
 	}
+	sid := m.session.ID
+	historySvc := m.history
+	return func() tea.Msg {
+		ctx := context.Background()
+		initialVersion, err := func() (history.File, error) {
+			fileVersions, err := historySvc.ListBySession(ctx, sid)
+			if err != nil {
+				return history.File{}, err
+			}
+			for _, v := range fileVersions {
+				if v.Path == file.Path && v.Version == history.InitialVersion {
+					return v, nil
+				}
+			}
+			return history.File{}, fmt.Errorf("initial version not found")
+		}()
+		if err != nil || initialVersion.ID == "" {
+			// No initial version to compare against — nothing to show.
+			return fileDiffComputedMsg{sessionID: sid, path: file.Path, present: false}
+		}
 
-	// Find the initial version for this file
-	initialVersion, err := m.findInitialVersion(ctx, file.Path)
-	if err != nil || initialVersion.ID == "" {
-		return
-	}
+		if initialVersion.Content == file.Content {
+			// File reverted to its initial version — drop it from the list.
+			return fileDiffComputedMsg{sessionID: sid, path: file.Path, present: false}
+		}
 
-	// Skip if content hasn't changed
-	if initialVersion.Content == file.Content {
-		// If this file was previously modified but now matches the initial version,
-		// remove it from the modified files list
-		displayPath := getDisplayPath(file.Path)
-		delete(m.modFiles, displayPath)
-		return
-	}
-
-	// Calculate diff between initial and latest version
-	_, additions, removals := diff.GenerateDiff(initialVersion.Content, file.Content, file.Path)
-
-	// Only add to modified files if there are changes
-	if additions > 0 || removals > 0 {
-		displayPath := getDisplayPath(file.Path)
-		m.modFiles[displayPath] = struct {
-			additions int
-			removals  int
-		}{
+		_, additions, removals := diff.GenerateDiff(initialVersion.Content, file.Content, file.Path)
+		return fileDiffComputedMsg{
+			sessionID: sid,
+			path:      file.Path,
+			present:   additions > 0 || removals > 0,
 			additions: additions,
 			removals:  removals,
 		}
-	} else {
-		// If no changes, remove from modified files
-		displayPath := getDisplayPath(file.Path)
-		delete(m.modFiles, displayPath)
 	}
-}
-
-// Helper function to find the initial version of a file
-func (m *sidebarCmp) findInitialVersion(ctx context.Context, path string) (history.File, error) {
-	// Get all versions of this file for the session
-	fileVersions, err := m.history.ListBySession(ctx, m.session.ID)
-	if err != nil {
-		return history.File{}, err
-	}
-
-	// Find the initial version
-	for _, v := range fileVersions {
-		if v.Path == path && v.Version == history.InitialVersion {
-			return v, nil
-		}
-	}
-
-	return history.File{}, fmt.Errorf("initial version not found")
 }
 
 // Helper function to get the display path for a file

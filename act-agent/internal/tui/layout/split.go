@@ -1,21 +1,28 @@
 package layout
 
 import (
+	"encoding/hex"
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/styles"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/tui/theme"
 )
 
-func hexToBgAnsi(hex string) string {
-	hex = strings.TrimPrefix(hex, "#")
-	if len(hex) == 6 {
-		var r, g, b uint8
-		fmt.Sscanf(hex, "%02x%02x%02x", &r, &g, &b)
-		return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r, g, b)
+// hexToBgAnsi converts "#rrggbb" to a truecolor background SGR sequence.
+// Uses encoding/hex for strict parsing — the previous Sscanf-on-%v-output
+// approach could never match and always fell through to the hardcoded
+// #212121 fallback (audit M13).
+func hexToBgAnsi(hexColor string) string {
+	hexColor = strings.TrimPrefix(hexColor, "#")
+	if len(hexColor) == 6 {
+		if raw, err := hex.DecodeString(hexColor); err == nil && len(raw) == 3 {
+			return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", raw[0], raw[1], raw[2])
+		}
 	}
 	return "\x1b[48;2;33;33;33m"
 }
@@ -137,7 +144,18 @@ func (s *splitPaneLayout) View() tea.View {
 	if finalView != "" {
 		t := theme.CurrentTheme()
 		bgColor := t.Background()
-		bgAnsi := hexToBgAnsi(fmt.Sprintf("%v", bgColor.Dark))
+		// Extract RGB from the resolved dark-variant color directly. The old
+		// code did hexToBgAnsi(fmt.Sprintf("%v", bgColor.Dark)) — %v on a
+		// color.RGBA prints a struct literal that Sscanf can never parse,
+		// so every theme silently fell through to the hardcoded #212121
+		// fallback (audit M13). Themes whose Dark color is a lipgloss.Color
+		// hex carry a color.RGBA under the color.Color interface.
+		var bgAnsi string
+		if rgba, ok := bgColor.Dark.(color.RGBA); ok {
+			bgAnsi = fmt.Sprintf("\x1b[48;2;%d;%d;%dm", rgba.R, rgba.G, rgba.B)
+		} else {
+			bgAnsi = hexToBgAnsi("#212121")
+		}
 
 		lines := strings.Split(finalView, "\n")
 		if s.height > 0 {
@@ -157,7 +175,7 @@ func (s *splitPaneLayout) View() tea.View {
 		for i, line := range lines {
 			renderedLine := lineStyle.Render(line)
 			if bgAnsi != "" {
-				renderedLine = strings.ReplaceAll(renderedLine, "\x1b[0m", "\x1b[0m"+bgAnsi)
+				renderedLine = styles.RepaintBackground(renderedLine, bgAnsi)
 			}
 			lines[i] = renderedLine + "\x1b[0m"
 		}

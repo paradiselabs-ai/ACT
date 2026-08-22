@@ -29,6 +29,37 @@ var RoleSubcommands = map[string][]string{
 		"task abandon",   // mark a task permanently failed (skips retry)
 		"prompt-section", // fetch on-demand Planner reference section (ACP parity for expand_prompt_section)
 	},
+	// Swarm roles report their own failures so the server's retry ladder can
+	// re-dispatch (audit H8: previously only abandon existed, which skips
+	// retry — a worker that failed mid-attempt had no way to say so).
+	"developer": {
+		"status",
+		"context",
+		"log",
+		"message",
+		"task fail", // retryable failure report (reason required)
+	},
+	"frontend_dev": {
+		"status",
+		"context",
+		"log",
+		"message",
+		"task fail",
+	},
+	"backend_dev": {
+		"status",
+		"context",
+		"log",
+		"message",
+		"task fail",
+	},
+	"qa_engineer": {
+		"status",
+		"context",
+		"log",
+		"message",
+		"task fail",
+	},
 	"observer": {
 		"status",
 		"log",

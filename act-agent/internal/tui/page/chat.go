@@ -34,11 +34,12 @@ import (
 // settles, no continuous tick exists. Without one, mid-stream frames buffer
 // indefinitely on slow LLM streams.
 //
-// Safety cap: flushTickCap (240 = 60s @ 250ms) prevents an infinite loop if
-// IsAnyBusy ever fails to transition to false.
+// Safety cap removed: the loop's stop condition is IsAnyBusy transitioning
+// to false, which is authoritative. The old flushTickCap (240 ticks = 60s)
+// permanently ended nudging after one minute since the last send — any
+// Tier-1 run longer than that reinstated the exact freeze this loop exists
+// to fix (frames buffered until a keypress).
 type flushTickMsg struct{}
-
-const flushTickCap = 240 // 60 seconds @ 250ms intervals
 
 var ChatPage PageID = "chat"
 
@@ -109,11 +110,8 @@ func (p *chatPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case flushTickMsg:
 		// While any Tier 1 role is busy, keep nudging the event loop so the
 		// synchronized-output buffer flushes mid-stream. Stops when all roles
-		// idle or after flushTickCap iterations (safety).
-		if p.flushTickCount >= flushTickCap {
-			p.flushTickCount = 0
-			return p, nil
-		}
+		// idle. (No wall-clock cap — see the flushTickMsg doc comment: a cap
+		// reinstates the freeze on runs longer than the cap.)
 		if p.app.Orchestrator != nil && !p.app.Orchestrator.IsAnyBusy(p.session.ID) {
 			p.flushTickCount = 0
 			return p, nil
@@ -306,22 +304,22 @@ If there are Cursor rules (.cursor/rules/) or Copilot rules (.github/copilot-ins
 				Content: response,
 			})
 		}
+
+		// Bare slash-command aliases for the palette's direct CLI commands.
+		// The completion menu (completions/slash.go) advertises /tasks
+		// /validation /conflicts; before this case they fell through to the
+		// Planner as literal chat text.
+		if argv, ok := directSlashArgv(firstWord); ok {
+			p.dispatchDirectCommand(firstWord, argv, &cmds)
+			return tea.Batch(cmds...)
+		}
 	}
 
 	// Palette-ID intercept — if the user typed a palette command literally
 	// (e.g. "act-agent:status"), dispatch the deterministic CLI handler instead of
 	// routing to the Planner. Keep this argv map in sync with tui.go.
 	if argv, ok := paletteCmdArgv(trimmed); ok {
-		if p.session.ID == "" {
-			sess, err := p.app.Sessions.Create(context.Background(), "New Session")
-			if err != nil {
-				return util.ReportError(err)
-			}
-			p.session = sess
-			cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(sess)))
-		}
-		sid := p.session.ID
-		go p.app.Orchestrator.RunDirectCommand(context.Background(), sid, trimmed, argv)
+		p.dispatchDirectCommand(trimmed, argv, &cmds)
 		return tea.Batch(cmds...)
 	}
 
@@ -379,6 +377,38 @@ func paletteCmdArgv(s string) ([]string, bool) {
 		return []string{"swarm"}, true
 	}
 	return nil, false
+}
+
+// directSlashArgv maps the bare slash aliases advertised by the completion
+// menu (completions/slash.go DefaultSlashCommands) onto the same direct-CLI
+// argv as their palette equivalents. Keep in sync with paletteCmdArgv.
+func directSlashArgv(cmd string) ([]string, bool) {
+	switch cmd {
+	case "/tasks":
+		return []string{"graph", "unverified"}, true
+	case "/validation":
+		return []string{"validation", "queue"}, true
+	case "/conflicts":
+		return []string{"graph", "conflicts"}, true
+	}
+	return nil, false
+}
+
+// dispatchDirectCommand ensures a session exists, then shells the argv out to
+// the act CLI via the orchestrator on a background goroutine. Shared by the
+// palette-ID intercept and the bare slash-command aliases.
+func (p *chatPage) dispatchDirectCommand(label string, argv []string, cmds *[]tea.Cmd) {
+	if p.session.ID == "" {
+		sess, err := p.app.Sessions.Create(context.Background(), "New Session")
+		if err != nil {
+			*cmds = append(*cmds, util.ReportError(err))
+			return
+		}
+		p.session = sess
+		*cmds = append(*cmds, util.CmdHandler(chat.SessionSelectedMsg(sess)))
+	}
+	sid := p.session.ID
+	go p.app.Orchestrator.RunDirectCommand(context.Background(), sid, label, argv)
 }
 
 func (p *chatPage) SetSize(width, height int) tea.Cmd {

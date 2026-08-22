@@ -345,9 +345,16 @@ func isTier1Role(s string) bool {
 // backend identifier. Kept narrow on purpose — adding "codex" / "opencode"
 // here is the same gesture as wiring them up in
 // internal/acp/agent.go's buildCommand switch.
+//
+// "agy" is deliberately NOT accepted even though acp.buildCommand treats it
+// as an alias for antigravity: this value is PERSISTED to ~/.act.json, and
+// runner.IsValidBackend — which /swarm and every re-validating consumer
+// uses — does not know the alias. Accepting it here produced configs that
+// other validators reject (audit finding H5). The alias belongs at spawn
+// time only; the config vocabulary stays canonical.
 func isValidTier1Backend(s string) bool {
 	switch s {
-	case "act-agent", "claude-code", "gemini", "antigravity", "agy", "devin":
+	case "act-agent", "claude-code", "gemini", "antigravity", "devin":
 		return true
 	}
 	return false

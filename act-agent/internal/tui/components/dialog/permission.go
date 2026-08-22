@@ -455,22 +455,35 @@ func (p *permissionDialogCmp) SetSize() tea.Cmd {
 	if p.permission.ID == "" {
 		return nil
 	}
+	// Zero-value guard: a request arriving before the first WindowSizeMsg
+	// would otherwise compute 0×0 and render an invisible dialog. Fall back
+	// to sane minimums until real dimensions arrive.
+	winW, winH := p.windowSize.Width, p.windowSize.Height
+	if winW <= 0 || winH <= 0 {
+		winW, winH = 80, 24
+	}
 	switch p.permission.ToolName {
 	case tools.BashToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.4)
-		p.height = int(float64(p.windowSize.Height) * 0.3)
+		p.width = int(float64(winW) * 0.4)
+		p.height = int(float64(winH) * 0.3)
 	case tools.EditToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.8)
-		p.height = int(float64(p.windowSize.Height) * 0.8)
+		p.width = int(float64(winW) * 0.8)
+		p.height = int(float64(winH) * 0.8)
 	case tools.WriteToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.8)
-		p.height = int(float64(p.windowSize.Height) * 0.8)
+		p.width = int(float64(winW) * 0.8)
+		p.height = int(float64(winH) * 0.8)
 	case tools.FetchToolName:
-		p.width = int(float64(p.windowSize.Width) * 0.4)
-		p.height = int(float64(p.windowSize.Height) * 0.3)
+		p.width = int(float64(winW) * 0.4)
+		p.height = int(float64(winH) * 0.3)
 	default:
-		p.width = int(float64(p.windowSize.Width) * 0.7)
-		p.height = int(float64(p.windowSize.Height) * 0.5)
+		p.width = int(float64(winW) * 0.7)
+		p.height = int(float64(winH) * 0.5)
+	}
+	if p.width < 40 {
+		p.width = 40
+	}
+	if p.height < 10 {
+		p.height = 10
 	}
 	return nil
 }

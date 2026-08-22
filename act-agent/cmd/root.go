@@ -15,7 +15,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	zone "github.com/lrstanley/bubblezone/v2"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/app"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/config"
 	"github.com/paradiselabs-ai/ACT/act-agent/internal/db"
@@ -208,7 +207,10 @@ func runTUI(a *app.App, ctx context.Context) error {
 	logging.InfoPersist("startup:autoFitTerminal", "elapsed", time.Since(stepT))
 	stepT = time.Now()
 
-	zone.NewGlobal()
+	// NOTE: bubblezone's zone.NewGlobal() used to run here, but nothing in
+	// the tree ever calls zone.Mark/zone.Scan — the global was pure
+	// overhead (audit M8). Re-add it together with actual zone.Mark() usage
+	// if mouse hit-testing lands.
 	program := tea.NewProgram(
 		tui.New(a),
 		// Drop the ModeReportMsg for synchronized output (mode 2026).
@@ -433,6 +435,14 @@ func setupSubscriptions(app *app.App, parentCtx context.Context) (chan tea.Msg, 
 
 	wg := sync.WaitGroup{}
 	ctx, cancel := context.WithCancel(parentCtx) // Inherit from parent context
+
+	// Surface slow-consumer drops: the pubsub Broker discards events when a
+	// subscriber buffer is full; without this they vanish silently. The
+	// logging broker is the highest-volume one, so hook there — every other
+	// broker drop still increments its own Dropped() counter.
+	logging.SubscribeBroker().OnDrop(func(_ pubsub.EventType) {
+		logging.Warn("event dropped: subscriber buffer full", "broker", "logging")
+	})
 
 	setupSubscriber(ctx, &wg, "logging", logging.Subscribe, ch)
 	setupSubscriber(ctx, &wg, "sessions", app.Sessions.Subscribe, ch)
@@ -722,6 +732,10 @@ func Execute() {
 				logging.Warn("ACT server auto-start failed", "error", err)
 			}
 			if err := routeToCLI(os.Args[1:]); err != nil {
+				// Surface the failure (missing cli/act-cli.ts, no npx, spawn
+				// error) — a bare exit 1 is indistinguishable from the
+				// subcommand itself failing, and agents branch on that.
+				fmt.Fprintf(os.Stderr, "act: %v\n", err)
 				os.Exit(1)
 			}
 			return

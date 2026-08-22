@@ -32,7 +32,10 @@ func (i *detailCmp) Init() tea.Cmd {
 	if len(messages) == 0 {
 		return nil
 	}
-	i.currentLog = messages[0]
+	// Seed with the NEWEST log entry. The table sorts newest-first, so
+	// messages[0] (oldest) made the details pane show an unrelated record
+	// until the user clicked (audit M17).
+	i.currentLog = messages[len(messages)-1]
 	i.hOffset = 0
 	i.updateContent()
 	return nil

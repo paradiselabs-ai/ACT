@@ -269,7 +269,3 @@ func NewDraculaTheme() *DraculaTheme {
 	return theme
 }
 
-func init() {
-	// Register the Dracula theme with the theme manager
-	RegisterTheme("dracula", NewDraculaTheme())
-}
