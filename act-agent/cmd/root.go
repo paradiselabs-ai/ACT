@@ -722,6 +722,10 @@ func Execute() {
 				logging.Warn("ACT server auto-start failed", "error", err)
 			}
 			if err := routeToCLI(os.Args[1:]); err != nil {
+				// Surface the failure (missing cli/act-cli.ts, no npx, spawn
+				// error) — a bare exit 1 is indistinguishable from the
+				// subcommand itself failing, and agents branch on that.
+				fmt.Fprintf(os.Stderr, "act: %v\n", err)
 				os.Exit(1)
 			}
 			return

@@ -95,7 +95,7 @@ func (p *logsPage) View() tea.View {
 	baseStyle := styles.BaseStyle().Background(t.Background())
 	padStyle := baseStyle.Background(t.Background())
 
-	totalLogs := len(logging.List())
+	totalLogs := logging.Count()
 
 	leftTitle := baseStyle.Bold(true).Foreground(t.Primary()).Render(" SYSTEM LOGS ")
 	countStr := baseStyle.Foreground(t.TextMuted()).Render(fmt.Sprintf("(%d entries) ", totalLogs))

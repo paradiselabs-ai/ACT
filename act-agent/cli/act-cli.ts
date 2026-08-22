@@ -9,10 +9,20 @@
 import { parseArgs } from 'node:util';
 import { basename, join } from 'node:path';
 import { existsSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { ACTClient } from './act-client.js';
 
 const DEFAULT_SERVER_URL = process.env.ACT_SERVER_URL || 'http://localhost:8080';
+
+// Cross-platform home directory. HOME is unset on native Windows (git-bash
+// sets it, cmd/PowerShell don't); USERPROFILE is the Windows equivalent;
+// os.homedir() is the portable last resort. The old `process.env.HOME || ''`
+// produced "/.act.json" on Windows — swarm set wrote a config file nothing
+// else read.
+function getHomeDir(): string {
+  return process.env.HOME || process.env.USERPROFILE || homedir();
+}
 
 function getAgentId(args: Record<string, any>): string | null {
   if (args['agent-id']) return args['agent-id'];
@@ -361,11 +371,14 @@ async function cmdTaskSubmitValidation(client: ACTClient, args: Record<string, a
 }
 
 async function cmdLog(client: ACTClient, args: Record<string, any>): Promise<void> {
-  const tail = args['--tail'] || 20;
+  // parseArgs returns values WITHOUT the leading dashes (values.tail), so
+  // read normalized keys here. The old args['--tail'] read was always
+  // undefined — `act log --tail N` silently printed the default 20.
+  const tail = args['tail'] || args['--tail'] || 20;
   // Scope to active project. Tier 1 agents call this via act_cli and expect
   // their own project's event stream — without scoping they see stale
   // cross-project events and incorrectly decide other projects are active.
-  const project = args['--project'] || process.env.ACT_PROJECT;
+  const project = args['project'] || args['--project'] || process.env.ACT_PROJECT;
   const events = await client.getRecentLog(tail, project);
 
   for (const event of events) {
@@ -618,7 +631,7 @@ async function cmdSwarm(args: string[]): Promise<void> {
   const sub = args[0] || 'list';
 
   if (sub === 'list' || sub === 'status') {
-    const home = process.env.HOME || '';
+    const home = getHomeDir();
     const cfgPath = `${home}/.act.json`;
     const fs = await import('fs');
     let agents: Record<string, any> = {};
@@ -698,7 +711,7 @@ async function cmdSwarm(args: string[]): Promise<void> {
 function writeAgentBackend(role: string, backend: string): boolean {
   // ESM module: `require` is not defined here, so these must be the top-level
   // node: imports (every `swarm set` write threw "require is not defined").
-  const home = process.env.HOME || '';
+  const home = getHomeDir();
   const cfgPath = join(home, '.act.json');
 
   let data: any = {};
@@ -749,7 +762,7 @@ async function cmdRegister(client: ACTClient, args: Record<string, any>): Promis
   if (sessionId) {
     const { mkdirSync, writeFileSync } = await import('fs');
     const { join } = await import('path');
-    const home = process.env.HOME || process.env.USERPROFILE || '~';
+    const home = getHomeDir();
     const sessionsDir = join(home, '.act', 'sessions');
     try {
       mkdirSync(sessionsDir, { recursive: true });
@@ -781,17 +794,20 @@ async function cmdPvmReindex(client: ACTClient, _args: any): Promise<void> {
 
 async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promise<void> {
   const query = args['<query>'];
-  const limit = parseInt(args['--limit'] || '10', 10);
+  // Normalized keys: parseArgs strips the leading dashes (values.limit,
+  // values.global). The old args['--limit']/'--global' reads were always
+  // undefined — --limit was pinned to 10 and --global could never activate.
+  const limit = parseInt(args['limit'] || args['--limit'] || '10', 10);
 
   if (!query) {
     console.log('PVM search needs a query. Skipping routing evidence — proceed with role decomposition based on the brief.');
     process.exit(0);
   }
 
-  const globalMode = !!args['--global'];
+  const globalMode = !!(args['global'] || args['--global']);
   const project = globalMode
     ? undefined
-    : (args['--project'] || process.env.ACT_PROJECT || basename(process.cwd()));
+    : (args['project'] || args['--project'] || process.env.ACT_PROJECT || basename(process.cwd()));
 
   const params: Record<string, string> = { query, limit: String(limit) };
   if (project) params.project = project;
