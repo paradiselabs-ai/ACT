@@ -915,9 +915,15 @@ func (a *appModel) RegisterCommand(cmd dialog.Command) {
 }
 
 func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
-	if a.app.Orchestrator.IsAnyBusy("") {
-		// For now we don't move to any page if the agent is busy
-		return util.ReportWarn("Agent is busy, please wait...")
+	// Read-only pages stay reachable while agents are running — the logs
+	// pane is exactly where a user wants to look during a long Tier-1 run
+	// (audit M9: the blanket busy-lock blocked ALL navigation). Only
+	// blocking the move out of the chat page would strand the conversation,
+	// and ChatPage is where ctrl+l's counterpart (esc from Logs) returns to;
+	// chat remains implicitly available since moveToPage is only called for
+	// non-chat targets today.
+	if pageID != page.LogsPage && a.app.Orchestrator.IsAnyBusy("") {
+		return util.ReportWarn("Agent is busy — only the logs view is available during a run")
 	}
 
 	var cmds []tea.Cmd
