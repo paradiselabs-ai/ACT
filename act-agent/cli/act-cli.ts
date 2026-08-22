@@ -15,6 +15,35 @@ import { ACTClient } from './act-client.js';
 
 const DEFAULT_SERVER_URL = process.env.ACT_SERVER_URL || 'http://localhost:8080';
 
+// ─── Output contract (audit M3/M5) ────────────────────────────────────────
+// Exit codes: 0 = success, 1 = operational failure (server unreachable,
+// task rejected, entity missing), 2 = usage/parsing error.
+// --json switches stdout to compact machine-readable payloads and errors
+// to a single-line {"error":...,"code":N} envelope on stderr — no tables,
+// no truncation ellipses, nothing for an LLM caller to scrape.
+
+let jsonMode = false;
+
+/** Emit a result payload: compact JSON under --json, human text otherwise. */
+function emit(payload: any, humanText: string): void {
+  if (jsonMode) {
+    console.log(JSON.stringify(payload));
+  } else {
+    console.log(humanText);
+  }
+}
+
+class UsageError extends Error {
+  exitCode = 2;
+}
+class OpError extends Error {
+  exitCode = 1;
+}
+
+function printError(msg: string): void {
+  console.error(msg);
+}
+
 // Cross-platform home directory. HOME is unset on native Windows (git-bash
 // sets it, cmd/PowerShell don't); USERPROFILE is the Windows equivalent;
 // os.homedir() is the portable last resort. The old `process.env.HOME || ''`
@@ -28,10 +57,6 @@ function getAgentId(args: Record<string, any>): string | null {
   if (args['agent-id']) return args['agent-id'];
   if (process.env.ACT_AGENT_ID) return process.env.ACT_AGENT_ID;
   return null;
-}
-
-function printError(msg: string): void {
-  console.error(msg);
 }
 
 async function cmdContext(client: ACTClient, args: Record<string, any>): Promise<void> {
@@ -381,6 +406,12 @@ async function cmdLog(client: ACTClient, args: Record<string, any>): Promise<voi
   const project = args['project'] || args['--project'] || process.env.ACT_PROJECT;
   const events = await client.getRecentLog(tail, project);
 
+  if (jsonMode) {
+    // Machine-readable: raw event array, no table formatting or truncation.
+    console.log(JSON.stringify({ project: project || null, count: events.length, events }));
+    return;
+  }
+
   for (const event of events) {
     console.log(`[${event.timestamp}] [${event.agent}] ${event.type}: ${event.message}`);
   }
@@ -515,10 +546,11 @@ async function cmdGraphConflicts(client: ACTClient): Promise<void> {
 
 async function cmdGraphNode(client: ACTClient, key: string, at?: string, hops?: string): Promise<void> {
   if (!key) {
+    // Usage error → exit 2 (audit M3).
     printError('Error: node key is required');
     printError('Usage: act-agent graph node <type:name> [--at <ISO>] [--hops 1|2]');
     printError('Types: agent | task | project | file | verdict');
-    process.exit(1);
+    process.exit(2);
   }
 
   const serverUrl = client.getServerUrl();
@@ -531,12 +563,17 @@ async function cmdGraphNode(client: ACTClient, key: string, at?: string, hops?: 
     const res = await fetch(`${serverUrl}/api/graph/node/${encodeURIComponent(key)}${query}`);
     const body = await res.json() as any;
     if (!res.ok || !body.success) {
-      throw new Error(body?.error || `HTTP ${res.status}`);
+      throw new OpError(body?.error || `HTTP ${res.status}`);
     }
 
     const edges = body.edges || [];
     if (edges.length === 0) {
-      console.log(`No edges for ${key}${at ? ` as of ${at}` : ''}.`);
+      emit({ node: key, at: at || null, edges: [] }, `No edges for ${key}${at ? ` as of ${at}` : ''}.`);
+      return;
+    }
+
+    if (jsonMode) {
+      console.log(JSON.stringify({ node: key, at: at || null, count: edges.length, edges }));
       return;
     }
 
@@ -548,8 +585,10 @@ async function cmdGraphNode(client: ACTClient, key: string, at?: string, hops?: 
       console.log(`  ${e.fact}`);
     }
   } catch (error: any) {
-    printError(`Failed to read graph node: ${error.message}`);
-    process.exit(1);
+    // Let typed errors (with exit codes) and network failures bubble to the
+    // top-level boundary so --json gets the structured envelope.
+    if (error instanceof OpError || error instanceof UsageError) throw error;
+    throw new OpError(`Failed to read graph node: ${error.message}`);
   }
 }
 
@@ -641,6 +680,16 @@ async function cmdSwarm(args: string[]): Promise<void> {
       agents = parsed.agents || {};
     } catch {
       printError(`Could not read ${cfgPath} — using defaults.`);
+    }
+    if (jsonMode) {
+      // Structured per-role map — no padded table for the caller to scrape.
+      const roles: Record<string, { backend: string; model: string | null }> = {};
+      for (const role of SWARM_ROLES) {
+        const cfg = agents[role] || {};
+        roles[role] = { backend: cfg.backend || 'act-agent', model: cfg.model || null };
+      }
+      console.log(JSON.stringify({ roles }));
+      return;
     }
     console.log('ROLE              BACKEND       MODEL');
     for (const role of SWARM_ROLES) {
@@ -821,11 +870,18 @@ async function cmdPvmSearch(client: ACTClient, args: Record<string, any>): Promi
   const data = await response.json();
   const results = (data.results || []) as any[];
   if (results.length === 0) {
-    console.log('No results.');
+    emit({ query, scope: data.scope || null, count: 0, results: [] }, 'No results.');
     return;
   }
 
   const scope = data.scope || (project ? project : 'cross-project');
+
+  if (jsonMode) {
+    // Raw similarity-ranked payloads — no per-result prose formatting.
+    console.log(JSON.stringify({ query, scope, count: results.length, results }));
+    return;
+  }
+
   console.log(`PVM search: "${query}" — ${results.length} result(s) (scope: ${scope})`);
   console.log();
   for (const r of results) {
@@ -1146,6 +1202,13 @@ async function main(): Promise<void> {
 
   const args = process.argv.slice(2);
 
+  // --json can appear anywhere before the command; strip it so downstream
+  // per-command parsers never see it.
+  jsonMode = args.includes('--json');
+  if (jsonMode) {
+    args.splice(args.indexOf('--json'), 1);
+  }
+
   if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
     console.log('ACT CLI - Agent interface to ACT coordination layer');
     console.log('');
@@ -1374,13 +1437,22 @@ async function main(): Promise<void> {
       await cmdGraphConflicts(client);
     } else if (command === 'graph' && subcommand === 'node') {
       // act-agent graph node <type:name> [--at <ISO>] [--hops 1|2]
-      const atIdx = args.indexOf('--at');
-      const hopsIdx = args.indexOf('--hops');
+      // parseArgs handles BOTH bare (--at X) and equals (--at=X) forms
+      // uniformly; the old manual indexOf() scan silently dropped the
+      // equals form (audit M2).
+      const nodeArgs = parseArgs({
+        options: {
+          'at': { type: 'string' },
+          'hops': { type: 'string' },
+        },
+        strict: false,
+        allowPositionals: true,
+      });
       await cmdGraphNode(
         client,
         args[2] && !args[2].startsWith('--') ? args[2] : '',
-        atIdx >= 0 ? args[atIdx + 1] : undefined,
-        hopsIdx >= 0 ? args[hopsIdx + 1] : undefined
+        nodeArgs.values['at'],
+        nodeArgs.values['hops']
       );
     } else if (command === 'status') {
       await cmdStatus(client);
@@ -1393,7 +1465,7 @@ async function main(): Promise<void> {
       await cmdCodebaseOnboard(cbArgs.values);
     } else if (command === 'codebase') {
       printError('Usage: act-agent codebase onboard [--dir <path>] [--write] [--force]');
-      process.exit(1);
+      process.exit(2);
     } else if (command === 'swarm') {
       await cmdSwarm(args.slice(1));
     } else if (command === 'pvm' && !subcommand) {
@@ -1402,14 +1474,32 @@ async function main(): Promise<void> {
       console.log('  reindex');
       process.exit(0);
     } else {
+      // Unknown command is a usage error → exit 2 (audit M3).
       printError(`Unknown command: ${command}${subcommand ? ' ' + subcommand : ''}`);
       printError('Run "act-agent --help" for usage information');
-      process.exit(1);
+      process.exit(2);
     }
   } catch (error: any) {
-    printError(`Error: ${error.message}`);
-    process.exit(1);
+    // Re-throw so the top-level boundary formats output (JSON envelope or
+    // human text + server hint). Typed errors carry their exitCode.
+    throw error;
   }
 }
 
-main();
+// Top-level error boundary (audit M3/M5). Under --json, failures emit a
+// single-line {"error":...,"code":N} envelope on stderr; otherwise a
+// human-readable line plus an actionable hint for the common
+// server-unreachable case.
+main().catch((err: any) => {
+  const code = err?.exitCode || 1;
+  const message = err?.message || String(err);
+  if (jsonMode) {
+    console.error(JSON.stringify({ error: message, code }));
+  } else {
+    console.error(`act: error: ${message}`);
+    if (err?.cause?.code === 'ECONNREFUSED' || message.includes('fetch failed')) {
+      console.error(`act: could not reach ACT server at ${DEFAULT_SERVER_URL} — verify the server is running.`);
+    }
+  }
+  process.exit(code);
+});
