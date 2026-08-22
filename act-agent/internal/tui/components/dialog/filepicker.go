@@ -155,8 +155,15 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			f.cwd.Focus()
 			return f, cmd
 		case key.Matches(msg, filePickerKeyMap.Esc):
+			// Single esc case. The original code had TWO esc cases in this
+			// switch — Go takes the first match, so this second one (cursor
+			// reset when not focused) was unreachable dead code (audit M11).
+			// Its reset behavior is preserved here.
 			if f.cwd.Focused() {
 				f.cwd.Blur()
+			} else {
+				f.cursorChain = make(stack, 0)
+				f.cursor = 0
 			}
 		case key.Matches(msg, filePickerKeyMap.Down):
 			if !f.cwd.Focused() || msg.String() == downArrow {
@@ -391,8 +398,15 @@ func (f *filepickerCmp) IsCWDFocused() bool {
 func NewFilepickerCmp(app *app.App) FilepickerCmp {
 	homepath, err := os.UserHomeDir()
 	if err != nil {
-		logging.Error("error loading user files")
-		return nil
+		// Never return a nil interface — appModel dereferences the filepicker
+		// unconditionally (Init/Update/View), and a nil FilepickerCmp would
+		// panic the whole TUI on the first keypress (audit M11). Fall back to
+		// the process working directory; navigation still works from there.
+		logging.Error("error loading user files — filepicker falling back to cwd")
+		homepath, err = os.Getwd()
+		if err != nil {
+			homepath = "."
+		}
 	}
 	baseDir := DirNode{parent: nil, directory: homepath}
 	dirs := readDir(homepath, false)
