@@ -22,7 +22,8 @@ type TableComponent interface {
 }
 
 type tableCmp struct {
-	table table.Model
+	table        table.Model
+	stylesCached table.Styles
 }
 
 type SelectedLogMsg logging.LogMessage
@@ -30,6 +31,17 @@ type SelectedLogMsg logging.LogMessage
 func (i *tableCmp) Init() tea.Cmd {
 	i.setRows()
 	return nil
+}
+
+// refreshStyles computes table styles once. Called from the constructor and
+// SetSize — NOT from View(), which runs every frame and previously paid a
+// DefaultStyles() allocation plus SetStyles mutation per frame (audit M18).
+func (i *tableCmp) refreshStyles() {
+	defaultStyles := table.DefaultStyles()
+	t := theme.CurrentTheme()
+	defaultStyles.Selected = defaultStyles.Selected.Foreground(t.Primary())
+	i.stylesCached = defaultStyles
+	i.table.SetStyles(defaultStyles)
 }
 
 func (i *tableCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -63,9 +75,8 @@ func (i *tableCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (i *tableCmp) View() tea.View {
 	t := theme.CurrentTheme()
-	defaultStyles := table.DefaultStyles()
-	defaultStyles.Selected = defaultStyles.Selected.Foreground(t.Primary())
-	i.table.SetStyles(defaultStyles)
+	// Styles are refreshed on size changes / theme change, not per-frame.
+	_ = i.stylesCached
 	return tea.NewView(styles.ForceReplaceBackgroundWithLipgloss(i.table.View(), t.Background()))
 }
 
@@ -74,6 +85,7 @@ func (i *tableCmp) GetSize() (int, int) {
 }
 
 func (i *tableCmp) SetSize(width int, height int) tea.Cmd {
+	i.refreshStyles()
 	i.table.SetWidth(width)
 	i.table.SetHeight(height)
 	columns := i.table.Columns()
@@ -154,7 +166,9 @@ func NewLogsTable() TableComponent {
 		table.WithColumns(columns),
 	)
 	tableModel.Focus()
-	return &tableCmp{
+	t := &tableCmp{
 		table: tableModel,
 	}
+	t.refreshStyles()
+	return t
 }

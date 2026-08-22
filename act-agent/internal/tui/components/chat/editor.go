@@ -38,7 +38,6 @@ type EditorKeyMaps struct {
 	OpenEditor key.Binding
 }
 
-
 type DeleteAttachmentKeyMaps struct {
 	AttachmentDeleteMode key.Binding
 	Escape               key.Binding
@@ -79,6 +78,34 @@ const (
 	maxAttachments = 5
 )
 
+// splitEditorCommand splits an $EDITOR value that may carry arguments
+// (e.g. "code -w", "nvim -u NONE") into program + args. exec.Command cannot
+// take a multi-word string as a single argv entry, so the old code failed to
+// launch any editor whose value contained spaces (audit M7). Quotes are
+// honored for paths with spaces ("C:\Program Files\...\vim.exe").
+func splitEditorCommand(editor string) []string {
+	var parts []string
+	var cur strings.Builder
+	inQuote := false
+	for _, r := range editor {
+		switch {
+		case r == '"':
+			inQuote = !inQuote
+		case unicode.IsSpace(r) && !inQuote:
+			if cur.Len() > 0 {
+				parts = append(parts, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	return parts
+}
+
 func (m *editorCmp) openEditor() tea.Cmd {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
@@ -90,22 +117,35 @@ func (m *editorCmp) openEditor() tea.Cmd {
 		return util.ReportError(err)
 	}
 	tmpfile.Close()
-	c := exec.Command(editor, tmpfile.Name()) //nolint:gosec
+
+	// Remove the temp file no matter how the editor session ends. The old
+	// code only removed it after reading non-empty content — aborting with
+	// an empty buffer or killing the editor leaked msg_*.md files in %TEMP%
+	// forever (audit M7).
+	removeTmp := func() {
+		if rmErr := os.Remove(tmpfile.Name()); rmErr != nil && !os.IsNotExist(rmErr) {
+			logging.Warn("editor temp file cleanup failed", "path", tmpfile.Name(), "error", rmErr)
+		}
+	}
+
+	editorArgs := splitEditorCommand(editor)
+	editorArgs = append(editorArgs, tmpfile.Name())
+	c := exec.Command(editorArgs[0], editorArgs[1:]...) //nolint:gosec
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return tea.ExecProcess(c, func(err error) tea.Msg {
+		defer removeTmp()
 		if err != nil {
 			return util.ReportError(err)
 		}
-		content, err := os.ReadFile(tmpfile.Name())
-		if err != nil {
-			return util.ReportError(err)
+		content, readErr := os.ReadFile(tmpfile.Name())
+		if readErr != nil {
+			return util.ReportError(readErr)
 		}
 		if len(content) == 0 {
 			return util.ReportWarn("Message is empty")
 		}
-		os.Remove(tmpfile.Name())
 		attachments := m.attachments
 		m.attachments = nil
 		return SendMsg{
