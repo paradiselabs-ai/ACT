@@ -207,13 +207,6 @@ func (f *filepickerCmp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				f.selectedFile = path
 				return f.addAttachmentToMessage()
 			}
-		case key.Matches(msg, filePickerKeyMap.Esc):
-			if !f.cwd.Focused() {
-				f.cursorChain = make(stack, 0)
-				f.cursor = 0
-			} else {
-				f.cwd.Blur()
-			}
 		case key.Matches(msg, filePickerKeyMap.Forward):
 			if !f.cwd.Focused() {
 				if f.dirs[f.cursor].IsDir() {
